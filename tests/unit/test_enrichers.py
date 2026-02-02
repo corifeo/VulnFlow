@@ -93,3 +93,21 @@ def test_kev_enricher_registered():
     enricher_names = [e.__name__ for e in enrichers]
 
     assert "KEVEnricher" in enricher_names
+
+
+def test_kev_enricher_updates_sources():
+    """KEV enricher adds 'KEV' to sources list for matched records."""
+    import json
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    dataset.transform([KEVEnricher(source="tests/fixtures/kev_sample.csv")])
+
+    sources_col = dataset.get_column("sources")
+    # CVE-2024-0001 is in KEV fixture, should have KEV source
+    sources_0 = json.loads(sources_col[0])
+    assert "KEV" in sources_0, "Matched record should have KEV source"
+
+    # CVE-2024-0002 is NOT in KEV fixture
+    sources_1 = json.loads(sources_col[1])
+    assert "KEV" not in sources_1, "Unmatched record should not have KEV source"
