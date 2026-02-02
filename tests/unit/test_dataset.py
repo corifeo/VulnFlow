@@ -55,6 +55,68 @@ def test_dataset_from_nvd():
     assert "cve_id" in dataset._data
 
 
+def test_dataset_columns_property():
+    """VulnDataset.columns returns list of column names."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    columns = dataset.columns
+
+    assert isinstance(columns, list)
+    assert "cve_id" in columns
+    assert "nvd_published_at" in columns
+    assert "description" in columns
+
+
+def test_dataset_get_column():
+    """VulnDataset.get_column() returns numpy array."""
+    import numpy as np
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    cve_ids = dataset.get_column("cve_id")
+
+    assert isinstance(cve_ids, np.ndarray)
+    assert len(cve_ids) == 3
+    assert cve_ids[0] == "CVE-2024-0001"
+    assert cve_ids[1] == "CVE-2024-0002"
+
+
+def test_dataset_get_column_missing_raises():
+    """VulnDataset.get_column() raises KeyError for missing column."""
+    import pytest
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    with pytest.raises(KeyError):
+        dataset.get_column("nonexistent_column")
+
+
+def test_dataset_set_column():
+    """VulnDataset.set_column() adds new column."""
+    import numpy as np
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Add computed column
+    new_data = np.array(["NEW1", "NEW2", "NEW3"], dtype=object)
+    dataset.set_column("computed_field", new_data)
+
+    assert "computed_field" in dataset.columns
+    assert list(dataset.get_column("computed_field")) == ["NEW1", "NEW2", "NEW3"]
+
+
+def test_dataset_set_column_wrong_length_raises():
+    """VulnDataset.set_column() raises ValueError for wrong length."""
+    import numpy as np
+    import pytest
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Try to add column with wrong length
+    wrong_data = np.array(["A", "B"], dtype=object)  # Should be 3
+
+    with pytest.raises(ValueError, match="length mismatch"):
+        dataset.set_column("bad_column", wrong_data)
+
+
 def test_dataset_columnar_schema_complete():
     """VulnDataset._from_records stores all VulnRecord fields."""
     from datetime import UTC, datetime
