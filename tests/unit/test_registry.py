@@ -59,3 +59,39 @@ def test_clear_registry():
 
     clear_registry()
     assert len(get_transforms()) == 0
+
+
+def test_register_enricher_decorator():
+    """@register_enricher registers enricher class."""
+    from vulnflow.registry import get_enrichers, register_enricher
+
+    clear_registry()
+
+    @register_enricher
+    class TestEnricher:
+        name = "test"
+
+        async def enrich(self, dataset):  # type: ignore[no-untyped-def]
+            pass
+
+    enrichers = get_enrichers()
+    assert len(enrichers) == 1
+    assert enrichers[0].__name__ == "TestEnricher"
+
+
+def test_get_enrichers_returns_list():
+    """get_enrichers() returns list of registered enrichers."""
+    from vulnflow.registry import get_enrichers, register_enricher
+
+    clear_registry()
+
+    @register_enricher
+    class Enricher1:
+        name = "e1"
+
+    @register_enricher
+    class Enricher2:
+        name = "e2"
+
+    enrichers = get_enrichers()
+    assert len(enrichers) == 2

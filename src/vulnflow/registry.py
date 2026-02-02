@@ -115,6 +115,31 @@ def get_transforms() -> list[type[Any]]:
     return [cls for cls, _ in Registry._transforms.values()]
 
 
+def register_enricher(cls: type[T]) -> type[T]:
+    """Simple decorator to register an enricher class.
+
+    Uses the class name as the registration key.
+
+    Args:
+        cls: Enricher class to register
+
+    Returns:
+        The same class (for decorator usage)
+    """
+    name = getattr(cls, "name", cls.__name__)
+    Registry._enrichers[name] = (cls, False)
+    return cls
+
+
+def get_enrichers() -> list[type[Any]]:
+    """Get list of all registered enricher classes.
+
+    Returns:
+        List of registered enricher classes
+    """
+    return [cls for cls, _ in Registry._enrichers.values()]
+
+
 def clear_registry() -> None:
     """Clear all registrations (for testing)."""
     Registry.clear()
