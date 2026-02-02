@@ -40,7 +40,7 @@ class NVDExtractor(Extractor):
     def extract(self) -> list[VulnRecord]:
         """Extract vulnerability records from NVD JSON file(s)."""
         path = Path(self.path)
-        with path.open() as f:
+        with path.open(encoding="utf-8") as f:
             data = json.load(f)
 
         records: list[VulnRecord] = []
