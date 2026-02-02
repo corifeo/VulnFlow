@@ -19,7 +19,7 @@ def test_pipeline_result_creation():
         errors=[],
         successful_stages=[],
         failed_stages=[],
-        duration=0.0
+        duration=0.0,
     )
     assert result.dataset is None
     assert result.loader_outputs == {}
@@ -29,11 +29,7 @@ def test_pipeline_result_creation():
 
 def test_pipeline_initialization():
     """VulnPipeline accepts extractors, transformers, loaders."""
-    pipeline = VulnPipeline(
-        extractors=[],
-        transformers=[],
-        loaders=[]
-    )
+    pipeline = VulnPipeline(extractors=[], transformers=[], loaders=[])
     assert pipeline.extractors == []
     assert pipeline.transformers == []
     assert pipeline.loaders == []
@@ -105,7 +101,9 @@ def test_pipeline_10_pipelines_with_10_stages():
 
     for i in range(10):
         # Each pipeline gets a unique mix of stages
-        extractors = [MockExtractor(name=f"extractor_{i}_{j}", num_records=2) for j in range(3)]
+        extractors = [
+            MockExtractor(name=f"extractor_{i}_{j}", num_records=2) for j in range(3)
+        ]
         transformers = [MockTransformer(name=f"transformer_{i}_{j}") for j in range(4)]
         loaders = [MockLoader(name=f"loader_{i}_{j}") for j in range(3)]
 
@@ -145,8 +143,13 @@ def test_pipeline_10_pipelines_with_10_stages():
     # 30 extractors x 2 records each = 60 total records
     assert len(result.dataset) == 60
     assert result.errors == []
-    assert len(result.successful_stages) == 30  # All extractors succeeded
+    # 30 extractors + 30 loaders = 60 successful stages
+    assert len(result.successful_stages) == 60
 
     # Verify all extractors were called
     for extractor in all_extractors:
         assert extractor.extract_called, f"{extractor.name} was not called"
+
+    # Verify all loaders were called
+    for loader in all_loaders:
+        assert loader.load_called, f"{loader.name} was not called"
