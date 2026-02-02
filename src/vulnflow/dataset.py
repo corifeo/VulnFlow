@@ -102,16 +102,19 @@ class VulnDataset:
         - Async enrichers (with async transform() method) - run via asyncio
 
         Args:
-            transforms: List of transform/enricher instances. If None, uses registered defaults.
+            transforms: List of transform/enricher instances. If None, uses registered defaults
+                       (both enrichers and transforms).
         """
         import asyncio
         import inspect
 
         if transforms is None:
-            from vulnflow.registry import get_transforms
+            from vulnflow.registry import Registry
 
-            transform_classes = get_transforms()
-            transforms = [cls() for cls in transform_classes]
+            # Get both default enrichers and transforms
+            enrichers = Registry.get_default_enrichers()
+            computed_transforms = Registry.get_default_transforms()
+            transforms = enrichers + computed_transforms
 
         for t in transforms:
             if hasattr(t, "transform"):
@@ -139,7 +142,7 @@ class VulnDataset:
             CVD timestamps are NOT stored here - EventInference adds them later.
         """
         import json
-        from dataclasses import asdict, is_dataclass
+        from dataclasses import is_dataclass
         from typing import Any
 
         from vulnflow.schema import CVSSEntry

@@ -28,7 +28,7 @@ from vulnflow.registry import register_enricher
 logger = logging.getLogger(__name__)
 
 
-@register_enricher
+@register_enricher(default=True)
 class EPSSEnricher:
     """Enrich dataset with FIRST EPSS probability scores.
 
