@@ -71,3 +71,17 @@ def test_epss_enricher_registered():
     enricher_names = [e.__name__ for e in enrichers]
 
     assert "EPSSEnricher" in enricher_names
+
+
+def test_epss_enricher_updates_sources():
+    """EPSS enricher adds 'EPSS' to sources list for matched records."""
+    import json
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    dataset.transform([EPSSEnricher(source="tests/fixtures/epss_sample.csv")])
+
+    sources_col = dataset.get_column("sources")
+    # All 3 CVEs in fixture should have EPSS source
+    sources_0 = json.loads(sources_col[0])
+    assert "EPSS" in sources_0, "Matched record should have EPSS source"

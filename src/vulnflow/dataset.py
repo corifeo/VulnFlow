@@ -325,3 +325,33 @@ class VulnDataset:
         dataset._data = {col: table[col].to_numpy() for col in table.column_names}
 
         return dataset
+
+    def update_sources(self, indices: list[int], source: str) -> None:
+        """Update sources list for specified records.
+
+        Args:
+            indices: List of record indices to update
+            source: Source name to add (e.g., "KEV", "EPSS")
+        """
+        import json
+        from datetime import datetime
+
+        # Make writable copies (Parquet load returns read-only arrays)
+        sources_col = self.get_column("sources").copy()
+        updated_at_col = self.get_column("last_updated_at").copy()
+
+        now = datetime.now()
+
+        for idx in indices:
+            # Deserialize, update, reserialize
+            sources_list = json.loads(sources_col[idx])
+            if source not in sources_list:
+                sources_list.append(source)
+            sources_col[idx] = json.dumps(sources_list)
+
+            # Update timestamp
+            updated_at_col[idx] = now
+
+        # Update columns with new arrays
+        self._data["sources"] = sources_col
+        self._data["last_updated_at"] = updated_at_col

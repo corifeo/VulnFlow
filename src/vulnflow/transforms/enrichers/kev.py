@@ -75,9 +75,13 @@ class KEVEnricher:
         kev_product: list[str | None] = [None] * n
         kev_ransomware: list[str | None] = [None] * n
 
+        # Track matched indices for source tracking
+        matched_indices: list[int] = []
+
         # Match by CVE ID
         for i, cve_id in enumerate(cve_ids):
             if cve_id in kev_data:
+                matched_indices.append(i)
                 entry = kev_data[cve_id]
                 kev_date_added[i] = entry["date_added"]
                 kev_due_date[i] = entry["due_date"]
@@ -95,6 +99,10 @@ class KEVEnricher:
         dataset.set_column("kev_vendor", np.array(kev_vendor, dtype=object))
         dataset.set_column("kev_product", np.array(kev_product, dtype=object))
         dataset.set_column("kev_ransomware", np.array(kev_ransomware, dtype=object))
+
+        # Update sources for matched records
+        if matched_indices:
+            dataset.update_sources(matched_indices, "KEV")
 
     def _get_cached_data(self) -> dict[str, dict[str, Any]]:
         """Get KEV data from cache or load fresh."""

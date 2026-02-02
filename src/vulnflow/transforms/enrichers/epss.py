@@ -70,9 +70,13 @@ class EPSSEnricher:
         epss_probability: np.ndarray = np.full(n, np.nan, dtype=np.float64)
         epss_percentile: np.ndarray = np.full(n, np.nan, dtype=np.float64)
 
+        # Track matched indices for source tracking
+        matched_indices: list[int] = []
+
         # Match by CVE ID
         for i, cve_id in enumerate(cve_ids):
             if cve_id in epss_data:
+                matched_indices.append(i)
                 entry = epss_data[cve_id]
                 epss_probability[i] = entry["probability"]
                 epss_percentile[i] = entry["percentile"]
@@ -80,6 +84,10 @@ class EPSSEnricher:
         # Add columns to dataset
         dataset.set_column("epss_probability", epss_probability)
         dataset.set_column("epss_percentile", epss_percentile)
+
+        # Update sources for matched records
+        if matched_indices:
+            dataset.update_sources(matched_indices, "EPSS")
 
     def _get_cached_data(self) -> dict[str, dict[str, Any]]:
         """Get EPSS data from cache or load fresh."""
