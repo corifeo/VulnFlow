@@ -12,5 +12,6 @@ Dependencies: schema
 from __future__ import annotations
 
 from vulnflow.utils.cpe import parse_cpe23
+from vulnflow.utils.cwe import CWEDatabase
 
-__all__ = ["parse_cpe23"]
+__all__ = ["parse_cpe23", "CWEDatabase"]

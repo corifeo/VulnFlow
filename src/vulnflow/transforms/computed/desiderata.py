@@ -50,6 +50,23 @@ class CVDDesiderataTransform:
     name: str = "CVDDesiderataTransform"
     depends_on: list[str] = ["EventInference", "CVDStateTransform"]
 
+    SCHEMA_VERSION: str = "1.0.0"
+    OUTPUT_SCHEMA: list[dict[str, str]] = [
+        {"name": "desiderata_d1", "type": "bool", "description": "V before P"},
+        {"name": "desiderata_d2", "type": "bool", "description": "V before X"},
+        {"name": "desiderata_d3", "type": "bool", "description": "V before A"},
+        {"name": "desiderata_d4", "type": "bool", "description": "F before P"},
+        {"name": "desiderata_d5", "type": "bool", "description": "F before X"},
+        {"name": "desiderata_d6", "type": "bool", "description": "F before A"},
+        {"name": "desiderata_d7", "type": "bool", "description": "D before P"},
+        {"name": "desiderata_d8", "type": "bool", "description": "D before X"},
+        {"name": "desiderata_d9", "type": "bool", "description": "D before A"},
+        {"name": "desiderata_d10", "type": "bool", "description": "P before X"},
+        {"name": "desiderata_d11", "type": "bool", "description": "P before A"},
+        {"name": "desiderata_d12", "type": "bool", "description": "X before A"},
+        {"name": "desiderata_count", "type": "int", "description": "Count of satisfied desiderata"},
+    ]
+
     def transform(self, dataset: VulnDataset) -> None:
         """Compute desiderata flags from CVD timestamps.
 
@@ -58,13 +75,13 @@ class CVDDesiderataTransform:
         """
         n = len(dataset)
 
-        # Get CVD timestamp columns
-        v_ts = dataset._data.get("v_timestamp")
-        f_ts = dataset._data.get("f_timestamp")
-        d_ts = dataset._data.get("d_timestamp")
-        p_ts = dataset._data.get("p_timestamp")
-        x_ts = dataset._data.get("x_timestamp")
-        a_ts = dataset._data.get("a_timestamp")
+        # Get CVD timestamp columns (use public API)
+        v_ts = dataset.get_column_or_none("v_timestamp")
+        f_ts = dataset.get_column_or_none("f_timestamp")
+        d_ts = dataset.get_column_or_none("d_timestamp")
+        p_ts = dataset.get_column_or_none("p_timestamp")
+        x_ts = dataset.get_column_or_none("x_timestamp")
+        a_ts = dataset.get_column_or_none("a_timestamp")
 
         # Initialize desiderata arrays
         d1: list[bool | None] = [None] * n

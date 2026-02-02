@@ -20,7 +20,7 @@ async def test_kev_enricher_adds_columns():
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     enricher = KEVEnricher(source="tests/fixtures/kev_sample.csv")
-    await enricher.enrich(dataset)
+    await enricher.transform(dataset)
 
     assert "kev_date_added" in dataset.columns
     assert "kev_due_date" in dataset.columns
@@ -33,7 +33,7 @@ async def test_kev_enricher_matches_by_cve_id():
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     enricher = KEVEnricher(source="tests/fixtures/kev_sample.csv")
-    await enricher.enrich(dataset)
+    await enricher.transform(dataset)
 
     # Check records based on fixture: CVE-2024-0001 and CVE-2024-0003 in KEV
     kev_dates = dataset.get_column("kev_date_added")
@@ -50,7 +50,7 @@ async def test_kev_enricher_parses_dates():
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     enricher = KEVEnricher(source="tests/fixtures/kev_sample.csv")
-    await enricher.enrich(dataset)
+    await enricher.transform(dataset)
 
     kev_dates = dataset.get_column("kev_date_added")
     first_date = kev_dates[0]

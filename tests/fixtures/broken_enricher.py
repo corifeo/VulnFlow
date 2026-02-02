@@ -19,7 +19,7 @@ class BrokenEnricher:
 
     name: str = "BrokenEnricher"
 
-    async def enrich(self, dataset: VulnDataset) -> None:
+    async def transform(self, dataset: VulnDataset) -> None:
         """Raise error immediately."""
         raise EnricherError("BrokenEnricher: simulated failure")
 

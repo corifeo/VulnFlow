@@ -24,7 +24,7 @@ class Enricher(Protocol):
 
     name: str
 
-    async def enrich(self, dataset: VulnDataset) -> None:
+    async def transform(self, dataset: VulnDataset) -> None:
         """Enrich dataset with external data (async, I/O-bound)."""
         ...
 

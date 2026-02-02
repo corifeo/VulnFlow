@@ -67,6 +67,17 @@ class VulnDataset:
         """
         return self._data[name]
 
+    def get_column_or_none(self, name: str) -> np.ndarray | None:
+        """Get column by name, returning None if not present.
+
+        Args:
+            name: Column name
+
+        Returns:
+            Column data as numpy array, or None if column doesn't exist
+        """
+        return self._data.get(name)
+
     def set_column(self, name: str, data: np.ndarray) -> None:
         """Set column data (add new or update existing).
 
@@ -87,13 +98,14 @@ class VulnDataset:
         """Apply transforms and enrichers to dataset (modifies in place).
 
         Handles both:
-        - Sync transforms (with transform() method)
-        - Async enrichers (with enrich() method) - run via asyncio
+        - Sync transforms (with sync transform() method)
+        - Async enrichers (with async transform() method) - run via asyncio
 
         Args:
             transforms: List of transform/enricher instances. If None, uses registered defaults.
         """
         import asyncio
+        import inspect
 
         if transforms is None:
             from vulnflow.registry import get_transforms
@@ -102,11 +114,14 @@ class VulnDataset:
             transforms = [cls() for cls in transform_classes]
 
         for t in transforms:
-            if hasattr(t, "enrich"):
-                # Async enricher - run via asyncio
-                asyncio.run(t.enrich(self))
-            elif hasattr(t, "transform"):
-                t.transform(self)
+            if hasattr(t, "transform"):
+                method = t.transform
+                if inspect.iscoroutinefunction(method):
+                    # Async transform (enricher) - run via asyncio
+                    asyncio.run(method(self))
+                else:
+                    # Sync transform
+                    method(self)
 
     @classmethod
     def _from_records(cls, records: list[VulnRecord]) -> VulnDataset:

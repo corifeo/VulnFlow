@@ -12,11 +12,14 @@ Used by: User code, integration tests
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -77,21 +80,78 @@ class VulnPipeline:
         # Stage 2: Transform (enrichers + transforms)
         if self.transformers and dataset is not None:
             import asyncio
+            import inspect
 
-            for transformer in self.transformers:
-                transformer_name = transformer.__class__.__name__
+            # Separate async transforms (enrichers) from sync transforms
+            # All use transform() method - detect async via inspect
+            def is_async_transform(t: object) -> bool:
+                return hasattr(t, "transform") and inspect.iscoroutinefunction(
+                    t.transform
+                )
+
+            async_transforms = [t for t in self.transformers if is_async_transform(t)]
+            sync_transforms = [
+                t
+                for t in self.transformers
+                if hasattr(t, "transform") and not is_async_transform(t)
+            ]
+
+            # Run async transforms concurrently with asyncio.gather()
+            if async_transforms:
+
+                async def run_async_concurrent() -> list[BaseException | None]:
+                    if strict:
+                        # In strict mode, any failure raises immediately
+                        await asyncio.gather(
+                            *[t.transform(dataset) for t in async_transforms]
+                        )
+                        return []
+                    else:
+                        # In lenient mode, collect exceptions
+                        results = await asyncio.gather(
+                            *[t.transform(dataset) for t in async_transforms],
+                            return_exceptions=True,
+                        )
+                        return results
 
                 try:
-                    if hasattr(transformer, "enrich"):
-                        # Async enricher
-                        asyncio.run(transformer.enrich(dataset))
-                    elif hasattr(transformer, "transform"):
-                        # Sync transform
-                        transformer.transform(dataset)
-
-                    successful_stages.append(transformer_name)
-
+                    results = asyncio.run(run_async_concurrent())
+                    if strict:
+                        # All succeeded if we got here
+                        for t in async_transforms:
+                            successful_stages.append(t.__class__.__name__)
+                    else:
+                        # Check for exceptions in results
+                        for t, result in zip(async_transforms, results, strict=True):
+                            t_name = t.__class__.__name__
+                            if isinstance(result, Exception):
+                                logger.warning(
+                                    "Transform %s failed: %s",
+                                    getattr(t, "name", t_name),
+                                    result,
+                                )
+                                errors.append(result)
+                                failed_stages.append(t_name)
+                            else:
+                                successful_stages.append(t_name)
                 except Exception as e:
+                    for t in async_transforms:
+                        failed_stages.append(t.__class__.__name__)
+                    errors.append(e)
+                    raise
+
+            # Run sync transforms sequentially (may have dependencies)
+            for transformer in sync_transforms:
+                transformer_name = transformer.__class__.__name__
+                try:
+                    transformer.transform(dataset)
+                    successful_stages.append(transformer_name)
+                except Exception as e:
+                    logger.warning(
+                        "Transform %s failed: %s",
+                        getattr(transformer, "name", transformer_name),
+                        e,
+                    )
                     failed_stages.append(transformer_name)
                     errors.append(e)
                     if strict:

@@ -81,6 +81,16 @@ class EventInference:
     depends_on: list[str] = ["KEVEnricher"]
     confidence_threshold: float
 
+    SCHEMA_VERSION: str = "1.0.0"
+    OUTPUT_SCHEMA: list[dict[str, str]] = [
+        {"name": "v_timestamp", "type": "datetime", "description": "Vendor awareness timestamp"},
+        {"name": "f_timestamp", "type": "datetime", "description": "Fix ready timestamp"},
+        {"name": "d_timestamp", "type": "datetime", "description": "Fix deployed timestamp"},
+        {"name": "p_timestamp", "type": "datetime", "description": "Public awareness timestamp"},
+        {"name": "x_timestamp", "type": "datetime", "description": "Exploit public timestamp"},
+        {"name": "a_timestamp", "type": "datetime", "description": "Attack observed timestamp"},
+    ]
+
     def __init__(self, confidence_threshold: float = 0.7) -> None:
         """Initialize EventInference.
 
@@ -105,9 +115,9 @@ class EventInference:
         x_timestamps: list[datetime | None] = [None] * n
         a_timestamps: list[datetime | None] = [None] * n
 
-        # Get source data
-        nvd_published = dataset._data.get("nvd_published_at")
-        kev_date_added = dataset._data.get("kev_date_added")
+        # Get source data (use public API)
+        nvd_published = dataset.get_column_or_none("nvd_published_at")
+        kev_date_added = dataset.get_column_or_none("kev_date_added")
 
         for i in range(n):
             # Infer P from nvd_published_at (confidence 0.8 - NVD is authoritative for public disclosure)
