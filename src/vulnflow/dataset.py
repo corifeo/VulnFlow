@@ -83,6 +83,22 @@ class VulnDataset:
 
         self._data[name] = data
 
+    def transform(self, transforms: list[object] | None = None) -> None:
+        """Apply transforms to dataset (modifies in place).
+
+        Args:
+            transforms: List of transform instances. If None, uses registered defaults.
+        """
+        if transforms is None:
+            from vulnflow.registry import get_transforms
+
+            transform_classes = get_transforms()
+            transforms = [cls() for cls in transform_classes]
+
+        for t in transforms:
+            if hasattr(t, "transform"):
+                t.transform(self)
+
     @classmethod
     def _from_records(cls, records: list[VulnRecord]) -> VulnDataset:
         """Convert list of VulnRecord to columnar storage.

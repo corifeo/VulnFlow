@@ -89,6 +89,34 @@ def test_pipeline_exports():
     assert PipelineResult is not None
 
 
+def test_pipeline_executes_transforms():
+    """Pipeline executes transforms between extract and load."""
+    import numpy as np
+
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    # Mock transform that adds a column
+    class MockTransform:
+        name = "mock"
+        depends_on: list[str] = []
+
+        def transform(self, dataset):  # type: ignore[no-untyped-def]
+            dataset.set_column(
+                "mock_column", np.array(["A", "B", "C"], dtype=object)
+            )
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[MockTransform()],
+    )
+
+    result = pipeline.run()
+
+    assert result.dataset is not None
+    assert "mock_column" in result.dataset.columns
+    assert "MockTransform" in result.successful_stages
+
+
 def test_pipeline_10_pipelines_with_10_stages():
     """Pipeline composition scales to 10 pipelines x 10 stages each."""
     from tests.conftest import MockExtractor, MockLoader, MockTransformer
@@ -143,8 +171,8 @@ def test_pipeline_10_pipelines_with_10_stages():
     # 30 extractors x 2 records each = 60 total records
     assert len(result.dataset) == 60
     assert result.errors == []
-    # 30 extractors + 30 loaders = 60 successful stages
-    assert len(result.successful_stages) == 60
+    # 30 extractors + 40 transformers + 30 loaders = 100 successful stages
+    assert len(result.successful_stages) == 100
 
     # Verify all extractors were called
     for extractor in all_extractors:

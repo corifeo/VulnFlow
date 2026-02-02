@@ -79,3 +79,42 @@ class Registry:
         """Get a transform class by name."""
         entry = cls._transforms.get(name)
         return entry[0] if entry else None
+
+    @classmethod
+    def clear(cls) -> None:
+        """Clear all registrations (for testing)."""
+        cls._enrichers = {}
+        cls._transforms = {}
+
+
+# Module-level convenience functions
+
+
+def register_transform(cls: type[T]) -> type[T]:
+    """Simple decorator to register a transform class.
+
+    Uses the class name as the registration key.
+
+    Args:
+        cls: Transform class to register
+
+    Returns:
+        The same class (for decorator usage)
+    """
+    name = getattr(cls, "name", cls.__name__)
+    Registry._transforms[name] = (cls, False)
+    return cls
+
+
+def get_transforms() -> list[type[Any]]:
+    """Get list of all registered transform classes.
+
+    Returns:
+        List of registered transform classes
+    """
+    return [cls for cls, _ in Registry._transforms.values()]
+
+
+def clear_registry() -> None:
+    """Clear all registrations (for testing)."""
+    Registry.clear()
