@@ -126,21 +126,31 @@ class EPSSEnricher:
 
         try:
             with open(self.source, encoding="utf-8") as f:
-                reader = csv.DictReader(f)
+                # Read all lines
+                all_lines = f.readlines()
+
+                # Extract date from header comment
+                # Format: #model_version:vX,score_date:YYYY-MM-DDTHH:MM:SSZ
+                score_date: datetime | None = None
+                header_lines = [line for line in all_lines if line.startswith('#')]
+                if header_lines:
+                    import re
+                    date_match = re.search(r'score_date:(\d{4}-\d{2}-\d{2})', header_lines[0])
+                    if date_match:
+                        score_date = datetime.strptime(date_match.group(1), "%Y-%m-%d")
+                        score_date = score_date.replace(tzinfo=UTC)
+
+                # Filter out comment lines before CSV parsing
+                data_lines = [line for line in all_lines if not line.startswith('#')]
+                reader = csv.DictReader(data_lines)
+
                 for row in reader:
                     cve_id = row["cve"]
-
-                    # Parse date if present
-                    date_str = row.get("date")
-                    parsed_date: datetime | None = None
-                    if date_str:
-                        parsed_date = datetime.strptime(date_str, "%Y-%m-%d")
-                        parsed_date = parsed_date.replace(tzinfo=UTC)
 
                     epss_data[cve_id] = {
                         "probability": float(row["epss"]),
                         "percentile": float(row["percentile"]),
-                        "date": parsed_date,
+                        "date": score_date,  # Use date from header
                         "model": 3,  # Current EPSS model version
                     }
         except Exception as e:
