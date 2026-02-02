@@ -14,6 +14,7 @@ from __future__ import annotations
 import csv
 import logging
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -36,6 +37,15 @@ class EPSSEnricher:
     """
 
     name: str = "EPSSEnricher"
+    depends_on: list[str] = []
+
+    SCHEMA_VERSION: str = "1.0.0"
+    OUTPUT_SCHEMA: list[dict[str, str]] = [
+        {"name": "epss_probability", "type": "float", "description": "EPSS probability score"},
+        {"name": "epss_percentile", "type": "float", "description": "EPSS percentile rank"},
+        {"name": "epss_date", "type": "datetime", "description": "Score calculation date"},
+        {"name": "epss_model", "type": "int", "description": "EPSS model version (1, 2, or 3)"},
+    ]
 
     def __init__(
         self,
@@ -53,7 +63,7 @@ class EPSSEnricher:
         self._cache: dict[str, dict[str, Any]] | None = None
         self._cache_time: float = 0.0
 
-    async def enrich(self, dataset: VulnDataset) -> None:
+    async def transform(self, dataset: VulnDataset) -> None:
         """Add EPSS columns to dataset.
 
         Args:
@@ -66,9 +76,11 @@ class EPSSEnricher:
         cve_ids = dataset.get_column("cve_id")
         n = len(dataset)
 
-        # Initialize EPSS columns with NaN
+        # Initialize EPSS columns
         epss_probability: np.ndarray = np.full(n, np.nan, dtype=np.float64)
         epss_percentile: np.ndarray = np.full(n, np.nan, dtype=np.float64)
+        epss_date: np.ndarray = np.array([None] * n, dtype=object)
+        epss_model: np.ndarray = np.array([None] * n, dtype=object)
 
         # Track matched indices for source tracking
         matched_indices: list[int] = []
@@ -80,10 +92,14 @@ class EPSSEnricher:
                 entry = epss_data[cve_id]
                 epss_probability[i] = entry["probability"]
                 epss_percentile[i] = entry["percentile"]
+                epss_date[i] = entry.get("date")
+                epss_model[i] = entry.get("model", 3)  # Default to model 3
 
         # Add columns to dataset
         dataset.set_column("epss_probability", epss_probability)
         dataset.set_column("epss_percentile", epss_percentile)
+        dataset.set_column("epss_date", epss_date)
+        dataset.set_column("epss_model", epss_model)
 
         # Update sources for matched records
         if matched_indices:
@@ -114,9 +130,18 @@ class EPSSEnricher:
                 for row in reader:
                     cve_id = row["cve"]
 
+                    # Parse date if present
+                    date_str = row.get("date")
+                    parsed_date: datetime | None = None
+                    if date_str:
+                        parsed_date = datetime.strptime(date_str, "%Y-%m-%d")
+                        parsed_date = parsed_date.replace(tzinfo=UTC)
+
                     epss_data[cve_id] = {
                         "probability": float(row["epss"]),
                         "percentile": float(row["percentile"]),
+                        "date": parsed_date,
+                        "model": 3,  # Current EPSS model version
                     }
         except Exception as e:
             logger.warning("Failed to load EPSS data from %s: %s", self.source, e)

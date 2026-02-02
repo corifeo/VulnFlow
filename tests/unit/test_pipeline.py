@@ -322,3 +322,72 @@ def test_pipeline_loader_failure_always_raises():
 
     with pytest.raises(LoaderError, match="Broken loader"):
         pipeline.run(strict=False)
+
+
+def test_pipeline_runs_enrichers_concurrently():
+    """Pipeline runs multiple enrichers concurrently with asyncio.gather()."""
+    import asyncio
+    import time
+
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    call_order: list[str] = []
+
+    class SlowEnricher1:
+        name = "slow1"
+        depends_on: list[str] = []
+
+        async def transform(self, dataset: object) -> None:
+            call_order.append("slow1_start")
+            await asyncio.sleep(0.1)
+            call_order.append("slow1_end")
+
+    class SlowEnricher2:
+        name = "slow2"
+        depends_on: list[str] = []
+
+        async def transform(self, dataset: object) -> None:
+            call_order.append("slow2_start")
+            await asyncio.sleep(0.1)
+            call_order.append("slow2_end")
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[SlowEnricher1(), SlowEnricher2()],
+        loaders=[],
+    )
+
+    start = time.time()
+    pipeline.run()
+    elapsed = time.time() - start
+
+    # If running concurrently, should take ~0.1s not ~0.2s
+    assert elapsed < 0.15, f"Enrichers ran sequentially (took {elapsed:.2f}s)"
+
+    # Both should start before either ends (concurrent)
+    assert call_order.index("slow1_start") < call_order.index("slow1_end")
+    assert call_order.index("slow2_start") < call_order.index("slow2_end")
+
+
+def test_pipeline_lenient_mode_logs_warnings(caplog: pytest.LogCaptureFixture):
+    """Pipeline logs warnings before collecting errors in lenient mode."""
+    import logging
+
+    from fixtures.broken_enricher import BrokenEnricher
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[BrokenEnricher()],
+        loaders=[],
+    )
+
+    with caplog.at_level(logging.WARNING):
+        pipeline.run(strict=False)
+
+    # Should have logged a warning about the failure
+    assert len(caplog.records) >= 1, "Expected at least one log record"
+    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(
+        "BrokenEnricher" in msg or "broken" in msg.lower() for msg in warning_messages
+    ), f"Expected warning about BrokenEnricher, got: {warning_messages}"

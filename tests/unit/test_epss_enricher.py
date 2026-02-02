@@ -20,7 +20,7 @@ async def test_epss_enricher_adds_columns():
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     enricher = EPSSEnricher(source="tests/fixtures/epss_sample.csv")
-    await enricher.enrich(dataset)
+    await enricher.transform(dataset)
 
     assert "epss_probability" in dataset.columns
     assert "epss_percentile" in dataset.columns
@@ -32,7 +32,7 @@ async def test_epss_enricher_matches_by_cve_id():
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     enricher = EPSSEnricher(source="tests/fixtures/epss_sample.csv")
-    await enricher.enrich(dataset)
+    await enricher.transform(dataset)
 
     probs = dataset.get_column("epss_probability")
     percentiles = dataset.get_column("epss_percentile")
@@ -85,3 +85,26 @@ def test_epss_enricher_updates_sources():
     # All 3 CVEs in fixture should have EPSS source
     sources_0 = json.loads(sources_col[0])
     assert "EPSS" in sources_0, "Matched record should have EPSS source"
+
+
+@pytest.mark.asyncio
+async def test_epss_enricher_adds_date_and_model_columns():
+    """EPSSEnricher adds epss_date and epss_model columns."""
+    from datetime import datetime
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    enricher = EPSSEnricher(source="tests/fixtures/epss_sample.csv")
+    await enricher.transform(dataset)
+
+    assert "epss_date" in dataset.columns, "Missing epss_date column"
+    assert "epss_model" in dataset.columns, "Missing epss_model column"
+
+    # Verify types for matched records
+    epss_dates = dataset.get_column("epss_date")
+    epss_models = dataset.get_column("epss_model")
+
+    # First record should have EPSS data
+    assert epss_dates[0] is not None
+    assert isinstance(epss_dates[0], datetime)
+    assert epss_models[0] == 3  # Default model version

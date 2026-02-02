@@ -37,6 +37,17 @@ class KEVEnricher:
     """
 
     name: str = "KEVEnricher"
+    depends_on: list[str] = []
+
+    SCHEMA_VERSION: str = "1.0.0"
+    OUTPUT_SCHEMA: list[dict[str, str]] = [
+        {"name": "kev_date_added", "type": "datetime", "description": "Date added to KEV catalog"},
+        {"name": "kev_due_date", "type": "datetime", "description": "Remediation due date"},
+        {"name": "kev_required_action", "type": "str", "description": "Required remediation action"},
+        {"name": "kev_vendor", "type": "str", "description": "Vendor name from KEV"},
+        {"name": "kev_product", "type": "str", "description": "Product name from KEV"},
+        {"name": "kev_ransomware", "type": "str", "description": "Known ransomware campaign use"},
+    ]
 
     def __init__(
         self,
@@ -54,7 +65,7 @@ class KEVEnricher:
         self._cache: dict[str, dict[str, Any]] | None = None
         self._cache_time: float = 0.0
 
-    async def enrich(self, dataset: VulnDataset) -> None:
+    async def transform(self, dataset: VulnDataset) -> None:
         """Add KEV columns to dataset.
 
         Args:

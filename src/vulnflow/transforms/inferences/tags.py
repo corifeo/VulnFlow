@@ -40,6 +40,11 @@ class TagInference:
     depends_on: list[str] = []
     confidence_threshold: float
 
+    SCHEMA_VERSION: str = "1.0.0"
+    OUTPUT_SCHEMA: list[dict[str, str]] = [
+        {"name": "inferred_tags", "type": "list[str]", "description": "Inferred classification tags"},
+    ]
+
     def __init__(self, confidence_threshold: float = 0.7) -> None:
         """Initialize TagInference.
 
@@ -56,10 +61,16 @@ class TagInference:
         """
         n = len(dataset)
 
-        # Get source data
-        descriptions = dataset._data.get("description", np.array([None] * n))
-        cwes_json = dataset._data.get("cwes", np.array(["[]"] * n))
-        cpes_json = dataset._data.get("cpes", np.array(["[]"] * n))
+        # Get source data (use public API with defaults)
+        descriptions = dataset.get_column_or_none("description")
+        if descriptions is None:
+            descriptions = np.array([None] * n)
+        cwes_json = dataset.get_column_or_none("cwes")
+        if cwes_json is None:
+            cwes_json = np.array(["[]"] * n)
+        cpes_json = dataset.get_column_or_none("cpes")
+        if cpes_json is None:
+            cpes_json = np.array(["[]"] * n)
 
         # Initialize output
         inferred_tags: list[list[str]] = []

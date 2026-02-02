@@ -38,6 +38,11 @@ class CVDStateTransform:
     name: str = "CVDStateTransform"
     depends_on: list[str] = ["EventInference"]
 
+    SCHEMA_VERSION: str = "1.0.0"
+    OUTPUT_SCHEMA: list[dict[str, str]] = [
+        {"name": "cvd_state", "type": "str", "description": "6-character CVD state (e.g., 'VFdPxa')"},
+    ]
+
     def transform(self, dataset: VulnDataset) -> None:
         """Compute CVD state from timestamp columns.
 
@@ -46,13 +51,13 @@ class CVDStateTransform:
         """
         n = len(dataset)
 
-        # Get CVD timestamp columns
-        v_ts = dataset._data.get("v_timestamp")
-        f_ts = dataset._data.get("f_timestamp")
-        d_ts = dataset._data.get("d_timestamp")
-        p_ts = dataset._data.get("p_timestamp")
-        x_ts = dataset._data.get("x_timestamp")
-        a_ts = dataset._data.get("a_timestamp")
+        # Get CVD timestamp columns (use public API)
+        v_ts = dataset.get_column_or_none("v_timestamp")
+        f_ts = dataset.get_column_or_none("f_timestamp")
+        d_ts = dataset.get_column_or_none("d_timestamp")
+        p_ts = dataset.get_column_or_none("p_timestamp")
+        x_ts = dataset.get_column_or_none("x_timestamp")
+        a_ts = dataset.get_column_or_none("a_timestamp")
 
         # Compute state strings
         states: list[str] = []
