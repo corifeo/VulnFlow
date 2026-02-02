@@ -39,3 +39,23 @@ class Transform(Protocol):
     def transform(self, dataset: VulnDataset) -> None:
         """Transform dataset by computing derived fields (sync, CPU-bound)."""
         ...
+
+
+@runtime_checkable
+class Inference(Protocol):
+    """Protocol for inference transforms that fill gaps with heuristics.
+
+    Inferences:
+    - Only populate missing fields (never overwrite existing data)
+    - Use confidence threshold to filter low-quality inferences
+    - Are CPU-bound, sync operations (no I/O)
+    - Run after Enrichers, before Computed transforms
+    """
+
+    name: str
+    confidence_threshold: float  # 0.0-1.0, minimum confidence to populate
+    depends_on: list[str]
+
+    def transform(self, dataset: VulnDataset) -> None:
+        """Infer missing fields where confidence >= threshold."""
+        ...
