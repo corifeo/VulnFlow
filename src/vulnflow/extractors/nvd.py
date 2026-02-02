@@ -150,18 +150,16 @@ class NVDExtractor(Extractor):
 
         for weakness in weaknesses:
             descriptions = weakness.get("description", [])
-            if not isinstance(descriptions, list):
+            if not descriptions:
                 continue
 
             for desc in descriptions:
-                if not isinstance(desc, dict):
-                    continue
-                cwe_id = desc.get("value", "")
-                if isinstance(cwe_id, str) and cwe_id.startswith("CWE-"):
+                cwe_id = desc.get("value", "")  # type: ignore[union-attr]
+                if cwe_id and cwe_id.startswith("CWE-"):  # type: ignore[union-attr]
                     cwes.append(
                         CWEEntry(
-                            id=cwe_id,
-                            name=None,  # Would need CWE database for name lookup
+                            id=cwe_id,  # type: ignore[arg-type]
+                            name=None,
                             category_id=None,
                         )
                     )
@@ -176,26 +174,22 @@ class NVDExtractor(Extractor):
 
         for config in configurations:
             nodes = config.get("nodes", [])
-            if not isinstance(nodes, list):
+            if not nodes:
                 continue
 
             for node in nodes:
-                if not isinstance(node, dict):
-                    continue
-                cpe_matches = node.get("cpeMatch", [])
-                if not isinstance(cpe_matches, list):
+                cpe_matches = node.get("cpeMatch", [])  # type: ignore[union-attr]
+                if not cpe_matches:
                     continue
 
                 for cpe_match in cpe_matches:
-                    if not isinstance(cpe_match, dict):
-                        continue
-                    cpe_str = cpe_match.get("criteria", "")
-                    if isinstance(cpe_str, str) and cpe_str.startswith("cpe:2.3"):
+                    cpe_str = cpe_match.get("criteria", "")  # type: ignore[union-attr]
+                    if cpe_str and cpe_str.startswith("cpe:2.3"):  # type: ignore[union-attr]
                         try:
-                            cpe = parse_cpe23(cpe_str)
+                            cpe = parse_cpe23(cpe_str)  # type: ignore[arg-type]
                             cpes.append(cpe)
-                        except ValueError:
-                            # Skip invalid CPE strings
+                        except (ValueError, AttributeError):
+                            # Skip invalid CPE strings or malformed data
                             pass
 
         return cpes
@@ -207,19 +201,15 @@ class NVDExtractor(Extractor):
         ref_entries: list[ReferenceEntry] = []
 
         for ref in references:
-            if not isinstance(ref, dict):
-                continue
-
-            url = ref.get("url", "")
-            source = ref.get("source")
-            tags = ref.get("tags", [])
-
-            if isinstance(url, str) and url:
+            url = ref.get("url", "")  # type: ignore[union-attr]
+            if url:
+                source = ref.get("source")  # type: ignore[union-attr]
+                tags = ref.get("tags", [])  # type: ignore[union-attr]
                 ref_entries.append(
                     ReferenceEntry(
-                        url=url,
-                        source=source if isinstance(source, str) else None,
-                        tags=tags if isinstance(tags, list) else [],
+                        url=url,  # type: ignore[arg-type]
+                        source=source if source else None,  # type: ignore[arg-type]
+                        tags=tags if tags else [],  # type: ignore[arg-type]
                     )
                 )
 
