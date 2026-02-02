@@ -90,20 +90,27 @@ class Registry:
 # Module-level convenience functions
 
 
-def register_transform(cls: type[T]) -> type[T]:
+def register_transform(cls: type[T] | None = None, *, default: bool = False) -> type[T] | Callable[[type[T]], type[T]]:
     """Simple decorator to register a transform class.
 
     Uses the class name as the registration key.
 
     Args:
         cls: Transform class to register
+        default: If True, include in default transforms
 
     Returns:
         The same class (for decorator usage)
     """
-    name = getattr(cls, "name", cls.__name__)
-    Registry._transforms[name] = (cls, False)
-    return cls
+    def decorator(transform_cls: type[T]) -> type[T]:
+        name = getattr(transform_cls, "name", transform_cls.__name__)
+        Registry._transforms[name] = (transform_cls, default)
+        return transform_cls
+
+    # Support both @register_transform and @register_transform(default=True)
+    if cls is None:
+        return decorator
+    return decorator(cls)
 
 
 def get_transforms() -> list[type[Any]]:
@@ -115,20 +122,27 @@ def get_transforms() -> list[type[Any]]:
     return [cls for cls, _ in Registry._transforms.values()]
 
 
-def register_enricher(cls: type[T]) -> type[T]:
+def register_enricher(cls: type[T] | None = None, *, default: bool = False) -> type[T] | Callable[[type[T]], type[T]]:
     """Simple decorator to register an enricher class.
 
     Uses the class name as the registration key.
 
     Args:
         cls: Enricher class to register
+        default: If True, include in default enrichers
 
     Returns:
         The same class (for decorator usage)
     """
-    name = getattr(cls, "name", cls.__name__)
-    Registry._enrichers[name] = (cls, False)
-    return cls
+    def decorator(enricher_cls: type[T]) -> type[T]:
+        name = getattr(enricher_cls, "name", enricher_cls.__name__)
+        Registry._enrichers[name] = (enricher_cls, default)
+        return enricher_cls
+
+    # Support both @register_enricher and @register_enricher(default=True)
+    if cls is None:
+        return decorator
+    return decorator(cls)
 
 
 def get_enrichers() -> list[type[Any]]:

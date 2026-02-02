@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 from vulnflow.registry import register_transform
 
 
-@register_transform
+@register_transform(default=True)
 class CVDDesiderataTransform:
     """Compute 12 desiderata flags from CVD timestamps.
 

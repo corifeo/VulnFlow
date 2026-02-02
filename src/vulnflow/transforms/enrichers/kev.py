@@ -28,7 +28,7 @@ from vulnflow.registry import register_enricher
 logger = logging.getLogger(__name__)
 
 
-@register_enricher
+@register_enricher(default=True)
 class KEVEnricher:
     """Enrich dataset with CISA KEV catalog data.
 

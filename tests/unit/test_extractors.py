@@ -123,9 +123,9 @@ def test_nvd_extractor_parses_references():
 
 def test_nvd_extractor_handles_utf8():
     """NVDExtractor handles UTF-8 encoded files."""
+    import json
     import tempfile
     from pathlib import Path
-    import json
 
     # Create test file with UTF-8 characters
     nvd_data = {

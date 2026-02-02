@@ -14,6 +14,10 @@ Dependencies: dataset, schema, registry, pipeline, exceptions
 Used by: User code
 """
 
+# Import transform modules to trigger registration decorators
+import vulnflow.transforms.computed  # noqa: F401
+import vulnflow.transforms.enrichers  # noqa: F401
+import vulnflow.transforms.inferences  # noqa: F401
 from vulnflow.dataset import VulnDataset
 from vulnflow.exceptions import (
     EnricherError,

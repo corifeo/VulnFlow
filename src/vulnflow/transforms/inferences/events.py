@@ -63,7 +63,7 @@ def extract_date_from_url(url: str | None) -> datetime | None:
     return None
 
 
-@register_transform
+@register_transform(default=True)
 class EventInference:
     """Infer missing CVD timestamps from references, NVD metadata, KEV.
 
