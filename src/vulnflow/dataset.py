@@ -144,21 +144,32 @@ class VulnDataset:
 
         from vulnflow.schema import CVSSEntry
 
+        # Create JSON encoder once for reuse
+        json_encoder = json.JSONEncoder(default=str)
+
+        def dataclass_to_dict(obj: Any) -> Any:
+            """Fast dataclass to dict conversion without asdict overhead."""
+            if obj is None:
+                return None
+            if is_dataclass(obj) and not isinstance(obj, type):
+                # Manually extract fields instead of using asdict()
+                return {f.name: getattr(obj, f.name) for f in obj.__dataclass_fields__.values()}  # type: ignore[union-attr]
+            return obj
+
         def encode_nested(value: Any) -> str:
             """Encode nested structure as JSON string."""
             if value is None:
-                return json.dumps(None)
+                return "null"
             if isinstance(value, list):
-                items = []
-                for item in value:
-                    if is_dataclass(item) and not isinstance(item, type):
-                        items.append(asdict(item))
-                    else:
-                        items.append(item)
-                return json.dumps(items, default=str)
+                # Fast path for empty lists
+                if not value:
+                    return "[]"
+                # Convert dataclasses in list to dicts
+                items = [dataclass_to_dict(item) for item in value]
+                return json_encoder.encode(items)
             if is_dataclass(value) and not isinstance(value, type):
-                return json.dumps(asdict(value), default=str)
-            return json.dumps(value, default=str)
+                return json_encoder.encode(dataclass_to_dict(value))
+            return json_encoder.encode(value)
 
         def flatten_cvss(
             cvss_scores: list[CVSSEntry],
@@ -199,70 +210,117 @@ class VulnDataset:
         if not records:
             return dataset
 
-        # Flatten CVSS for each record
-        flattened_cvss = [flatten_cvss(r.cvss_scores) for r in records]
+        n = len(records)
+
+        # Pre-allocate arrays for single-pass population
+        # Identity
+        ids = np.empty(n, dtype=object)
+        cve_ids = np.empty(n, dtype=object)
+        aliases_arr = np.empty(n, dtype=object)
+        # Description
+        titles = np.empty(n, dtype=object)
+        descriptions = np.empty(n, dtype=object)
+        # Metadata
+        first_seen = np.empty(n, dtype=object)
+        last_updated = np.empty(n, dtype=object)
+        sources_arr = np.empty(n, dtype=object)
+        # NVD Temporal
+        nvd_published = np.empty(n, dtype=object)
+        nvd_modified = np.empty(n, dtype=object)
+        # Scoring
+        cvss_scores_arr = np.empty(n, dtype=object)
+        epss_scores_arr = np.empty(n, dtype=object)
+        # Flattened CVSS
+        cvss_base_score = np.empty(n, dtype=object)
+        cvss_base_severity = np.empty(n, dtype=object)
+        cvss_version = np.empty(n, dtype=object)
+        cvss_vector_string = np.empty(n, dtype=object)
+        cvss_source = np.empty(n, dtype=object)
+        # Exploitation
+        kev_arr = np.empty(n, dtype=object)
+        exploits_arr = np.empty(n, dtype=object)
+        # Classification
+        cwes_arr = np.empty(n, dtype=object)
+        cpes_arr = np.empty(n, dtype=object)
+        # References
+        references_arr = np.empty(n, dtype=object)
+        # Extensible
+        tags_arr = np.empty(n, dtype=object)
+        metadata_arr = np.empty(n, dtype=object)
+
+        # Single pass over records
+        for i, r in enumerate(records):
+            # Identity
+            ids[i] = str(r.id)
+            cve_ids[i] = r.cve_id
+            aliases_arr[i] = json.dumps(r.aliases)
+            # Description
+            titles[i] = r.title
+            descriptions[i] = r.description
+            # Metadata
+            first_seen[i] = r.first_seen_at
+            last_updated[i] = r.last_updated_at
+            sources_arr[i] = json.dumps(r.sources)
+            # NVD Temporal
+            nvd_published[i] = r.nvd_published_at
+            nvd_modified[i] = r.nvd_modified_at
+            # Scoring
+            cvss_scores_arr[i] = encode_nested(r.cvss_scores)
+            epss_scores_arr[i] = encode_nested(r.epss_scores)
+            # Flattened CVSS
+            flattened = flatten_cvss(r.cvss_scores)
+            cvss_base_score[i] = flattened["cvss_base_score"]
+            cvss_base_severity[i] = flattened["cvss_base_severity"]
+            cvss_version[i] = flattened["cvss_version"]
+            cvss_vector_string[i] = flattened["cvss_vector_string"]
+            cvss_source[i] = flattened["cvss_source"]
+            # Exploitation
+            kev_arr[i] = encode_nested(r.kev)
+            exploits_arr[i] = encode_nested(r.exploits)
+            # Classification
+            cwes_arr[i] = encode_nested(r.cwes)
+            cpes_arr[i] = encode_nested(r.cpes)
+            # References
+            references_arr[i] = encode_nested(r.references)
+            # Extensible
+            tags_arr[i] = json.dumps(r.tags)
+            metadata_arr[i] = json.dumps(r.metadata, default=str)
 
         dataset._data = {
             # Identity
-            "id": np.array([str(r.id) for r in records], dtype=object),
-            "cve_id": np.array([r.cve_id for r in records], dtype=object),
-            "aliases": np.array([json.dumps(r.aliases) for r in records], dtype=object),
+            "id": ids,
+            "cve_id": cve_ids,
+            "aliases": aliases_arr,
             # Description
-            "title": np.array([r.title for r in records], dtype=object),
-            "description": np.array([r.description for r in records], dtype=object),
+            "title": titles,
+            "description": descriptions,
             # Metadata
-            "first_seen_at": np.array([r.first_seen_at for r in records], dtype=object),
-            "last_updated_at": np.array(
-                [r.last_updated_at for r in records], dtype=object
-            ),
-            "sources": np.array([json.dumps(r.sources) for r in records], dtype=object),
+            "first_seen_at": first_seen,
+            "last_updated_at": last_updated,
+            "sources": sources_arr,
             # NVD Temporal
-            "nvd_published_at": np.array(
-                [r.nvd_published_at for r in records], dtype=object
-            ),
-            "nvd_modified_at": np.array(
-                [r.nvd_modified_at for r in records], dtype=object
-            ),
+            "nvd_published_at": nvd_published,
+            "nvd_modified_at": nvd_modified,
             # Scoring (JSON-encoded lists for Parquet round-trip)
-            "cvss_scores": np.array(
-                [encode_nested(r.cvss_scores) for r in records], dtype=object
-            ),
-            "epss_scores": np.array(
-                [encode_nested(r.epss_scores) for r in records], dtype=object
-            ),
+            "cvss_scores": cvss_scores_arr,
+            "epss_scores": epss_scores_arr,
             # Flattened CVSS (for DataFrame convenience)
-            "cvss_base_score": np.array(
-                [f["cvss_base_score"] for f in flattened_cvss], dtype=object
-            ),
-            "cvss_base_severity": np.array(
-                [f["cvss_base_severity"] for f in flattened_cvss], dtype=object
-            ),
-            "cvss_version": np.array(
-                [f["cvss_version"] for f in flattened_cvss], dtype=object
-            ),
-            "cvss_vector_string": np.array(
-                [f["cvss_vector_string"] for f in flattened_cvss], dtype=object
-            ),
-            "cvss_source": np.array(
-                [f["cvss_source"] for f in flattened_cvss], dtype=object
-            ),
+            "cvss_base_score": cvss_base_score,
+            "cvss_base_severity": cvss_base_severity,
+            "cvss_version": cvss_version,
+            "cvss_vector_string": cvss_vector_string,
+            "cvss_source": cvss_source,
             # Exploitation (JSON-encoded)
-            "kev": np.array([encode_nested(r.kev) for r in records], dtype=object),
-            "exploits": np.array(
-                [encode_nested(r.exploits) for r in records], dtype=object
-            ),
+            "kev": kev_arr,
+            "exploits": exploits_arr,
             # Classification (JSON-encoded lists)
-            "cwes": np.array([encode_nested(r.cwes) for r in records], dtype=object),
-            "cpes": np.array([encode_nested(r.cpes) for r in records], dtype=object),
+            "cwes": cwes_arr,
+            "cpes": cpes_arr,
             # References (JSON-encoded list)
-            "references": np.array(
-                [encode_nested(r.references) for r in records], dtype=object
-            ),
+            "references": references_arr,
             # Extensible (JSON-encoded dicts)
-            "tags": np.array([json.dumps(r.tags) for r in records], dtype=object),
-            "metadata": np.array(
-                [json.dumps(r.metadata, default=str) for r in records], dtype=object
-            ),
+            "tags": tags_arr,
+            "metadata": metadata_arr,
         }
 
         return dataset
