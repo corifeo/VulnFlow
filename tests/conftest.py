@@ -7,11 +7,71 @@ Provides:
 - kev_sample_path: Path to KEV sample CSV
 - epss_sample_path: Path to EPSS sample CSV
 - tmp_dir: Temporary directory for test outputs
+- MockExtractor, MockTransformer, MockLoader: Test doubles for pipeline stages
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import pytest
+
+if TYPE_CHECKING:
+    from vulnflow.dataset import VulnDataset
+    from vulnflow.schema import VulnRecord
+
+
+class MockExtractor:
+    """Test double for Extractor protocol."""
+
+    def __init__(self, name: str = "mock_extractor", num_records: int = 3) -> None:
+        self.name = name
+        self.num_records = num_records
+        self.extract_called = False
+
+    def extract(self) -> list[VulnRecord]:
+        """Return mock VulnRecords."""
+        from vulnflow.schema import VulnRecord
+
+        self.extract_called = True
+        return [
+            VulnRecord(
+                id=uuid4(),
+                cve_id=f"CVE-2024-{i:04d}",
+                description=f"Mock vulnerability {i} from {self.name}",
+                sources=[self.name],
+            )
+            for i in range(self.num_records)
+        ]
+
+
+class MockTransformer:
+    """Test double for Transform protocol."""
+
+    def __init__(self, name: str = "mock_transformer") -> None:
+        self.name = name
+        self.depends_on: list[str] = []
+        self.transform_called = False
+
+    def transform(self, dataset: VulnDataset) -> None:
+        """Mark transform as called (no-op for testing)."""
+        self.transform_called = True
+
+
+class MockLoader:
+    """Test double for Loader protocol."""
+
+    def __init__(self, name: str = "mock_loader") -> None:
+        self.name = name
+        self.load_called = False
+        self.loaded_dataset: VulnDataset | None = None
+
+    def load(self, dataset: VulnDataset) -> None:
+        """Capture dataset for verification."""
+        self.load_called = True
+        self.loaded_dataset = dataset
 
 
 @pytest.fixture
