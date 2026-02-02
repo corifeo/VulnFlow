@@ -1,16 +1,12 @@
 """
-Schema - Dataclasses for vulnerability records
+Schema - VulnRecord and nested dataclasses
+Defines core data structures for vulnerability records
 
-Provides:
-- VulnRecord: Main vulnerability record dataclass
-- CVSSEntry: CVSS score entry
-- EPSSEntry: EPSS probability entry
-- KEVEntry: CISA KEV catalog entry
-- ExploitEntry: Exploit reference entry
-
-Layer: Core
+Layer: Core data schema
 Dependencies: None
-Used by: dataset, extractors, loaders
+Used by: dataset, extractors, transformers, loaders
+
+Schema Version: 1.0.0 (complete from Phase 1, no incremental evolution)
 """
 
 from __future__ import annotations
@@ -18,31 +14,66 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
+
+# Nested dataclasses (all defined from Phase 1)
+
+
+@dataclass
+class CWEEntry:
+    """CWE weakness classification."""
+
+    id: str  # "CWE-502"
+    name: str | None = None  # "Deserialization of Untrusted Data"
+    category_id: str | None = None  # "CWE-1000"
+
+
+@dataclass
+class CPEEntry:
+    """CPE product identification."""
+
+    vendor: str  # "apache"
+    product: str  # "log4j"
+    version: str | None = None  # "2.14.1"
+    raw: str | None = None  # Full CPE 2.3 string
+
+
+@dataclass
+class ReferenceEntry:
+    """External reference with tags."""
+
+    url: str
+    source: str | None = None  # "nvd", "vendor", "third-party"
+    tags: list[str] = field(default_factory=list)  # ["Patch", "Vendor Advisory"]
 
 
 @dataclass
 class CVSSEntry:
-    """CVSS score from a specific source and version."""
+    """CVSS scoring (multi-source support)."""
 
-    version: str  # "2.0", "3.0", "3.1", "4.0"
-    vector: str
+    version: str  # "3.1", "4.0"
+    vector_string: str
     base_score: float
-    source: str  # "nvd", "cna", etc.
+    base_severity: str  # "CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"
+    source: str  # "nvd", "redhat", "microsoft"
+    source_url: str | None = None
+    published_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass
 class EPSSEntry:
-    """EPSS probability at a point in time."""
+    """EPSS probability (time-series support)."""
 
-    date: datetime
     probability: float
     percentile: float
+    date: datetime
+    model: int = 3  # EPSS model version (1, 2, 3)
 
 
 @dataclass
 class KEVEntry:
-    """CISA Known Exploited Vulnerabilities catalog entry."""
+    """CISA Known Exploited Vulnerabilities (complete from start)."""
 
     date_added: datetime
     due_date: datetime | None
@@ -50,62 +81,76 @@ class KEVEntry:
     product: str
     vulnerability_name: str
     required_action: str
+    known_ransomware_use: bool = False  # Complete field from Phase 1
 
 
 @dataclass
 class ExploitEntry:
-    """Reference to a public exploit."""
+    """Verified exploit with confidence scoring."""
 
     source: str  # "exploitdb", "metasploit", "github", "nuclei"
     id: str
-    url: str | None
-    description: str | None
+    url: str | None = None
+    description: str | None = None
+    published_at: datetime | None = None
+    confidence: float = 0.5  # 0.0-1.0 quality score
+
+
+# Main VulnRecord (complete schema from Phase 1)
 
 
 @dataclass
 class VulnRecord:
-    """Core vulnerability record schema."""
+    """Vulnerability record with all enrichment data.
+
+    Schema ordered by relevance:
+    1. Identity/Description - What is it?
+    2. Metadata - When did we see it?
+    3. NVD Temporal - What NVD provides
+    4. CVD Timeline - Populated by EventInference (Phase 11)
+    5. Scoring - How severe/likely?
+    6. Exploitation - Is it being exploited?
+    7. Classification - What type, what products?
+    8. References - Supporting data
+    9. Extensible - Custom fields
+    """
 
     # Identity
-    id: UUID
+    id: UUID = field(default_factory=uuid4)
     cve_id: str | None = None
     aliases: list[str] = field(default_factory=list)
-
-    # Pipeline metadata
-    first_seen_at: datetime = field(default_factory=datetime.now)
-    last_updated_at: datetime = field(default_factory=datetime.now)
-    sources: list[str] = field(default_factory=list)
 
     # Description
     title: str | None = None
     description: str | None = None
 
-    # CVD Timestamps (nullable)
-    v_timestamp: datetime | None = None  # Vendor awareness
-    f_timestamp: datetime | None = None  # Fix ready
-    d_timestamp: datetime | None = None  # Deployed
-    p_timestamp: datetime | None = None  # Public disclosure
-    x_timestamp: datetime | None = None  # Exploit public
-    a_timestamp: datetime | None = None  # Attacks observed
+    # Metadata
+    first_seen_at: datetime = field(default_factory=datetime.now)
+    last_updated_at: datetime = field(default_factory=datetime.now)
+    sources: list[str] = field(default_factory=list)
 
-    # Affected products
-    cpes: list[str] = field(default_factory=list)
-    vendors: list[str] = field(default_factory=list)
-    products: list[str] = field(default_factory=list)
+    # NVD Temporal (what NVD provides)
+    nvd_published_at: datetime | None = None
+    nvd_modified_at: datetime | None = None
 
-    # Weaknesses
-    cwes: list[str] = field(default_factory=list)
+    # Note: CVD Timeline (v/f/d/p/x/a_timestamp) is NOT part of VulnRecord.
+    # EventInference (Phase 11) adds these columns directly to VulnDataset.
 
-    # Scores (nested, multi-source)
-    cvss: list[CVSSEntry] = field(default_factory=list)
-    epss: list[EPSSEntry] = field(default_factory=list)
+    # Scoring (multi-source, time-series)
+    cvss_scores: list[CVSSEntry] = field(default_factory=list)
+    epss_scores: list[EPSSEntry] = field(default_factory=list)
 
     # Exploitation
     kev: KEVEntry | None = None
     exploits: list[ExploitEntry] = field(default_factory=list)
 
-    # Threat intel (extensible)
-    tags: dict[str, list[str]] = field(default_factory=dict)
+    # Classification
+    cwes: list[CWEEntry] = field(default_factory=list)
+    cpes: list[CPEEntry] = field(default_factory=list)
 
-    # Raw metadata (escape hatch)
+    # References
+    references: list[ReferenceEntry] = field(default_factory=list)
+
+    # Extensible
+    tags: dict[str, list[str]] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)

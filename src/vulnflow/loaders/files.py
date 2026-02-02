@@ -4,29 +4,88 @@ File Loaders - Parquet, JSON, CSV writers
 Provides:
 - ParquetLoader: Writes to Parquet files
 - JSONLoader: Writes to JSON files
-- CSVLoader: Writes to CSV files
 
 Layer: Load
-Dependencies: dataset, schema
-Used by: dataset.to_parquet(), to_json(), to_csv()
+Dependencies: dataset
+Used by: pipeline, user code
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from vulnflow.loaders.base import Loader
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
 
-class ParquetLoader(Loader):
-    """Writes vulnerability records to Parquet files."""
+class ParquetLoader:
+    """Load dataset to Parquet file."""
 
-    def __init__(self, path: str) -> None:
-        self.path = path
+    name: str = "parquet"
 
-    def load(self, dataset: VulnDataset) -> None:
-        """Write dataset to Parquet file."""
-        raise NotImplementedError("Parquet loading not yet implemented")
+    def __init__(self, path: str | Path) -> None:
+        """Initialize loader with output path.
+
+        Args:
+            path: Output file path
+        """
+        self.path = Path(path)
+
+    def load(self, dataset: VulnDataset) -> dict[str, Any]:
+        """Write dataset to Parquet file.
+
+        Args:
+            dataset: VulnDataset to write
+
+        Returns:
+            Metadata with path and record count
+        """
+        dataset.to_parquet(self.path)
+
+        return {"path": str(self.path), "record_count": len(dataset)}
+
+
+class JSONLoader:
+    """Load dataset to JSON file."""
+
+    name: str = "json"
+
+    def __init__(self, path: str | Path) -> None:
+        """Initialize loader with output path.
+
+        Args:
+            path: Output file path
+        """
+        self.path = Path(path)
+
+    def load(self, dataset: VulnDataset) -> dict[str, Any]:
+        """Write dataset to JSON file.
+
+        Args:
+            dataset: VulnDataset to write
+
+        Returns:
+            Metadata with path and record count
+        """
+        import json
+
+        path = Path(self.path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert columnar data to list of dicts
+        records = []
+        if dataset._data:
+            keys = list(dataset._data.keys())
+            for i in range(len(dataset)):
+                record = {k: dataset._data[k][i] for k in keys}
+                # Convert non-serializable types
+                for k, v in record.items():
+                    if v is not None and not isinstance(v, (str, int, float, bool)):
+                        record[k] = str(v)
+                records.append(record)
+
+        with path.open("w") as f:
+            json.dump(records, f, indent=2, default=str)
+
+        return {"path": str(self.path), "record_count": len(dataset)}

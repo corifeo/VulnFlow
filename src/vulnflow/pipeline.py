@@ -75,13 +75,26 @@ class VulnPipeline:
             dataset = VulnDataset._from_records(records)
 
         # Stage 2: Transform (placeholder for Phase 4+)
-        # Stage 3: Load (placeholder for Phase 1+)
+
+        # Stage 3: Load
+        loader_outputs: dict[str, Any] = {}
+        if self.loaders and dataset is not None:
+            for loader in self.loaders:
+                try:
+                    output = loader.load(dataset)
+                    loader_name = loader.__class__.__name__
+                    loader_outputs[loader_name] = output
+                    successful_stages.append(loader_name)
+                except Exception as e:
+                    failed_stages.append(loader.__class__.__name__)
+                    errors.append(e)
+                    raise  # Loader failures always raise
 
         duration = time.time() - start_time
 
         return PipelineResult(
             dataset=dataset,
-            loader_outputs={},
+            loader_outputs=loader_outputs,
             errors=errors,
             successful_stages=successful_stages,
             failed_stages=failed_stages,
