@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Weakness_Catalog>
+  <Weaknesses>
+    <Weakness ID="79" Name="Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')">
+      <Related_Weaknesses>
+        <Related_Weakness Nature="ChildOf" CWE_ID="74" />
+      </Related_Weaknesses>
+    </Weakness>
+    <Weakness ID="89" Name="Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')">
+      <Related_Weaknesses>
+        <Related_Weakness Nature="ChildOf" CWE_ID="943" />
+      </Related_Weaknesses>
+    </Weakness>
+    <Weakness ID="94" Name="Improper Control of Generation of Code ('Code Injection')">
+      <Related_Weaknesses>
+        <Related_Weakness Nature="ChildOf" CWE_ID="74" />
+      </Related_Weaknesses>
+    </Weakness>
+    <Weakness ID="502" Name="Deserialization of Untrusted Data">
+      <Related_Weaknesses>
+        <Related_Weakness Nature="ChildOf" CWE_ID="913" />
+      </Related_Weaknesses>
+    </Weakness>
+  </Weaknesses>
+</Weakness_Catalog>

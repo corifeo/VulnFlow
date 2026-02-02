@@ -17,7 +17,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from vulnflow.extractors.base import Extractor
-from vulnflow.schema import CVSSEntry, VulnRecord
+from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, ReferenceEntry, VulnRecord
+from vulnflow.utils.cpe import parse_cpe23
 
 
 class NVDExtractor(Extractor):
@@ -63,6 +64,15 @@ class NVDExtractor(Extractor):
             # Parse CVSS scores
             cvss_scores = self._parse_cvss(cve_data.get("metrics", {}))
 
+            # Parse CWE weaknesses
+            cwes = self._parse_cwes(cve_data.get("weaknesses", []))
+
+            # Parse CPE configurations
+            cpes = self._parse_cpes(cve_data.get("configurations", []))
+
+            # Parse references
+            references = self._parse_references(cve_data.get("references", []))
+
             record = VulnRecord(
                 id=uuid4(),
                 cve_id=cve_id,
@@ -70,6 +80,9 @@ class NVDExtractor(Extractor):
                 nvd_published_at=nvd_published_at,
                 nvd_modified_at=nvd_modified_at,
                 cvss_scores=cvss_scores,
+                cwes=cwes,
+                cpes=cpes,
+                references=references,
                 sources=["nvd"],
             )
             records.append(record)
@@ -128,3 +141,86 @@ class NVDExtractor(Extractor):
             )
 
         return cvss_scores
+
+    def _parse_cwes(
+        self, weaknesses: list[dict[str, object]]
+    ) -> list[CWEEntry]:
+        """Parse CWE weaknesses from NVD format."""
+        cwes: list[CWEEntry] = []
+
+        for weakness in weaknesses:
+            descriptions = weakness.get("description", [])
+            if not isinstance(descriptions, list):
+                continue
+
+            for desc in descriptions:
+                if not isinstance(desc, dict):
+                    continue
+                cwe_id = desc.get("value", "")
+                if isinstance(cwe_id, str) and cwe_id.startswith("CWE-"):
+                    cwes.append(
+                        CWEEntry(
+                            id=cwe_id,
+                            name=None,  # Would need CWE database for name lookup
+                            category_id=None,
+                        )
+                    )
+
+        return cwes
+
+    def _parse_cpes(
+        self, configurations: list[dict[str, object]]
+    ) -> list[CPEEntry]:
+        """Parse CPE configurations from NVD format."""
+        cpes: list[CPEEntry] = []
+
+        for config in configurations:
+            nodes = config.get("nodes", [])
+            if not isinstance(nodes, list):
+                continue
+
+            for node in nodes:
+                if not isinstance(node, dict):
+                    continue
+                cpe_matches = node.get("cpeMatch", [])
+                if not isinstance(cpe_matches, list):
+                    continue
+
+                for cpe_match in cpe_matches:
+                    if not isinstance(cpe_match, dict):
+                        continue
+                    cpe_str = cpe_match.get("criteria", "")
+                    if isinstance(cpe_str, str) and cpe_str.startswith("cpe:2.3"):
+                        try:
+                            cpe = parse_cpe23(cpe_str)
+                            cpes.append(cpe)
+                        except ValueError:
+                            # Skip invalid CPE strings
+                            pass
+
+        return cpes
+
+    def _parse_references(
+        self, references: list[dict[str, object]]
+    ) -> list[ReferenceEntry]:
+        """Parse references from NVD format."""
+        ref_entries: list[ReferenceEntry] = []
+
+        for ref in references:
+            if not isinstance(ref, dict):
+                continue
+
+            url = ref.get("url", "")
+            source = ref.get("source")
+            tags = ref.get("tags", [])
+
+            if isinstance(url, str) and url:
+                ref_entries.append(
+                    ReferenceEntry(
+                        url=url,
+                        source=source if isinstance(source, str) else None,
+                        tags=tags if isinstance(tags, list) else [],
+                    )
+                )
+
+        return ref_entries
