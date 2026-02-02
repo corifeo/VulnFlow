@@ -145,7 +145,7 @@ class VulnDataset:
         from dataclasses import is_dataclass
         from typing import Any
 
-        from vulnflow.schema import CVSSEntry
+        from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry
 
         # Create JSON encoder once for reuse
         json_encoder = json.JSONEncoder(default=str)
@@ -209,6 +209,36 @@ class VulnDataset:
                 "cvss_source": selected.source,
             }
 
+        def flatten_cwe(cwes: list[CWEEntry]) -> dict[str, str | None]:
+            """Flatten list[CWEEntry] to scalar columns (first entry)."""
+            if not cwes:
+                return {
+                    "primary_cwe_id": None,
+                    "primary_cwe_name": None,
+                }
+            # Take first CWE
+            first = cwes[0]
+            return {
+                "primary_cwe_id": first.id,
+                "primary_cwe_name": first.name,
+            }
+
+        def flatten_cpe(cpes: list[CPEEntry]) -> dict[str, str | None]:
+            """Flatten list[CPEEntry] to scalar columns (first entry)."""
+            if not cpes:
+                return {
+                    "primary_vendor": None,
+                    "primary_product": None,
+                    "primary_version": None,
+                }
+            # Take first CPE
+            first = cpes[0]
+            return {
+                "primary_vendor": first.vendor,
+                "primary_product": first.product,
+                "primary_version": first.version,
+            }
+
         dataset = cls()
         if not records:
             return dataset
@@ -245,6 +275,12 @@ class VulnDataset:
         # Classification
         cwes_arr = np.empty(n, dtype=object)
         cpes_arr = np.empty(n, dtype=object)
+        # Flattened CWE/CPE
+        primary_cwe_id = np.empty(n, dtype=object)
+        primary_cwe_name = np.empty(n, dtype=object)
+        primary_vendor = np.empty(n, dtype=object)
+        primary_product = np.empty(n, dtype=object)
+        primary_version = np.empty(n, dtype=object)
         # References
         references_arr = np.empty(n, dtype=object)
         # Extensible
@@ -283,6 +319,14 @@ class VulnDataset:
             # Classification
             cwes_arr[i] = encode_nested(r.cwes)
             cpes_arr[i] = encode_nested(r.cpes)
+            # Flattened CWE/CPE
+            cwe_flat = flatten_cwe(r.cwes)
+            primary_cwe_id[i] = cwe_flat["primary_cwe_id"]
+            primary_cwe_name[i] = cwe_flat["primary_cwe_name"]
+            cpe_flat = flatten_cpe(r.cpes)
+            primary_vendor[i] = cpe_flat["primary_vendor"]
+            primary_product[i] = cpe_flat["primary_product"]
+            primary_version[i] = cpe_flat["primary_version"]
             # References
             references_arr[i] = encode_nested(r.references)
             # Extensible
@@ -319,6 +363,12 @@ class VulnDataset:
             # Classification (JSON-encoded lists)
             "cwes": cwes_arr,
             "cpes": cpes_arr,
+            # Flattened CWE/CPE (for DataFrame convenience)
+            "primary_cwe_id": primary_cwe_id,
+            "primary_cwe_name": primary_cwe_name,
+            "primary_vendor": primary_vendor,
+            "primary_product": primary_product,
+            "primary_version": primary_version,
             # References (JSON-encoded list)
             "references": references_arr,
             # Extensible (JSON-encoded dicts)

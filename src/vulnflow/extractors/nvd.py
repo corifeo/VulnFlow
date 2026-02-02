@@ -98,49 +98,94 @@ class NVDExtractor(Extractor):
         return datetime.fromisoformat(ts)
 
     def _parse_cvss(self, metrics: dict[str, list[dict]]) -> list[CVSSEntry]:  # type: ignore[type-arg]
-        """Parse CVSS metrics from NVD format."""
+        """Parse CVSS metrics from NVD format with multi-source support."""
         cvss_scores: list[CVSSEntry] = []
 
         # CVSS 3.1
         for metric in metrics.get("cvssMetricV31", []):
             cvss_data = metric.get("cvssData", {})
+            # Parse source from metric (e.g., "nvd@nist.gov", "security@vendor.com")
+            source_raw = metric.get("source", "nvd@nist.gov")
+            # Normalize source to simple identifier (nvd, redhat, microsoft, etc.)
+            source = self._normalize_cvss_source(source_raw)
+
             cvss_scores.append(
                 CVSSEntry(
                     version=cvss_data.get("version", "3.1"),
                     vector_string=cvss_data.get("vectorString", ""),
                     base_score=cvss_data.get("baseScore", 0.0),
                     base_severity=cvss_data.get("baseSeverity", "NONE"),
-                    source="nvd",
+                    source=source,
                 )
             )
 
         # CVSS 3.0 (if present)
         for metric in metrics.get("cvssMetricV30", []):
             cvss_data = metric.get("cvssData", {})
+            source_raw = metric.get("source", "nvd@nist.gov")
+            source = self._normalize_cvss_source(source_raw)
+
             cvss_scores.append(
                 CVSSEntry(
                     version=cvss_data.get("version", "3.0"),
                     vector_string=cvss_data.get("vectorString", ""),
                     base_score=cvss_data.get("baseScore", 0.0),
                     base_severity=cvss_data.get("baseSeverity", "NONE"),
-                    source="nvd",
+                    source=source,
                 )
             )
 
         # CVSS 2.0 (if present)
         for metric in metrics.get("cvssMetricV2", []):
             cvss_data = metric.get("cvssData", {})
+            source_raw = metric.get("source", "nvd@nist.gov")
+            source = self._normalize_cvss_source(source_raw)
+
             cvss_scores.append(
                 CVSSEntry(
                     version=cvss_data.get("version", "2.0"),
                     vector_string=cvss_data.get("vectorString", ""),
                     base_score=cvss_data.get("baseScore", 0.0),
                     base_severity=metric.get("baseSeverity", "NONE"),
-                    source="nvd",
+                    source=source,
                 )
             )
 
         return cvss_scores
+
+    def _normalize_cvss_source(self, source_raw: str) -> str:
+        """Normalize CVSS source from email format to simple identifier.
+
+        Examples:
+            "nvd@nist.gov" -> "nvd"
+            "security@redhat.com" -> "redhat"
+            "security@microsoft.com" -> "microsoft"
+            "cve@mitre.org" -> "mitre"
+
+        Args:
+            source_raw: Raw source string from NVD (usually email format)
+
+        Returns:
+            Normalized source identifier
+        """
+        # Default mapping for known sources
+        if "nvd" in source_raw.lower() or "nist.gov" in source_raw.lower():
+            return "nvd"
+        elif "redhat" in source_raw.lower():
+            return "redhat"
+        elif "microsoft" in source_raw.lower():
+            return "microsoft"
+        elif "mitre" in source_raw.lower():
+            return "mitre"
+        else:
+            # Extract domain or username before @
+            # "security@example.com" -> "example"
+            if "@" in source_raw:
+                parts = source_raw.split("@")
+                if len(parts) > 1:
+                    domain = parts[1].split(".")[0]
+                    return domain.lower()
+            return source_raw.lower()
 
     def _parse_cwes(
         self, weaknesses: list[dict[str, object]]
