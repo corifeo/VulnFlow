@@ -119,3 +119,43 @@ def test_nvd_extractor_parses_references():
     # Second record has 1 reference with no tags
     assert len(records[1].references) == 1
     assert records[1].references[0].tags == []
+
+
+def test_nvd_extractor_handles_utf8():
+    """NVDExtractor handles UTF-8 encoded files."""
+    import tempfile
+    from pathlib import Path
+    import json
+
+    # Create test file with UTF-8 characters
+    nvd_data = {
+        "resultsPerPage": 1,
+        "startIndex": 0,
+        "totalResults": 1,
+        "format": "NVD_CVE",
+        "version": "2.0",
+        "vulnerabilities": [{
+            "cve": {
+                "id": "CVE-2024-0001",
+                "descriptions": [{
+                    "lang": "en",
+                    "value": "Test with UTF-8: café résumé"
+                }],
+                "published": "2024-01-01T00:00:00.000",
+                "lastModified": "2024-01-01T00:00:00.000"
+            }
+        }]
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
+        json.dump(nvd_data, f)
+        temp_path = f.name
+
+    try:
+        extractor = NVDExtractor(temp_path)
+        records = extractor.extract()
+
+        assert len(records) == 1
+        assert "café" in records[0].description
+    finally:
+        Path(temp_path).unlink()
