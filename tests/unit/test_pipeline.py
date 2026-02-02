@@ -8,6 +8,8 @@ Dependencies: None (test fixtures only)
 
 from __future__ import annotations
 
+import pytest
+
 from vulnflow.pipeline import PipelineResult, VulnPipeline
 
 
@@ -87,6 +89,26 @@ def test_pipeline_exports():
 
     assert VulnPipeline is not None
     assert PipelineResult is not None
+
+
+def test_exception_exports():
+    """Exception classes exported from main package."""
+    from vulnflow import (
+        EnricherError,
+        ExtractorError,
+        LoaderError,
+        TransformError,
+        VulnFlowError,
+    )
+
+    # All exceptions should inherit from VulnFlowError
+    assert issubclass(ExtractorError, VulnFlowError)
+    assert issubclass(EnricherError, VulnFlowError)
+    assert issubclass(TransformError, VulnFlowError)
+    assert issubclass(LoaderError, VulnFlowError)
+
+    # VulnFlowError should inherit from Exception
+    assert issubclass(VulnFlowError, Exception)
 
 
 def test_pipeline_executes_transforms():
@@ -198,3 +220,105 @@ def test_pipeline_with_enrichers():
     assert result.dataset is not None
     assert "kev_date_added" in result.dataset.columns
     assert "KEVEnricher" in result.successful_stages
+
+
+def test_pipeline_strict_mode_raises_on_enricher_error():
+    """Strict mode raises on enricher failure."""
+    from fixtures.broken_enricher import BrokenEnricher
+    from vulnflow.exceptions import EnricherError
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[BrokenEnricher()],
+    )
+
+    with pytest.raises(EnricherError, match="simulated failure"):
+        pipeline.run(strict=True)
+
+
+def test_pipeline_strict_mode_raises_on_transform_error():
+    """Strict mode raises on transform failure."""
+    from fixtures.broken_enricher import BrokenTransform
+    from vulnflow.exceptions import TransformError
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[BrokenTransform()],
+    )
+
+    with pytest.raises(TransformError, match="simulated failure"):
+        pipeline.run(strict=True)
+
+
+def test_pipeline_lenient_mode_continues_on_error():
+    """Lenient mode collects errors, continues execution."""
+    from fixtures.broken_enricher import BrokenEnricher
+    from vulnflow.extractors.nvd import NVDExtractor
+    from vulnflow.transforms.enrichers.kev import KEVEnricher
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[
+            KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+            BrokenEnricher(),
+        ],
+    )
+
+    # Should NOT raise
+    result = pipeline.run(strict=False)
+
+    assert len(result.errors) == 1
+    assert "BrokenEnricher" in result.failed_stages
+    assert "KEVEnricher" in result.successful_stages
+    assert result.dataset is not None
+
+
+def test_pipeline_lenient_mode_is_default():
+    """Lenient mode is default (strict=False)."""
+    from fixtures.broken_enricher import BrokenEnricher
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[BrokenEnricher()],
+    )
+
+    # Should NOT raise (default is lenient)
+    result = pipeline.run()
+
+    assert len(result.errors) == 1
+    assert "BrokenEnricher" in result.failed_stages
+
+
+def test_pipeline_extractor_failure_always_raises():
+    """Extractor failures always raise, even in lenient mode."""
+    from vulnflow.exceptions import ExtractorError
+
+    class BrokenExtractor:
+        def extract(self) -> list:
+            raise ExtractorError("Broken extractor")
+
+    pipeline = VulnPipeline(extractors=[BrokenExtractor()])
+
+    with pytest.raises(ExtractorError, match="Broken extractor"):
+        pipeline.run(strict=False)
+
+
+def test_pipeline_loader_failure_always_raises():
+    """Loader failures always raise, even in lenient mode."""
+    from vulnflow.exceptions import LoaderError
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    class BrokenLoader:
+        def load(self, dataset: object) -> None:
+            raise LoaderError("Broken loader")
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        loaders=[BrokenLoader()],
+    )
+
+    with pytest.raises(LoaderError, match="Broken loader"):
+        pipeline.run(strict=False)
