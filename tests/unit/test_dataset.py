@@ -117,6 +117,36 @@ def test_dataset_set_column_wrong_length_raises():
         dataset.set_column("bad_column", wrong_data)
 
 
+def test_dataset_transform_applies_transforms():
+    """VulnDataset.transform() applies transforms."""
+    import numpy as np
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Mock transform that adds a column
+    class MockTransform:
+        name = "mock"
+        depends_on: list[str] = []
+
+        def transform(self, ds: VulnDataset) -> None:
+            ds.set_column("mock_column", np.array(["A", "B", "C"], dtype=object))
+
+    dataset.transform([MockTransform()])
+
+    assert "mock_column" in dataset.columns
+    assert list(dataset.get_column("mock_column")) == ["A", "B", "C"]
+
+
+def test_dataset_transform_empty_list():
+    """VulnDataset.transform() with empty list does nothing."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    initial_columns = dataset.columns.copy()
+
+    dataset.transform([])
+
+    assert dataset.columns == initial_columns
+
+
 def test_dataset_columnar_schema_complete():
     """VulnDataset._from_records stores all VulnRecord fields."""
     from datetime import UTC, datetime

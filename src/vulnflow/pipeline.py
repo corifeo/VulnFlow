@@ -74,7 +74,17 @@ class VulnPipeline:
 
             dataset = VulnDataset._from_records(records)
 
-        # Stage 2: Transform (placeholder for Phase 4+)
+        # Stage 2: Transform
+        if self.transformers and dataset is not None:
+            for transformer in self.transformers:
+                try:
+                    transformer.transform(dataset)
+                    successful_stages.append(transformer.__class__.__name__)
+                except Exception as e:
+                    failed_stages.append(transformer.__class__.__name__)
+                    errors.append(e)
+                    if strict:
+                        raise
 
         # Stage 3: Load
         loader_outputs: dict[str, Any] = {}
