@@ -84,11 +84,17 @@ class VulnDataset:
         self._data[name] = data
 
     def transform(self, transforms: list[object] | None = None) -> None:
-        """Apply transforms to dataset (modifies in place).
+        """Apply transforms and enrichers to dataset (modifies in place).
+
+        Handles both:
+        - Sync transforms (with transform() method)
+        - Async enrichers (with enrich() method) - run via asyncio
 
         Args:
-            transforms: List of transform instances. If None, uses registered defaults.
+            transforms: List of transform/enricher instances. If None, uses registered defaults.
         """
+        import asyncio
+
         if transforms is None:
             from vulnflow.registry import get_transforms
 
@@ -96,7 +102,10 @@ class VulnDataset:
             transforms = [cls() for cls in transform_classes]
 
         for t in transforms:
-            if hasattr(t, "transform"):
+            if hasattr(t, "enrich"):
+                # Async enricher - run via asyncio
+                asyncio.run(t.enrich(self))
+            elif hasattr(t, "transform"):
                 t.transform(self)
 
     @classmethod

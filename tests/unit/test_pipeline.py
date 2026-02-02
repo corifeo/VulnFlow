@@ -181,3 +181,20 @@ def test_pipeline_10_pipelines_with_10_stages():
     # Verify all loaders were called
     for loader in all_loaders:
         assert loader.load_called, f"{loader.name} was not called"
+
+
+def test_pipeline_with_enrichers():
+    """Pipeline runs async enrichers."""
+    from vulnflow.extractors.nvd import NVDExtractor
+    from vulnflow.transforms.enrichers.kev import KEVEnricher
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[KEVEnricher(source="tests/fixtures/kev_sample.csv")],
+    )
+
+    result = pipeline.run()
+
+    assert result.dataset is not None
+    assert "kev_date_added" in result.dataset.columns
+    assert "KEVEnricher" in result.successful_stages
