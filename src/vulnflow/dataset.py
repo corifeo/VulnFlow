@@ -19,6 +19,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
+    import pandas as pd
+    import polars as pl
+
     from vulnflow.schema import VulnRecord
 
 
@@ -41,6 +44,45 @@ class VulnDataset:
         first_key = next(iter(self._data.keys()))
         return len(self._data[first_key])
 
+    @property
+    def columns(self) -> list[str]:
+        """Return list of column names.
+
+        Returns:
+            List of column names in dataset
+        """
+        return list(self._data.keys())
+
+    def get_column(self, name: str) -> np.ndarray:
+        """Get column data as numpy array.
+
+        Args:
+            name: Column name
+
+        Returns:
+            Numpy array with column data
+
+        Raises:
+            KeyError: If column does not exist
+        """
+        return self._data[name]
+
+    def set_column(self, name: str, data: np.ndarray) -> None:
+        """Set column data (add new or update existing).
+
+        Args:
+            name: Column name
+            data: Numpy array with column data
+
+        Raises:
+            ValueError: If data length doesn't match dataset length
+        """
+        if self._data and len(data) != len(self):
+            msg = f"Column length mismatch: expected {len(self)}, got {len(data)}"
+            raise ValueError(msg)
+
+        self._data[name] = data
+
     @classmethod
     def _from_records(cls, records: list[VulnRecord]) -> VulnDataset:
         """Convert list of VulnRecord to columnar storage.
@@ -53,11 +95,14 @@ class VulnDataset:
 
         Note:
             Complex fields (lists, nested dataclasses) stored as JSON strings.
+            Flattened columns (cvss_base_score, etc.) added for DataFrame convenience.
             CVD timestamps are NOT stored here - EventInference adds them later.
         """
         import json
         from dataclasses import asdict, is_dataclass
         from typing import Any
+
+        from vulnflow.schema import CVSSEntry
 
         def encode_nested(value: Any) -> str:
             """Encode nested structure as JSON string."""
@@ -75,9 +120,47 @@ class VulnDataset:
                 return json.dumps(asdict(value), default=str)
             return json.dumps(value, default=str)
 
+        def flatten_cvss(
+            cvss_scores: list[CVSSEntry],
+        ) -> dict[str, float | str | None]:
+            """Flatten list[CVSSEntry] to scalar columns.
+
+            Selection logic:
+            1. Prefer source: nvd > redhat > microsoft > other
+            2. If tie, take first in list
+            """
+            if not cvss_scores:
+                return {
+                    "cvss_base_score": None,
+                    "cvss_base_severity": None,
+                    "cvss_version": None,
+                    "cvss_vector_string": None,
+                    "cvss_source": None,
+                }
+
+            # Source preference order
+            source_priority = {"nvd": 0, "redhat": 1, "microsoft": 2}
+
+            def score_key(entry: CVSSEntry) -> int:
+                return source_priority.get(entry.source, 999)
+
+            # Select preferred entry
+            selected = min(cvss_scores, key=score_key)
+
+            return {
+                "cvss_base_score": selected.base_score,
+                "cvss_base_severity": selected.base_severity,
+                "cvss_version": selected.version,
+                "cvss_vector_string": selected.vector_string,
+                "cvss_source": selected.source,
+            }
+
         dataset = cls()
         if not records:
             return dataset
+
+        # Flatten CVSS for each record
+        flattened_cvss = [flatten_cvss(r.cvss_scores) for r in records]
 
         dataset._data = {
             # Identity
@@ -100,12 +183,28 @@ class VulnDataset:
             "nvd_modified_at": np.array(
                 [r.nvd_modified_at for r in records], dtype=object
             ),
-            # Scoring (JSON-encoded lists)
+            # Scoring (JSON-encoded lists for Parquet round-trip)
             "cvss_scores": np.array(
                 [encode_nested(r.cvss_scores) for r in records], dtype=object
             ),
             "epss_scores": np.array(
                 [encode_nested(r.epss_scores) for r in records], dtype=object
+            ),
+            # Flattened CVSS (for DataFrame convenience)
+            "cvss_base_score": np.array(
+                [f["cvss_base_score"] for f in flattened_cvss], dtype=object
+            ),
+            "cvss_base_severity": np.array(
+                [f["cvss_base_severity"] for f in flattened_cvss], dtype=object
+            ),
+            "cvss_version": np.array(
+                [f["cvss_version"] for f in flattened_cvss], dtype=object
+            ),
+            "cvss_vector_string": np.array(
+                [f["cvss_vector_string"] for f in flattened_cvss], dtype=object
+            ),
+            "cvss_source": np.array(
+                [f["cvss_source"] for f in flattened_cvss], dtype=object
             ),
             # Exploitation (JSON-encoded)
             "kev": np.array([encode_nested(r.kev) for r in records], dtype=object),
@@ -143,6 +242,28 @@ class VulnDataset:
         extractor = NVDExtractor(str(path))
         records = extractor.extract()
         return cls._from_records(records)
+
+    def to_pandas(self) -> pd.DataFrame:
+        """Export dataset to pandas DataFrame.
+
+        Returns:
+            Pandas DataFrame with all columns
+        """
+        import pandas as pd
+
+        return pd.DataFrame(self._data)
+
+    def to_polars(self) -> pl.DataFrame:
+        """Export dataset to polars DataFrame.
+
+        Returns:
+            Polars DataFrame with all columns
+        """
+        import polars as pl
+
+        # Convert numpy arrays to lists for polars compatibility
+        data = {k: v.tolist() for k, v in self._data.items()}
+        return pl.from_dict(data)
 
     def to_parquet(self, path: str | Path) -> None:
         """Export dataset to Parquet file.
