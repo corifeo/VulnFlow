@@ -78,34 +78,21 @@ class VulnPipeline:
         if self.transformers and dataset is not None:
             import asyncio
 
-            # Separate enrichers (async) and transforms (sync)
-            enrichers = [t for t in self.transformers if hasattr(t, "enrich")]
-            transforms = [t for t in self.transformers if hasattr(t, "transform")]
-
-            # Run enrichers concurrently
-            if enrichers:
-
-                async def run_enrichers() -> None:
-                    await asyncio.gather(*[e.enrich(dataset) for e in enrichers])
+            for transformer in self.transformers:
+                transformer_name = transformer.__class__.__name__
 
                 try:
-                    asyncio.run(run_enrichers())
-                    for enricher in enrichers:
-                        successful_stages.append(enricher.__class__.__name__)
-                except Exception as e:
-                    for enricher in enrichers:
-                        failed_stages.append(enricher.__class__.__name__)
-                    errors.append(e)
-                    if strict:
-                        raise
+                    if hasattr(transformer, "enrich"):
+                        # Async enricher
+                        asyncio.run(transformer.enrich(dataset))
+                    elif hasattr(transformer, "transform"):
+                        # Sync transform
+                        transformer.transform(dataset)
 
-            # Run transforms sequentially (they're sync)
-            for transformer in transforms:
-                try:
-                    transformer.transform(dataset)
-                    successful_stages.append(transformer.__class__.__name__)
+                    successful_stages.append(transformer_name)
+
                 except Exception as e:
-                    failed_stages.append(transformer.__class__.__name__)
+                    failed_stages.append(transformer_name)
                     errors.append(e)
                     if strict:
                         raise

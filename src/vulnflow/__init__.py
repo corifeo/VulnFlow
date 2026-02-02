@@ -7,16 +7,35 @@ Provides:
 - VulnPipeline: ETL pipeline orchestrator with composition support
 - PipelineResult: Execution results with metadata and error tracking
 - Registry: Plugin registration for enrichers and transforms
+- Exceptions: VulnFlowError, ExtractorError, EnricherError, TransformError, LoaderError
 
 Layer: Public API
-Dependencies: dataset, schema, registry, pipeline
+Dependencies: dataset, schema, registry, pipeline, exceptions
 Used by: User code
 """
 
 from vulnflow.dataset import VulnDataset
+from vulnflow.exceptions import (
+    EnricherError,
+    ExtractorError,
+    LoaderError,
+    TransformError,
+    VulnFlowError,
+)
 from vulnflow.pipeline import PipelineResult, VulnPipeline
 from vulnflow.registry import Registry
 from vulnflow.schema import VulnRecord
 
-__all__ = ["VulnDataset", "VulnRecord", "VulnPipeline", "PipelineResult", "Registry"]
+__all__ = [
+    "VulnDataset",
+    "VulnRecord",
+    "VulnPipeline",
+    "PipelineResult",
+    "Registry",
+    "VulnFlowError",
+    "ExtractorError",
+    "EnricherError",
+    "TransformError",
+    "LoaderError",
+]
 __version__ = "0.1.0"
