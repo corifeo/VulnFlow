@@ -17,11 +17,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from vulnflow.extractors.base import BaseExtractor
+from vulnflow.registry import Registry
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
 
+@Registry.register_extractor("parquet")
 class ParquetExtractor(BaseExtractor):
     """Extract from Parquet files (direct load).
 

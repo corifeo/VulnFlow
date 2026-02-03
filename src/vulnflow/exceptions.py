@@ -21,7 +21,21 @@ class VulnFlowError(Exception):
 
 
 class ExtractorError(VulnFlowError):
-    """Extraction stage failure (always fatal)."""
+    """Extraction stage failure (always fatal).
+
+    Raised when an extractor cannot read or parse source data. Examples:
+    - File not found or unreadable
+    - Invalid JSON/Parquet format
+    - Missing required fields in source data
+    - Unsupported schema version
+
+    Extractors MUST raise this exception immediately on failure.
+    Do not catch and continue - extraction failures are always fatal.
+
+    Example:
+        >>> if not path.exists():
+        ...     raise ExtractorError(f"File not found: {path}")
+    """
 
     pass
 
@@ -39,6 +53,20 @@ class TransformError(VulnFlowError):
 
 
 class LoaderError(VulnFlowError):
-    """Load stage failure (always fatal)."""
+    """Load stage failure (always fatal).
+
+    Raised when a loader cannot write output data. Examples:
+    - Permission denied writing file
+    - Disk full or I/O error
+    - Invalid data format for target
+    - Missing parent directory
+
+    Loaders MUST raise this exception immediately on failure.
+    Do not catch and continue - load failures risk data loss.
+
+    Example:
+        >>> if not parent_dir.exists():
+        ...     raise LoaderError(f"Parent directory does not exist: {parent_dir}")
+    """
 
     pass

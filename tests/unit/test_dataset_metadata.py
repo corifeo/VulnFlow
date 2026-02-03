@@ -11,7 +11,8 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from vulnflow.dataset import VulnDataset
+from tests.conftest import dataset_from_records
+
 from vulnflow.schema import VulnRecord
 
 
@@ -20,7 +21,7 @@ def test_update_sources_adds_new_source():
     records = [
         VulnRecord(cve_id="CVE-2024-0001", sources=["NVD"])
     ]
-    dataset = VulnDataset._from_records(records)
+    dataset = dataset_from_records(records)
 
     dataset.update_sources([0], "KEV")
 
@@ -36,7 +37,7 @@ def test_update_sources_no_duplicates():
     records = [
         VulnRecord(cve_id="CVE-2024-0001", sources=["NVD", "KEV"])
     ]
-    dataset = VulnDataset._from_records(records)
+    dataset = dataset_from_records(records)
 
     dataset.update_sources([0], "KEV")
 
@@ -51,7 +52,7 @@ def test_update_sources_updates_timestamp():
     records = [
         VulnRecord(cve_id="CVE-2024-0001", sources=["NVD"])
     ]
-    dataset = VulnDataset._from_records(records)
+    dataset = dataset_from_records(records)
 
     before = datetime.now()
     dataset.update_sources([0], "KEV")

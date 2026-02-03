@@ -29,6 +29,136 @@ if TYPE_CHECKING:
     from vulnflow.schema import VulnRecord
 
 
+def dataset_from_records(records: list[VulnRecord]) -> VulnDataset:  # type: ignore[name-defined]
+    """Helper to create VulnDataset from list of VulnRecord (for testing).
+
+    This is a test helper that mimics the old _from_records behavior.
+    In production code, use extractors instead.
+
+    Args:
+        records: List of VulnRecord instances
+
+    Returns:
+        VulnDataset with columnar storage
+    """
+    import json
+    from dataclasses import fields, is_dataclass
+    from typing import Any
+
+    import numpy as np
+
+    from vulnflow.dataset import VulnDataset
+    from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, VulnRecord
+
+    # Create JSON encoder once for reuse
+    json_encoder = json.JSONEncoder(default=str)
+
+    def dataclass_to_dict(obj: Any) -> Any:
+        """Fast dataclass to dict conversion without asdict overhead."""
+        if obj is None:
+            return None
+        if is_dataclass(obj) and not isinstance(obj, type):
+            return {f.name: getattr(obj, f.name) for f in obj.__dataclass_fields__.values()}
+        return obj
+
+    def encode_nested(value: Any) -> str:
+        """Encode nested structure as JSON string."""
+        if value is None:
+            return "null"
+        if isinstance(value, list):
+            if not value:
+                return "[]"
+            items = [dataclass_to_dict(item) for item in value]
+            return json_encoder.encode(items)
+        if is_dataclass(value) and not isinstance(value, type):
+            return json_encoder.encode(dataclass_to_dict(value))
+        return json_encoder.encode(value)
+
+    def flatten_cvss(cvss_scores: list[CVSSEntry]) -> dict[str, float | str | None]:
+        """Flatten list[CVSSEntry] to scalar columns."""
+        if not cvss_scores:
+            return {
+                "cvss_base_score": None,
+                "cvss_base_severity": None,
+                "cvss_version": None,
+                "cvss_vector_string": None,
+                "cvss_source": None,
+            }
+        source_priority = {"nvd": 0, "redhat": 1, "microsoft": 2}
+        selected = min(cvss_scores, key=lambda e: source_priority.get(e.source, 999))
+        return {
+            "cvss_base_score": selected.base_score,
+            "cvss_base_severity": selected.base_severity,
+            "cvss_version": selected.version,
+            "cvss_vector_string": selected.vector_string,
+            "cvss_source": selected.source,
+        }
+
+    def flatten_cwe(cwes: list[CWEEntry]) -> dict[str, str | None]:
+        """Flatten list[CWEEntry] to scalar columns (first entry)."""
+        if not cwes:
+            return {"primary_cwe_id": None, "primary_cwe_name": None}
+        first = cwes[0]
+        return {"primary_cwe_id": first.id, "primary_cwe_name": first.name}
+
+    def flatten_cpe(cpes: list[CPEEntry]) -> dict[str, str | None]:
+        """Flatten list[CPEEntry] to scalar columns (first entry)."""
+        if not cpes:
+            return {"primary_vendor": None, "primary_product": None, "primary_version": None}
+        first = cpes[0]
+        return {"primary_vendor": first.vendor, "primary_product": first.product, "primary_version": first.version}
+
+    dataset = VulnDataset()
+    if not records:
+        return dataset
+
+    n = len(records)
+    record_cols = [f.name for f in fields(VulnRecord)]
+    flattened_cols = [
+        "cvss_base_score", "cvss_base_severity", "cvss_version", "cvss_vector_string", "cvss_source",
+        "primary_cwe_id", "primary_cwe_name", "primary_vendor", "primary_product", "primary_version",
+    ]
+    all_columns = record_cols + flattened_cols
+    arrays = {col: np.empty(n, dtype=object) for col in all_columns}
+
+    for i, r in enumerate(records):
+        arrays["id"][i] = str(r.id)
+        arrays["cve_id"][i] = r.cve_id
+        arrays["aliases"][i] = json.dumps(r.aliases)
+        arrays["title"][i] = r.title
+        arrays["description"][i] = r.description
+        arrays["first_seen_at"][i] = r.first_seen_at
+        arrays["last_updated_at"][i] = r.last_updated_at
+        arrays["sources"][i] = json.dumps(r.sources)
+        arrays["nvd_published_at"][i] = r.nvd_published_at
+        arrays["nvd_modified_at"][i] = r.nvd_modified_at
+        arrays["cvss_scores"][i] = encode_nested(r.cvss_scores)
+        arrays["epss_scores"][i] = encode_nested(r.epss_scores)
+        flattened = flatten_cvss(r.cvss_scores)
+        arrays["cvss_base_score"][i] = flattened["cvss_base_score"]
+        arrays["cvss_base_severity"][i] = flattened["cvss_base_severity"]
+        arrays["cvss_version"][i] = flattened["cvss_version"]
+        arrays["cvss_vector_string"][i] = flattened["cvss_vector_string"]
+        arrays["cvss_source"][i] = flattened["cvss_source"]
+        arrays["kev"][i] = encode_nested(r.kev)
+        arrays["exploits"][i] = encode_nested(r.exploits)
+        arrays["cwes"][i] = encode_nested(r.cwes)
+        arrays["cpes"][i] = encode_nested(r.cpes)
+        cwe_flat = flatten_cwe(r.cwes)
+        arrays["primary_cwe_id"][i] = cwe_flat["primary_cwe_id"]
+        arrays["primary_cwe_name"][i] = cwe_flat["primary_cwe_name"]
+        cpe_flat = flatten_cpe(r.cpes)
+        arrays["primary_vendor"][i] = cpe_flat["primary_vendor"]
+        arrays["primary_product"][i] = cpe_flat["primary_product"]
+        arrays["primary_version"][i] = cpe_flat["primary_version"]
+        arrays["references"][i] = encode_nested(r.references)
+        arrays["tags"][i] = json.dumps(r.tags)
+        arrays["metadata"][i] = json.dumps(r.metadata, default=str)
+
+    dataset._data = arrays
+    return dataset
+
+
 class MockExtractor:
     """Test double for Extractor protocol."""
 
@@ -37,12 +167,12 @@ class MockExtractor:
         self.num_records = num_records
         self.extract_called = False
 
-    def extract(self) -> list[VulnRecord]:
-        """Return mock VulnRecords."""
+    def extract(self) -> VulnDataset:  # type: ignore[name-defined]
+        """Return mock VulnDataset."""
         from vulnflow.schema import VulnRecord
 
         self.extract_called = True
-        return [
+        records = [
             VulnRecord(
                 id=uuid4(),
                 cve_id=f"CVE-2024-{i:04d}",
@@ -51,6 +181,7 @@ class MockExtractor:
             )
             for i in range(self.num_records)
         ]
+        return dataset_from_records(records)
 
 
 class MockTransformer:

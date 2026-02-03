@@ -235,3 +235,25 @@ def test_registry_clear_loaders() -> None:
 
     clear_registry()
     assert len(Registry.list_loaders()) == 0
+
+
+def test_builtin_extractors_registered() -> None:
+    """Built-in extractors are registered on module import."""
+    from vulnflow.registry import Registry
+
+    clear_registry()
+
+    # Import modules to trigger registration
+    import vulnflow.extractors.files  # noqa: F401
+    import vulnflow.extractors.nvd  # noqa: F401
+
+    extractors = Registry.list_extractors()
+    assert "nvd_json" in extractors
+    assert "parquet" in extractors
+
+    # Verify classes can be retrieved
+    nvd_cls = Registry.get_extractor("nvd_json")
+    assert nvd_cls.__name__ == "NVDExtractor"
+
+    parquet_cls = Registry.get_extractor("parquet")
+    assert parquet_cls.__name__ == "ParquetExtractor"
