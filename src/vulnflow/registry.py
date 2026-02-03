@@ -125,6 +125,43 @@ class Registry:
         return entry[0] if entry else None
 
     @classmethod
+    def get_transform_any(cls, name: str) -> type[Any]:
+        """Get a transform class from enrichers or transforms registries.
+
+        Searches enrichers first, then transforms. This is the preferred
+        method for dynamic lookups (e.g., from_config) where the caller
+        doesn't know if the transform is an enricher or not.
+
+        Args:
+            name: Transform name
+
+        Returns:
+            Transform class (enricher or transform)
+
+        Raises:
+            KeyError: If transform not found in either registry
+        """
+        # Try enricher first
+        entry = cls._enrichers.get(name)
+        if entry:
+            return entry[0]
+
+        # Then try transform
+        entry = cls._transforms.get(name)
+        if entry:
+            return entry[0]
+
+        # Not found - build helpful error message
+        available_enrichers = list(cls._enrichers.keys())
+        available_transforms = list(cls._transforms.keys())
+        all_available = sorted(available_enrichers + available_transforms)
+
+        raise KeyError(
+            f"Transform not found: {name}. "
+            f"Available transforms: {', '.join(all_available) if all_available else 'none'}"
+        )
+
+    @classmethod
     def get_extractor(cls, name: str) -> type[BaseExtractor]:
         """Get an extractor class by name.
 

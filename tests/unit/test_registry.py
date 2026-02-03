@@ -283,3 +283,73 @@ def test_builtin_loaders_registered() -> None:
 
     polars_cls = Registry.get_loader("polars")
     assert polars_cls.__name__ == "PolarsLoader"
+
+
+def test_registry_get_transform_any_finds_enricher() -> None:
+    """Registry.get_transform_any() finds enrichers."""
+    from vulnflow.registry import Registry
+
+    clear_registry()
+
+    @Registry.register_enricher("test_enricher")
+    class TestEnricher:
+        name = "test_enricher"
+
+    transform_cls = Registry.get_transform_any("test_enricher")
+    assert transform_cls is not None
+    assert transform_cls.__name__ == "TestEnricher"
+
+
+def test_registry_get_transform_any_finds_transform() -> None:
+    """Registry.get_transform_any() finds transforms."""
+    from vulnflow.registry import Registry
+
+    clear_registry()
+
+    @Registry.register_transform("test_transform")
+    class TestTransform:
+        name = "test_transform"
+
+    transform_cls = Registry.get_transform_any("test_transform")
+    assert transform_cls is not None
+    assert transform_cls.__name__ == "TestTransform"
+
+
+def test_registry_get_transform_any_prefers_enricher() -> None:
+    """Registry.get_transform_any() prefers enricher when both exist."""
+    from vulnflow.registry import Registry
+
+    clear_registry()
+
+    @Registry.register_enricher("duplicate")
+    class TestEnricher:
+        name = "duplicate"
+
+    @Registry.register_transform("duplicate")
+    class TestTransform:
+        name = "duplicate"
+
+    transform_cls = Registry.get_transform_any("duplicate")
+    assert transform_cls.__name__ == "TestEnricher"
+
+
+def test_registry_get_transform_any_not_found() -> None:
+    """Registry.get_transform_any() raises KeyError with helpful message."""
+    import pytest
+
+    from vulnflow.registry import Registry
+
+    clear_registry()
+
+    @Registry.register_enricher("enricher1")
+    class TestEnricher:
+        name = "enricher1"
+
+    @Registry.register_transform("transform1")
+    class TestTransform:
+        name = "transform1"
+
+    with pytest.raises(
+        KeyError, match="Transform not found: unknown.*enricher1, transform1"
+    ):
+        Registry.get_transform_any("unknown")
