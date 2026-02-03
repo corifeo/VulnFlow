@@ -86,25 +86,20 @@ class KEVEnricher:
         kev_product: list[str | None] = [None] * n
         kev_ransomware: list[str | None] = [None] * n
 
-        # Use vectorized operations to find matches
-        # Build lookup array from KEV catalog
-        kev_cve_ids = np.array(list(kev_data.keys()), dtype=object)
+        # Track matched indices for source tracking
+        matched_indices: list[int] = []
 
-        # Find matches using numpy indexing (vectorized)
-        matches_mask = np.isin(cve_ids, kev_cve_ids)
-        matched_indices = np.where(matches_mask)[0].tolist()
-
-        # For matched records, populate using direct indexing
-        for idx in matched_indices:
-            cve_id = cve_ids[idx]
+        # Match by CVE ID
+        for i, cve_id in enumerate(cve_ids):
             if cve_id in kev_data:
+                matched_indices.append(i)
                 entry = kev_data[cve_id]
-                kev_date_added[idx] = entry["date_added"]
-                kev_due_date[idx] = entry["due_date"]
-                kev_required_action[idx] = entry["required_action"]
-                kev_vendor[idx] = entry["vendor"]
-                kev_product[idx] = entry["product"]
-                kev_ransomware[idx] = entry["ransomware"]
+                kev_date_added[i] = entry["date_added"]
+                kev_due_date[i] = entry["due_date"]
+                kev_required_action[i] = entry["required_action"]
+                kev_vendor[i] = entry["vendor"]
+                kev_product[i] = entry["product"]
+                kev_ransomware[i] = entry["ransomware"]
 
         # Add columns to dataset
         dataset.set_column("kev_date_added", np.array(kev_date_added, dtype=object))
