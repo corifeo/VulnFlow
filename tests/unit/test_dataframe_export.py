@@ -87,30 +87,3 @@ def test_to_polars_flattens_cvss():
     # First record has CVSS
     assert df["cvss_base_score"][0] == 9.8
     assert df["cvss_base_severity"][0] == "CRITICAL"
-
-
-def test_to_pandas_uses_schema_registry():
-    """to_pandas() only exports registered schema fields when use_registry=True."""
-    from vulnflow.schema_registry import FieldDefinition, get_global_registry
-
-    registry = get_global_registry()
-    registry.clear()
-
-    # Register only specific fields
-    registry.register_schema(
-        "Test",
-        "1.0.0",
-        [
-            FieldDefinition("cve_id", "str", "NVD"),
-            FieldDefinition("nvd_published_at", "datetime", "NVD"),
-        ],
-    )
-
-    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-    df = dataset.to_pandas(use_registry=True)
-
-    # Should only include registered fields
-    assert "cve_id" in df.columns
-    assert "nvd_published_at" in df.columns
-    # Should NOT include unregistered fields
-    assert "description" not in df.columns  # Not in registry

@@ -23,7 +23,6 @@ class Enricher(Protocol):
     """Protocol for async enrichers that fetch external data."""
 
     name: str
-    depends_on: list[str]
 
     async def transform(self, dataset: VulnDataset) -> None:
         """Enrich dataset with external data (async, I/O-bound)."""
