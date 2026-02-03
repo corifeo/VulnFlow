@@ -7,10 +7,12 @@ Provides:
 - VulnPipeline: ETL pipeline orchestrator with composition support
 - PipelineResult: Execution results with metadata and error tracking
 - Registry: Plugin registration for enrichers and transforms
+- Extractor, BaseExtractor: Protocol and base class for extractors
+- Loader, BaseLoader: Protocol and base class for loaders
 - Exceptions: VulnFlowError, ExtractorError, EnricherError, TransformError, LoaderError
 
 Layer: Public API
-Dependencies: dataset, schema, registry, pipeline, exceptions
+Dependencies: dataset, schema, registry, pipeline, exceptions, extractors, loaders
 Used by: User code
 """
 
@@ -26,6 +28,8 @@ from vulnflow.exceptions import (
     TransformError,
     VulnFlowError,
 )
+from vulnflow.extractors.base import BaseExtractor, Extractor
+from vulnflow.loaders.base import BaseLoader, Loader
 from vulnflow.pipeline import PipelineResult, VulnPipeline
 from vulnflow.registry import FieldDefinition, Registry
 from vulnflow.schema import VulnRecord
@@ -37,6 +41,10 @@ __all__ = [
     "PipelineResult",
     "Registry",
     "FieldDefinition",
+    "Extractor",
+    "BaseExtractor",
+    "Loader",
+    "BaseLoader",
     "VulnFlowError",
     "ExtractorError",
     "EnricherError",

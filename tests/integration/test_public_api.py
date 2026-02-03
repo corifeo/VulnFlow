@@ -10,12 +10,25 @@ from __future__ import annotations
 
 def test_public_api_exports():
     """Public API exports all required classes."""
-    from vulnflow import PipelineResult, VulnDataset, VulnPipeline, VulnRecord
+    from vulnflow import (
+        BaseExtractor,
+        BaseLoader,
+        Extractor,
+        Loader,
+        PipelineResult,
+        VulnDataset,
+        VulnPipeline,
+        VulnRecord,
+    )
 
     assert VulnDataset is not None
     assert VulnRecord is not None
     assert VulnPipeline is not None
     assert PipelineResult is not None
+    assert Extractor is not None
+    assert BaseExtractor is not None
+    assert Loader is not None
+    assert BaseLoader is not None
 
 
 def test_public_api_end_to_end(tmp_path):

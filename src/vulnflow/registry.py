@@ -45,6 +45,7 @@ class Registry:
 
     _enrichers: dict[str, tuple[type[Any], bool]] = {}  # name -> (class, is_default)
     _transforms: dict[str, tuple[type[Any], bool]] = {}  # name -> (class, is_default)
+
     _extractors: dict[str, type[BaseExtractor]] = {}  # name -> class
     _loaders: dict[str, type[BaseLoader]] = {}  # name -> class
     _schemas: dict[str, list[FieldDefinition]] = {}  # component_name -> fields
