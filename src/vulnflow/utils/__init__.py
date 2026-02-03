@@ -1,5 +1,4 @@
-"""
-Utilities - Shared parsing and lookup utilities
+"""Utilities - Shared parsing and lookup utilities.
 
 Provides:
 - parse_cpe23: CPE 2.3 string parser
