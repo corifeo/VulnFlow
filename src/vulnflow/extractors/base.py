@@ -12,12 +12,12 @@ Used by: nvd, files, sql, memory extractors
 
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from vulnflow.exceptions import ExtractorError
+from vulnflow.utils import json
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset

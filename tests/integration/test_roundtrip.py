@@ -156,7 +156,11 @@ def test_json_vs_parquet_fidelity(tmp_path):
 
     # Both preserve structure
     assert len(dataset_json) == len(dataset_parquet) == len(dataset)
-    assert set(dataset_json.columns) == set(dataset_parquet.columns) == set(dataset.columns)
+    assert (
+        set(dataset_json.columns)
+        == set(dataset_parquet.columns)
+        == set(dataset.columns)
+    )
 
     # CVE IDs match
     assert list(dataset_json._data["cve_id"]) == list(dataset_parquet._data["cve_id"])

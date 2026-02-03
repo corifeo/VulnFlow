@@ -19,10 +19,11 @@ Implements flattening rules from DATA-STRUCTURES.md:
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import numpy as np
+
+from vulnflow.utils import json
 
 
 def decode_json_column(col: np.ndarray) -> list[Any]:

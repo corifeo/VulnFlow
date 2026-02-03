@@ -13,7 +13,6 @@ This is separate from VulnRecord.tags (user-provided tags).
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -23,6 +22,7 @@ if TYPE_CHECKING:
 
 from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseInference
+from vulnflow.utils import json
 
 
 @register_transform
