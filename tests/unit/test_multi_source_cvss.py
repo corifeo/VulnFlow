@@ -13,18 +13,17 @@ from vulnflow.extractors.nvd import NVDExtractor
 def test_nvd_extractor_parses_cvss_source():
     """NVDExtractor extracts source from CVSS metrics."""
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
-    records = extractor.extract()
+    dataset = extractor.extract()
 
-    # First record should have CVSS scores
-    assert len(records) > 0
-    assert len(records[0].cvss_scores) > 0
+    # First record should have CVSS scores (flattened)
+    assert len(dataset) > 0
 
     # Check that source is extracted (not hardcoded as "nvd")
-    cvss = records[0].cvss_scores[0]
-    assert cvss.source is not None
-    assert isinstance(cvss.source, str)
+    cvss_source = dataset.get_column("cvss_source")
+    assert cvss_source[0] is not None
+    assert isinstance(cvss_source[0], str)
     # NVD sample has "nvd@nist.gov" which normalizes to "nvd"
-    assert cvss.source == "nvd"
+    assert cvss_source[0] == "nvd"
 
 
 def test_normalize_cvss_source():

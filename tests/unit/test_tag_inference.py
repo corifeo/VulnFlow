@@ -8,7 +8,8 @@ Dependencies: base, schema
 
 from __future__ import annotations
 
-from vulnflow.dataset import VulnDataset
+from tests.conftest import dataset_from_records
+
 from vulnflow.schema import CPEEntry, CWEEntry, VulnRecord
 from vulnflow.transforms.inferences.tags import TagInference
 
@@ -21,7 +22,7 @@ def test_tag_inference_threat_from_description():
             description="A SQL injection vulnerability allows remote code execution.",
         )
     ]
-    dataset = VulnDataset._from_records(records)
+    dataset = dataset_from_records(records)
 
     TagInference(confidence_threshold=0.7).transform(dataset)
 
@@ -41,7 +42,7 @@ def test_tag_inference_vector_from_cwe():
             cwes=[CWEEntry(id="CWE-89", name="SQL Injection", category_id="CWE-1000")],
         )
     ]
-    dataset = VulnDataset._from_records(records)
+    dataset = dataset_from_records(records)
 
     TagInference().transform(dataset)
 
@@ -65,7 +66,7 @@ def test_tag_inference_product_from_cpe():
             ],
         )
     ]
-    dataset = VulnDataset._from_records(records)
+    dataset = dataset_from_records(records)
 
     TagInference().transform(dataset)
 
@@ -81,7 +82,7 @@ def test_tag_inference_confidence_threshold():
             description="SQL injection",
         )
     ]
-    dataset = VulnDataset._from_records(records)
+    dataset = dataset_from_records(records)
 
     # Threshold > 1.0 should skip inference
     TagInference(confidence_threshold=1.5).transform(dataset)

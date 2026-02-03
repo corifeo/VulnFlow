@@ -21,6 +21,7 @@ from uuid import uuid4
 import numpy as np
 
 from vulnflow.extractors.base import BaseExtractor
+from vulnflow.registry import Registry
 from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, ReferenceEntry, VulnRecord
 from vulnflow.utils.cpe import parse_cpe23
 from vulnflow.utils.schema import get_flattened_columns, get_record_columns
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
 
+@Registry.register_extractor("nvd_json")
 class NVDExtractor(BaseExtractor):
     """Extract from NVD JSON files → VulnDataset.
 
