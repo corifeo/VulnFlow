@@ -332,6 +332,56 @@ class VulnPipeline:
             loaders=self.loaders + other.loaders,
         )
 
+    def then(self, other: VulnPipeline) -> VulnPipeline:
+        """Chain transform-only pipelines (sklearn-like behavior).
+
+        Validates that both pipelines contain ONLY transformers (no extractors
+        or loaders), then concatenates their transformer lists. This is for
+        building reusable transform chains.
+
+        Args:
+            other: Pipeline whose transformers will be chained after this one
+
+        Returns:
+            New VulnPipeline with concatenated transformers only.
+            Original pipelines are unchanged (immutable).
+
+        Raises:
+            ValueError: If either pipeline contains extractors or loaders
+
+        Example:
+            >>> normalize = VulnPipeline(transformers=[NormalizeTransform()])
+            >>> enrich = VulnPipeline(transformers=[KEVEnricher(), EPSSEnricher()])
+            >>> transform_chain = normalize.then(enrich)
+            >>> # transform_chain has 3 transformers, no extractors/loaders
+        """
+        # Validate self has no extractors or loaders
+        if self.extractors:
+            raise ValueError(
+                "then() requires transform-only pipelines (no extractors). "
+                "Use merge() for general stage combining."
+            )
+        if self.loaders:
+            raise ValueError(
+                "then() requires transform-only pipelines (no loaders). "
+                "Use merge() for general stage combining."
+            )
+
+        # Validate other has no extractors or loaders
+        if other.extractors:
+            raise ValueError(
+                "then() requires transform-only pipelines (no extractors). "
+                "Use merge() for general stage combining."
+            )
+        if other.loaders:
+            raise ValueError(
+                "then() requires transform-only pipelines (no loaders). "
+                "Use merge() for general stage combining."
+            )
+
+        # Chain transformers
+        return VulnPipeline(transformers=self.transformers + other.transformers)
+
     @classmethod
     def chain(cls, pipelines: list[VulnPipeline]) -> VulnPipeline:
         """Merge multiple pipelines into one (horizontal stage concatenation).

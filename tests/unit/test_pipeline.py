@@ -391,3 +391,72 @@ def test_pipeline_lenient_mode_logs_warnings(caplog: pytest.LogCaptureFixture):
     assert any(
         "BrokenEnricher" in msg or "broken" in msg.lower() for msg in warning_messages
     ), f"Expected warning about BrokenEnricher, got: {warning_messages}"
+
+
+def test_pipeline_then_chains_transforms_only():
+    """then() chains transform-only pipelines (sklearn-like behavior)."""
+    from tests.conftest import MockTransformer
+
+    t1 = MockTransformer(name="transform1")
+    t2 = MockTransformer(name="transform2")
+    t3 = MockTransformer(name="transform3")
+
+    p1 = VulnPipeline(transformers=[t1, t2])
+    p2 = VulnPipeline(transformers=[t3])
+
+    chained = p1.then(p2)
+
+    # Should concatenate transformers
+    assert len(chained.transformers) == 3
+    assert chained.transformers[0] is t1
+    assert chained.transformers[1] is t2
+    assert chained.transformers[2] is t3
+
+    # Should have no extractors or loaders
+    assert len(chained.extractors) == 0
+    assert len(chained.loaders) == 0
+
+    # Original pipelines unchanged (immutable)
+    assert len(p1.transformers) == 2
+    assert len(p2.transformers) == 1
+
+
+def test_pipeline_then_rejects_extractors():
+    """then() raises ValueError if extractors present."""
+    from tests.conftest import MockExtractor, MockTransformer
+
+    p1 = VulnPipeline(extractors=[MockExtractor()])
+    p2 = VulnPipeline(transformers=[MockTransformer()])
+
+    with pytest.raises(
+        ValueError,
+        match="then\\(\\) requires transform-only pipelines \\(no extractors\\)",
+    ):
+        p1.then(p2)
+
+
+def test_pipeline_then_rejects_loaders():
+    """then() raises ValueError if loaders present."""
+    from tests.conftest import MockLoader, MockTransformer
+
+    p1 = VulnPipeline(transformers=[MockTransformer()])
+    p2 = VulnPipeline(loaders=[MockLoader()])
+
+    with pytest.raises(
+        ValueError,
+        match="then\\(\\) requires transform-only pipelines \\(no loaders\\)",
+    ):
+        p1.then(p2)
+
+
+def test_pipeline_then_empty_pipelines():
+    """then() handles empty pipelines correctly."""
+    p1 = VulnPipeline()
+    p2 = VulnPipeline()
+
+    chained = p1.then(p2)
+
+    # Should create empty pipeline (no stages)
+    assert len(chained.extractors) == 0
+    assert len(chained.transformers) == 0
+    assert len(chained.loaders) == 0
