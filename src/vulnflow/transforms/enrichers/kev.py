@@ -23,13 +23,14 @@ import numpy as np
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
-from vulnflow.registry import register_enricher
+from vulnflow.registry import FieldDefinition, register_enricher
+from vulnflow.transforms.base import BaseEnricher
 
 logger = logging.getLogger(__name__)
 
 
 @register_enricher(default=True)
-class KEVEnricher:
+class KEVEnricher(BaseEnricher):
     """Enrich dataset with CISA KEV catalog data.
 
     BulkEnricher pattern: Downloads full KEV CSV, caches locally,
@@ -39,14 +40,13 @@ class KEVEnricher:
     name: str = "KEVEnricher"
     depends_on: list[str] = []
 
-    SCHEMA_VERSION: str = "1.0.0"
-    OUTPUT_SCHEMA: list[dict[str, str]] = [
-        {"name": "kev_date_added", "type": "datetime", "description": "Date added to KEV catalog"},
-        {"name": "kev_due_date", "type": "datetime", "description": "Remediation due date"},
-        {"name": "kev_required_action", "type": "str", "description": "Required remediation action"},
-        {"name": "kev_vendor", "type": "str", "description": "Vendor name from KEV"},
-        {"name": "kev_product", "type": "str", "description": "Product name from KEV"},
-        {"name": "kev_ransomware", "type": "str", "description": "Known ransomware campaign use"},
+    OUTPUT_SCHEMA: list[FieldDefinition] = [
+        FieldDefinition("kev_date_added", "datetime", "Date added to KEV catalog", "KEVEnricher"),
+        FieldDefinition("kev_due_date", "datetime", "Remediation due date", "KEVEnricher"),
+        FieldDefinition("kev_required_action", "str", "Required remediation action", "KEVEnricher"),
+        FieldDefinition("kev_vendor", "str", "Vendor name from KEV", "KEVEnricher"),
+        FieldDefinition("kev_product", "str", "Product name from KEV", "KEVEnricher"),
+        FieldDefinition("kev_ransomware", "str", "Known ransomware campaign use", "KEVEnricher"),
     ]
 
     def __init__(
@@ -60,12 +60,14 @@ class KEVEnricher:
             source: Path to KEV CSV file. If None, will fetch from CISA API (future).
             cache_ttl: Cache time-to-live in seconds (default 24h)
         """
+        super().__init__()
+
         self.source = Path(source) if source else None
         self.cache_ttl = cache_ttl
         self._cache: dict[str, dict[str, Any]] | None = None
         self._cache_time: float = 0.0
 
-    async def transform(self, dataset: VulnDataset) -> None:
+    async def transform(self, dataset: VulnDataset) -> None:  # type: ignore[override]
         """Enrich dataset with KEV data (fully vectorized).
 
         Args:

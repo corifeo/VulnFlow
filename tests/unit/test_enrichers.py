@@ -129,3 +129,24 @@ def test_kev_enricher_vectorized_matches_correctly():
 
     # Verify it's still a datetime object
     assert isinstance(kev_date_added[0], datetime)
+
+
+def test_kev_enricher_inherits_from_base():
+    """KEVEnricher inherits from BaseEnricher."""
+    from vulnflow.transforms.base import BaseEnricher
+
+    assert issubclass(KEVEnricher, BaseEnricher)
+
+
+def test_kev_enricher_registers_schema():
+    """KEVEnricher automatically registers its schema."""
+    from vulnflow.registry import FieldDefinition, Registry
+
+    Registry.clear()
+
+    # Instantiate to trigger schema registration via __init__
+    _ = KEVEnricher(source="tests/fixtures/kev_sample.csv")
+
+    columns = Registry.get_component_columns("KEVEnricher")
+    assert len(columns) == 6
+    assert all(isinstance(col, FieldDefinition) for col in columns)
