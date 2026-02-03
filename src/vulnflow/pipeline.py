@@ -17,8 +17,8 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 from vulnflow.dataset import VulnDataset
-from vulnflow.extractors.base import Extractor
-from vulnflow.loaders.base import Loader
+from vulnflow.extractors.base import BaseExtractor
+from vulnflow.loaders.base import BaseLoader
 from vulnflow.registry import Registry
 from vulnflow.transforms.base import BaseTransform
 
@@ -41,9 +41,9 @@ class PipelineResult:
 class VulnPipeline:
     """ETL pipeline orchestrator with composition support."""
 
-    extractors: list[Extractor] = field(default_factory=list)
+    extractors: list[BaseExtractor] = field(default_factory=list)
     transformers: list[BaseTransform] = field(default_factory=list)
-    loaders: list[Loader] = field(default_factory=list)
+    loaders: list[BaseLoader] = field(default_factory=list)
 
     def _get_stage_name(self, obj: Any) -> str:
         """Get stage name from object (prefer name attribute, fallback to class name)."""
@@ -51,7 +51,7 @@ class VulnPipeline:
 
     def _run_extractors(
         self,
-        extractors: list[Extractor],
+        extractors: list[BaseExtractor],
     ) -> tuple[VulnDataset, list[str], list[str], list[Exception]]:
         """Execute extractors sequentially and merge results.
 
@@ -188,7 +188,7 @@ class VulnPipeline:
     def _run_loaders(
         self,
         dataset: VulnDataset,
-        loaders: list[Loader],
+        loaders: list[BaseLoader],
     ) -> tuple[dict[str, Any], list[str], list[str], list[Exception]]:
         """Execute loaders sequentially and collect outputs.
 
@@ -524,9 +524,9 @@ class VulnPipeline:
             ... }
             >>> pipeline = VulnPipeline.from_config(config)
         """
-        extractors: list[Extractor] = []
+        extractors: list[BaseExtractor] = []
         transformers: list[BaseTransform] = []
-        loaders: list[Loader] = []
+        loaders: list[BaseLoader] = []
 
         # Build extractors
         for spec in config.get("extractors", []):
