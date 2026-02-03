@@ -13,7 +13,6 @@ Storage: Columnar (dict[str, np.ndarray]) for vectorized operations at scale
 
 from __future__ import annotations
 
-from dataclasses import fields
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -24,56 +23,6 @@ from vulnflow.utils.graph import topological_sort
 if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
-
-
-def _get_record_columns() -> list[str]:
-    """Get column names from VulnRecord dataclass.
-
-    Returns:
-        List of field names from VulnRecord
-    """
-    from vulnflow.schema import VulnRecord
-
-    return [f.name for f in fields(VulnRecord)]
-
-
-def _get_flattened_columns() -> list[str]:
-    """Get computed/flattened column names.
-
-    These columns are derived from VulnRecord fields (e.g., cvss_base_score
-    from cvss_scores) and don't exist in the schema directly.
-
-    Returns:
-        List of flattened column names
-    """
-    return [
-        # CVSS flattened (from cvss_scores)
-        "cvss_base_score",
-        "cvss_base_severity",
-        "cvss_version",
-        "cvss_vector_string",
-        "cvss_source",
-        # CWE flattened (from cwes)
-        "primary_cwe_id",
-        "primary_cwe_name",
-        # CPE flattened (from cpes)
-        "primary_vendor",
-        "primary_product",
-        "primary_version",
-    ]
-
-
-def _allocate_arrays(n: int) -> dict[str, np.ndarray]:
-    """Pre-allocate numpy arrays for all columns.
-
-    Args:
-        n: Number of records (array length)
-
-    Returns:
-        Dictionary mapping column names to pre-allocated numpy arrays
-    """
-    columns = _get_record_columns() + _get_flattened_columns()
-    return {col: np.empty(n, dtype=object) for col in columns}
 
 
 class VulnDataset:
