@@ -51,14 +51,14 @@ def test_pipeline_run_with_extractors_only():
 
 
 def test_pipeline_composition_then():
-    """Pipelines compose with .then() - immutable."""
+    """Pipelines compose with .merge() - immutable."""
     from vulnflow.extractors.nvd import NVDExtractor
     from vulnflow.transforms.enrichers.kev import KEVEnricher
 
     p1 = VulnPipeline(extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")])
     p2 = VulnPipeline(transformers=[KEVEnricher()])
 
-    combined = p1.then(p2)
+    combined = p1.merge(p2)
 
     assert len(combined.extractors) == 1
     assert len(combined.transformers) == 1

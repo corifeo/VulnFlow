@@ -14,13 +14,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
-if TYPE_CHECKING:
-    from vulnflow.dataset import VulnDataset
-    from vulnflow.extractors.base import Extractor
-    from vulnflow.loaders.base import Loader
-    from vulnflow.transforms.base import BaseTransform
+from vulnflow.dataset import VulnDataset
+from vulnflow.extractors.base import Extractor
+from vulnflow.loaders.base import Loader
+from vulnflow.transforms.base import BaseTransform
 
 logger = logging.getLogger(__name__)
 
@@ -41,18 +40,53 @@ class PipelineResult:
 class VulnPipeline:
     """ETL pipeline orchestrator with composition support."""
 
-    if TYPE_CHECKING:
-        extractors: list[Extractor] = field(default_factory=list)
-        transformers: list[BaseTransform] = field(default_factory=list)
-        loaders: list[Loader] = field(default_factory=list)
-    else:
-        extractors: list[Any] = field(default_factory=list)
-        transformers: list[Any] = field(default_factory=list)
-        loaders: list[Any] = field(default_factory=list)
+    extractors: list[Extractor] = field(default_factory=list)
+    transformers: list[BaseTransform] = field(default_factory=list)
+    loaders: list[Loader] = field(default_factory=list)
 
     def _get_stage_name(self, obj: Any) -> str:
         """Get stage name from object (prefer name attribute, fallback to class name)."""
         return cast(str, getattr(obj, "name", obj.__class__.__name__))
+
+    def _run_extractors(
+        self,
+        extractors: list[Extractor],
+    ) -> tuple[VulnDataset, list[str], list[str], list[Exception]]:
+        """Execute extractors sequentially and merge results.
+
+        Extractors always run in strict mode (failures always raise).
+
+        Args:
+            extractors: List of extractor instances
+
+        Returns:
+            Tuple of (merged_dataset, successful_stages, failed_stages, errors)
+
+        Raises:
+            Exception: If any extractor fails (strict mode only)
+        """
+        if not extractors:
+            return VulnDataset(), [], [], []
+
+        datasets: list[VulnDataset] = []
+        successful: list[str] = []
+        failed: list[str] = []
+        errors: list[Exception] = []
+
+        for extractor in extractors:
+            ext_name = self._get_stage_name(extractor)
+            try:
+                ds = extractor.extract()
+                datasets.append(ds)
+                successful.append(ext_name)
+            except Exception as e:
+                failed.append(ext_name)
+                errors.append(e)
+                raise  # Extractor failures always raise
+
+        # Merge all extracted datasets
+        merged = VulnDataset.merge(datasets)
+        return merged, successful, failed, errors
 
     async def _run_async_transforms(
         self,
@@ -150,6 +184,46 @@ class VulnPipeline:
 
         return successful, failed, errors
 
+    def _run_loaders(
+        self,
+        dataset: VulnDataset,
+        loaders: list[Loader],
+    ) -> tuple[dict[str, Any], list[str], list[str], list[Exception]]:
+        """Execute loaders sequentially and collect outputs.
+
+        Loaders always run in strict mode (failures always raise).
+
+        Args:
+            dataset: Dataset to load
+            loaders: List of loader instances
+
+        Returns:
+            Tuple of (loader_outputs, successful_stages, failed_stages, errors)
+
+        Raises:
+            Exception: If any loader fails (strict mode only)
+        """
+        if not loaders:
+            return {}, [], [], []
+
+        loader_outputs: dict[str, Any] = {}
+        successful: list[str] = []
+        failed: list[str] = []
+        errors: list[Exception] = []
+
+        for loader in loaders:
+            loader_name = self._get_stage_name(loader)
+            try:
+                output = loader.load(dataset)
+                loader_outputs[loader_name] = output
+                successful.append(loader_name)
+            except Exception as e:
+                failed.append(loader_name)
+                errors.append(e)
+                raise  # Loader failures always raise
+
+        return loader_outputs, successful, failed, errors
+
     def run(
         self, dataset: VulnDataset | None = None, strict: bool = False
     ) -> PipelineResult:
@@ -172,21 +246,10 @@ class VulnPipeline:
 
         # Stage 1: Extract
         if dataset is None and self.extractors:
-            datasets = []
-            for extractor in self.extractors:
-                try:
-                    ds = extractor.extract()  # Returns VulnDataset
-                    datasets.append(ds)
-                    successful_stages.append(self._get_stage_name(extractor))
-                except Exception as e:
-                    failed_stages.append(self._get_stage_name(extractor))
-                    errors.append(e)
-                    raise  # Extractor failures always raise
-
-            # Merge datasets if multiple extractors
-            from vulnflow.dataset import VulnDataset
-
-            dataset = VulnDataset.merge(datasets)
+            dataset, ext_succ, ext_fail, ext_err = self._run_extractors(self.extractors)
+            successful_stages.extend(ext_succ)
+            failed_stages.extend(ext_fail)
+            errors.extend(ext_err)
 
         # Stage 2: Transform (enrichers + transforms)
         if self.transformers and dataset is not None:
@@ -217,16 +280,12 @@ class VulnPipeline:
         # Stage 3: Load
         loader_outputs: dict[str, Any] = {}
         if self.loaders and dataset is not None:
-            for loader in self.loaders:
-                try:
-                    output = loader.load(dataset)
-                    loader_name = self._get_stage_name(loader)
-                    loader_outputs[loader_name] = output
-                    successful_stages.append(loader_name)
-                except Exception as e:
-                    failed_stages.append(self._get_stage_name(loader))
-                    errors.append(e)
-                    raise  # Loader failures always raise
+            loader_outputs, load_succ, load_fail, load_err = self._run_loaders(
+                dataset, self.loaders
+            )
+            successful_stages.extend(load_succ)
+            failed_stages.extend(load_fail)
+            errors.extend(load_err)
 
         duration = time.time() - start_time
 
@@ -239,14 +298,33 @@ class VulnPipeline:
             duration=duration,
         )
 
-    def then(self, other: VulnPipeline) -> VulnPipeline:
-        """Compose pipelines immutably.
+    def merge(self, other: VulnPipeline) -> VulnPipeline:
+        """Merge pipeline stages horizontally by type (immutable).
+
+        Combines extractors, transformers, and loaders from both pipelines
+        into a single pipeline. During execution, all extractors run first
+        (sequentially), then all transformers, then all loaders.
+
+        This is horizontal stage merging, NOT sequential composition where
+        the output of one pipeline feeds into another. Instead, it merges
+        stage lists by type:
+        - extractors: self.extractors + other.extractors
+        - transformers: self.transformers + other.transformers
+        - loaders: self.loaders + other.loaders
 
         Args:
-            other: Pipeline to append after this one
+            other: Pipeline whose stages will be merged with this one
 
         Returns:
-            New VulnPipeline with combined stages
+            New VulnPipeline with all stages concatenated by type.
+            Original pipelines are unchanged (immutable).
+
+        Example:
+            >>> p1 = VulnPipeline(extractors=[NVDExtractor("data.json")])
+            >>> p2 = VulnPipeline(transformers=[KEVEnricher()])
+            >>> merged = p1.merge(p2)
+            >>> # merged has 1 extractor and 1 transformer
+            >>> # When run(), extractor runs first, then transformer
         """
         return VulnPipeline(
             extractors=self.extractors + other.extractors,
@@ -256,17 +334,34 @@ class VulnPipeline:
 
     @classmethod
     def chain(cls, pipelines: list[VulnPipeline]) -> VulnPipeline:
-        """Combine multiple pipelines into one.
+        """Merge multiple pipelines into one (horizontal stage concatenation).
+
+        Horizontally concatenates extractors, transformers, and loaders from
+        all pipelines. Equivalent to calling .merge() repeatedly.
+
+        During execution:
+        1. All extractors run sequentially (merge outputs)
+        2. All transformers run (async concurrently, sync sequentially)
+        3. All loaders run sequentially
+
+        This is NOT sequential pipeline execution. It merges stage lists.
 
         Args:
-            pipelines: List of pipelines to combine
+            pipelines: List of pipelines whose stages will be merged
 
         Returns:
-            New VulnPipeline with all stages combined
+            New VulnPipeline with all stages concatenated by type
+
+        Example:
+            >>> extract = VulnPipeline(extractors=[NVDExtractor("data.json")])
+            >>> transform = VulnPipeline(transformers=[KEVEnricher()])
+            >>> load = VulnPipeline(loaders=[ParquetLoader("out.parquet")])
+            >>> full = VulnPipeline.chain([extract, transform, load])
+            >>> # Equivalent to: extract.merge(transform).merge(load)
         """
-        extractors: list[Any] = []
-        transformers: list[Any] = []
-        loaders: list[Any] = []
+        extractors: list[Extractor] = []
+        transformers: list[BaseTransform] = []
+        loaders: list[Loader] = []
 
         for pipeline in pipelines:
             extractors.extend(pipeline.extractors)
