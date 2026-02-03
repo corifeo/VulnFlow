@@ -112,19 +112,19 @@ def flatten_cwes(cwes: list[dict[str, Any]] | None) -> dict[str, str | None]:
         cwes: List of CWE dicts with id/name
 
     Returns:
-        Dict with cwe_id, cwe_name (both None if input is None/empty)
+        Dict with primary_cwe_id, primary_cwe_name (both None if input is None/empty)
 
     Examples:
         >>> flatten_cwes([{"id": "CWE-79", "name": "Cross-site Scripting (XSS)"}])
-        {'cwe_id': 'CWE-79', 'cwe_name': 'Cross-site Scripting (XSS)'}
+        {'primary_cwe_id': 'CWE-79', 'primary_cwe_name': 'Cross-site Scripting (XSS)'}
     """
     if not cwes:
-        return {"cwe_id": None, "cwe_name": None}
+        return {"primary_cwe_id": None, "primary_cwe_name": None}
 
     first_cwe = cwes[0]
     return {
-        "cwe_id": first_cwe.get("id"),
-        "cwe_name": first_cwe.get("name"),
+        "primary_cwe_id": first_cwe.get("id"),
+        "primary_cwe_name": first_cwe.get("name"),
     }
 
 
@@ -132,21 +132,21 @@ def flatten_cpes(cpes: list[dict[str, Any]] | None) -> dict[str, str | None]:
     """Flatten CPE list to primary (first) entry.
 
     Args:
-        cpes: List of CPE dicts with uri/vendor/product
+        cpes: List of CPE dicts with uri/vendor/product/version
 
     Returns:
-        Dict with cpe_uri, cpe_vendor, cpe_product (all None if input is None/empty)
+        Dict with primary_vendor, primary_product, primary_version (all None if input is None/empty)
 
     Examples:
-        >>> flatten_cpes([{"uri": "cpe:2.3:a:apache:log4j:...", "vendor": "apache", "product": "log4j"}])
-        {'cpe_uri': 'cpe:2.3:a:apache:log4j:...', 'cpe_vendor': 'apache', 'cpe_product': 'log4j'}
+        >>> flatten_cpes([{"uri": "cpe:2.3:a:apache:log4j:2.14.1", "vendor": "apache", "product": "log4j", "version": "2.14.1"}])
+        {'primary_vendor': 'apache', 'primary_product': 'log4j', 'primary_version': '2.14.1'}
     """
     if not cpes:
-        return {"cpe_uri": None, "cpe_vendor": None, "cpe_product": None}
+        return {"primary_vendor": None, "primary_product": None, "primary_version": None}
 
     first_cpe = cpes[0]
     return {
-        "cpe_uri": first_cpe.get("uri"),
-        "cpe_vendor": first_cpe.get("vendor"),
-        "cpe_product": first_cpe.get("product"),
+        "primary_vendor": first_cpe.get("vendor"),
+        "primary_product": first_cpe.get("product"),
+        "primary_version": first_cpe.get("version"),
     }
