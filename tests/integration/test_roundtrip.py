@@ -181,10 +181,10 @@ def test_pandas_roundtrip_preserves_count():
 
 
 def test_pandas_roundtrip_preserves_columns():
-    """Pandas round-trip preserves all columns (with include_nested=True)."""
+    """Pandas round-trip preserves all columns (default includes nested)."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    df = dataset.to_pandas(include_nested=True)
+    df = dataset.to_pandas()  # Default now includes all columns
     dataset2 = VulnDataset.from_pandas(df)
 
     # Same columns
@@ -219,10 +219,10 @@ def test_polars_roundtrip_preserves_count():
 
 
 def test_polars_roundtrip_preserves_columns():
-    """Polars round-trip preserves all columns (with include_nested=True)."""
+    """Polars round-trip preserves all columns (default includes nested)."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    df = dataset.to_polars(include_nested=True)
+    df = dataset.to_polars()  # Default now includes all columns
     dataset2 = VulnDataset.from_polars(df)
 
     # Same columns

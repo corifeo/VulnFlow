@@ -435,16 +435,14 @@ def test_to_pandas_delegates_to_pandas_loader():
 
     df = dataset.to_pandas()
 
-    # Should have flattened columns (proof of PandasLoader usage)
+    # Should have all columns by default (full fidelity)
     assert "cvss_base_score" in df.columns
     assert "primary_cwe_id" in df.columns
     assert "primary_vendor" in df.columns
 
-    # Should NOT include nested JSON columns (PandasLoader default behavior)
-    assert "references" not in df.columns
-    assert "exploits" not in df.columns
-    assert "epss_scores" not in df.columns
-    assert "kev" not in df.columns
+    # Should ALSO include nested JSON columns (new default behavior)
+    assert "references" in df.columns
+    assert "cvss_scores" in df.columns
 
 
 def test_to_polars_delegates_to_polars_loader():
@@ -453,16 +451,14 @@ def test_to_polars_delegates_to_polars_loader():
 
     df = dataset.to_polars()
 
-    # Should have flattened columns (proof of PolarsLoader usage)
+    # Should have all columns by default (full fidelity)
     assert "cvss_base_score" in df.columns
     assert "primary_cwe_id" in df.columns
     assert "primary_vendor" in df.columns
 
-    # Should NOT include nested JSON columns (PolarsLoader default behavior)
-    assert "references" not in df.columns
-    assert "exploits" not in df.columns
-    assert "epss_scores" not in df.columns
-    assert "kev" not in df.columns
+    # Should ALSO include nested JSON columns (new default behavior)
+    assert "references" in df.columns
+    assert "cvss_scores" in df.columns
 
 
 def test_merge_empty_list():

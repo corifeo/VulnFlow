@@ -117,7 +117,7 @@ def test_pandas_loader_load_returns_dataframe():
 
 
 def test_pandas_loader_flattens_cvss_scores():
-    """PandasLoader flattens cvss_scores to scalar columns."""
+    """PandasLoader includes both flattened and nested columns by default."""
     from vulnflow.loaders.dataframe import PandasLoader
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
@@ -132,22 +132,23 @@ def test_pandas_loader_flattens_cvss_scores():
     assert "cvss_vector_string" in df.columns
     assert "cvss_source" in df.columns
 
-    # Should NOT have raw JSON column by default
-    assert "cvss_scores" not in df.columns
+    # Should ALSO have raw JSON column by default (full fidelity)
+    assert "cvss_scores" in df.columns
 
 
-def test_pandas_loader_include_nested():
-    """PandasLoader with include_nested=True keeps JSON columns."""
+def test_pandas_loader_exclude_nested():
+    """PandasLoader with exclude_nested=True removes JSON columns."""
     from vulnflow.loaders.dataframe import PandasLoader
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-    loader = PandasLoader(include_nested=True)
+    loader = PandasLoader(exclude_nested=True)
 
     df = loader.load(dataset)
 
-    # Should have both flattened AND raw columns
+    # Should have flattened columns
     assert "cvss_base_score" in df.columns
-    assert "cvss_scores" in df.columns
+    # Should NOT have raw JSON columns
+    assert "cvss_scores" not in df.columns
 
 
 def test_pandas_loader_flattens_cwes():
