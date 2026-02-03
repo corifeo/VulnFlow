@@ -14,15 +14,12 @@ Storage: Columnar (dict[str, np.ndarray]) for vectorized operations at scale
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
+from pandas import DataFrame as PandasDataFrame
+from polars import DataFrame as PolarsDataFrame
 
 from vulnflow.utils.graph import topological_sort
-
-if TYPE_CHECKING:
-    import pandas as pd
-    import polars as pl
 
 
 class VulnDataset:
@@ -162,7 +159,50 @@ class VulnDataset:
         extractor = NVDExtractor(str(path))
         return extractor.extract()
 
-    def to_pandas(self, include_nested: bool = False) -> pd.DataFrame:
+    @classmethod
+    def merge(cls, datasets: list[VulnDataset]) -> VulnDataset:
+        """Merge multiple datasets into one.
+
+        Concatenates columnar data from multiple datasets. Handles missing
+        columns by filling with None.
+
+        Args:
+            datasets: List of VulnDataset instances to merge
+
+        Returns:
+            Merged VulnDataset with concatenated columns. Returns empty dataset
+            if input list is empty, or first dataset unchanged if only one input.
+        """
+        if not datasets:
+            return cls()
+
+        if len(datasets) == 1:
+            return datasets[0]
+
+        # Get all columns (union)
+        all_columns: set[str] = set()
+        for ds in datasets:
+            all_columns.update(ds.columns)
+
+        # Concatenate arrays
+        merged = cls()
+
+        for col in all_columns:
+            arrays: list[np.ndarray] = []
+            for ds in datasets:
+                # Get column or create None-filled array if missing
+                col_data = ds.get_column_or_none(col)
+                if col_data is not None:
+                    arrays.append(col_data)
+                else:
+                    # Fill with None for missing column
+                    arrays.append(np.full(len(ds), None, dtype=object))
+
+            merged.set_column(col, np.concatenate(arrays))
+
+        return merged
+
+    def to_pandas(self, include_nested: bool = False) -> PandasDataFrame:
         """Export dataset to pandas DataFrame.
 
         Args:
@@ -177,7 +217,7 @@ class VulnDataset:
         loader = PandasLoader(include_nested=include_nested)
         return loader.load(self)
 
-    def to_polars(self, include_nested: bool = False) -> pl.DataFrame:
+    def to_polars(self, include_nested: bool = False) -> PolarsDataFrame:
         """Export dataset to polars DataFrame.
 
         Args:

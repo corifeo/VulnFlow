@@ -56,7 +56,6 @@ class VulnPipeline:
         """
         import time
 
-        from vulnflow.dataset import VulnDataset
 
         start_time = time.time()
         errors: list[Exception] = []
@@ -65,17 +64,21 @@ class VulnPipeline:
 
         # Stage 1: Extract
         if dataset is None and self.extractors:
-            records = []
+            datasets = []
             for extractor in self.extractors:
                 try:
-                    records.extend(extractor.extract())
+                    ds = extractor.extract()  # Returns VulnDataset
+                    datasets.append(ds)
                     successful_stages.append(extractor.__class__.__name__)
                 except Exception as e:
                     failed_stages.append(extractor.__class__.__name__)
                     errors.append(e)
                     raise  # Extractor failures always raise
 
-            dataset = VulnDataset._from_records(records)
+            # Merge datasets if multiple extractors
+            from vulnflow.dataset import VulnDataset
+
+            dataset = VulnDataset.merge(datasets)
 
         # Stage 2: Transform (enrichers + transforms)
         if self.transformers and dataset is not None:

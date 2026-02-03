@@ -8,6 +8,7 @@ Dependencies: schema
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 from tests.conftest import dataset_from_records
 
@@ -462,3 +463,54 @@ def test_to_polars_delegates_to_polars_loader():
     assert "exploits" not in df.columns
     assert "epss_scores" not in df.columns
     assert "kev" not in df.columns
+
+
+def test_merge_empty_list():
+    """VulnDataset.merge([]) returns empty dataset."""
+    result = VulnDataset.merge([])
+    assert len(result) == 0
+
+
+def test_merge_single_dataset():
+    """VulnDataset.merge([ds]) returns dataset unchanged."""
+    ds = VulnDataset()
+    ds.set_column("cve_id", np.array(["CVE-1", "CVE-2"]))
+
+    result = VulnDataset.merge([ds])
+
+    assert len(result) == 2
+    assert result is ds  # Same object
+
+
+def test_merge_multiple_datasets():
+    """VulnDataset.merge() concatenates columns from multiple datasets."""
+    ds1 = VulnDataset()
+    ds1.set_column("cve_id", np.array(["CVE-1", "CVE-2"]))
+    ds1.set_column("score", np.array([7.5, 9.0]))
+
+    ds2 = VulnDataset()
+    ds2.set_column("cve_id", np.array(["CVE-3"]))
+    ds2.set_column("score", np.array([5.0]))
+
+    result = VulnDataset.merge([ds1, ds2])
+
+    assert len(result) == 3
+    assert list(result.get_column("cve_id")) == ["CVE-1", "CVE-2", "CVE-3"]
+    assert list(result.get_column("score")) == [7.5, 9.0, 5.0]
+
+
+def test_merge_handles_missing_columns():
+    """VulnDataset.merge() fills None for missing columns."""
+    ds1 = VulnDataset()
+    ds1.set_column("cve_id", np.array(["CVE-1"]))
+    ds1.set_column("score", np.array([7.5]))
+
+    ds2 = VulnDataset()
+    ds2.set_column("cve_id", np.array(["CVE-2"]))
+    # ds2 missing "score" column
+
+    result = VulnDataset.merge([ds1, ds2])
+
+    assert len(result) == 2
+    assert result.get_column("score")[0] == 7.5
+    assert result.get_column("score")[1] is None
