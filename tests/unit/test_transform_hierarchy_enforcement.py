@@ -1,9 +1,8 @@
 """Tests that verify transform hierarchy is enforced."""
-import pytest
-from vulnflow.transforms.enrichers.kev import KEVEnricher
-from vulnflow.transforms.enrichers.epss import EPSSEnricher
-from vulnflow.transforms.base import BaseEnricher, BaseTransform
 from vulnflow.registry import FieldDefinition, Registry
+from vulnflow.transforms.base import BaseEnricher, BaseTransform
+from vulnflow.transforms.enrichers.epss import EPSSEnricher
+from vulnflow.transforms.enrichers.kev import KEVEnricher
 
 
 def test_all_enrichers_inherit_from_base_enricher():
@@ -42,8 +41,8 @@ def test_all_enrichers_register_schema():
     """All enrichers register schema on init."""
     Registry.clear()
 
-    kev = KEVEnricher(source="tests/fixtures/kev_sample.csv")
-    epss = EPSSEnricher(source="tests/fixtures/epss_sample.csv")
+    _ = KEVEnricher(source="tests/fixtures/kev_sample.csv")
+    _ = EPSSEnricher(source="tests/fixtures/epss_sample.csv")
 
     kev_cols = Registry.get_component_columns("KEVEnricher")
     assert len(kev_cols) == 6
@@ -59,7 +58,7 @@ def test_enricher_schema_has_source_component():
     """All FieldDefinitions specify source_component."""
     Registry.clear()
 
-    kev = KEVEnricher(source="tests/fixtures/kev_sample.csv")
+    _ = KEVEnricher(source="tests/fixtures/kev_sample.csv")
 
     cols = Registry.get_component_columns("KEVEnricher")
     for col in cols:
