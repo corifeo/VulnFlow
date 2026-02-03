@@ -40,4 +40,4 @@ def test_parquet_loader_in_pipeline(tmp_path):
 
     assert output_path.exists()
     assert len(result.dataset) == 3
-    assert "ParquetLoader" in result.loader_outputs
+    assert "parquet" in result.loader_outputs  # Uses name attribute, not class name
