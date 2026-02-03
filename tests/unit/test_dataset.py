@@ -8,6 +8,8 @@ Dependencies: schema
 
 from __future__ import annotations
 
+import pytest
+
 from vulnflow.dataset import VulnDataset
 from vulnflow.schema import VulnRecord
 
@@ -215,3 +217,90 @@ def test_dataset_columnar_schema_complete():
     assert len(cvss_data) == 1
     assert cvss_data[0]["base_score"] == 9.8
     assert cvss_data[0]["source"] == "nvd"
+
+
+def test_dataset_transform_sorts_by_dependencies():
+    """dataset.transform() sorts transforms by depends_on."""
+    import pytest
+
+    execution_order = []
+
+    class Transform1:
+        name = "t1"
+        depends_on: list[str] = []
+
+        def transform(self, dataset):
+            execution_order.append("t1")
+
+    class Transform2:
+        name = "t2"
+        depends_on = ["t1"]  # Depends on t1
+
+        def transform(self, dataset):
+            execution_order.append("t2")
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Pass in wrong order - should auto-sort
+    dataset.transform([Transform2(), Transform1()])
+
+    # Should execute in dependency order
+    assert execution_order == ["t1", "t2"]
+
+
+def test_dataset_transform_detects_circular_dependencies():
+    """dataset.transform() raises on circular dependencies."""
+    import pytest
+
+    class Transform1:
+        name = "t1"
+        depends_on = ["t2"]
+
+    class Transform2:
+        name = "t2"
+        depends_on = ["t1"]  # Circular!
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    with pytest.raises(ValueError, match="Circular dependency"):
+        dataset.transform([Transform1(), Transform2()])
+
+
+@pytest.mark.asyncio
+async def test_dataset_transform_runs_async_concurrently():
+    """dataset.transform() runs async enrichers concurrently."""
+    import asyncio
+    import time
+
+    call_log = []
+
+    class AsyncEnricher1:
+        name = "async1"
+        depends_on: list[str] = []
+
+        async def transform(self, dataset):
+            call_log.append(("async1_start", time.time()))
+            await asyncio.sleep(0.1)
+            call_log.append(("async1_end", time.time()))
+
+    class AsyncEnricher2:
+        name = "async2"
+        depends_on: list[str] = []
+
+        async def transform(self, dataset):
+            call_log.append(("async2_start", time.time()))
+            await asyncio.sleep(0.1)
+            call_log.append(("async2_end", time.time()))
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    start = time.time()
+    dataset.transform([AsyncEnricher1(), AsyncEnricher2()])
+    elapsed = time.time() - start
+
+    # Should take ~0.1s (concurrent), not ~0.2s (sequential)
+    assert elapsed < 0.15, f"Async enrichers ran sequentially ({elapsed:.2f}s)"
+
+    # Both should start before either ends (overlapping execution)
+    assert call_log[0][0] in ["async1_start", "async2_start"]
+    assert call_log[1][0] in ["async1_start", "async2_start"]

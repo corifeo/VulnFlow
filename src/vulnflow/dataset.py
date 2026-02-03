@@ -25,6 +25,49 @@ if TYPE_CHECKING:
     from vulnflow.schema import VulnRecord
 
 
+def _topological_sort(transforms: list[object]) -> list[object]:
+    """Sort transforms by dependencies using simple O(n²) algorithm.
+
+    Limitations vs. Kahn's algorithm:
+    - No parallel execution groups (can't identify independent transforms)
+    - Lenient on missing dependencies (assumes already satisfied)
+    - Slower O(n²) vs O(n+e) for large transform lists
+    - Good enough: typical usage has <10 transforms
+
+    Args:
+        transforms: List of transform instances with name and depends_on attributes
+
+    Returns:
+        Sorted list where dependencies come before dependents
+
+    Raises:
+        ValueError: If circular dependencies detected
+    """
+    by_name = {t.name: t for t in transforms}
+    result = []
+    remaining = list(transforms)
+
+    while remaining:
+        # Find transforms with all dependencies satisfied
+        ready = [
+            t for t in remaining
+            if all(
+                dep in [r.name for r in result] or dep not in by_name
+                for dep in getattr(t, "depends_on", [])
+            )
+        ]
+
+        if not ready:
+            remaining_names = [t.name for t in remaining]
+            raise ValueError(f"Circular dependency among: {remaining_names}")
+
+        result.extend(ready)
+        for t in ready:
+            remaining.remove(t)
+
+    return result
+
+
 class VulnDataset:
     """Columnar storage for vulnerability records.
 
@@ -99,7 +142,7 @@ class VulnDataset:
 
         Handles both:
         - Sync transforms (with sync transform() method)
-        - Async enrichers (with async transform() method) - run via asyncio
+        - Async enrichers (with async transform() method) - run concurrently via asyncio.gather()
 
         Args:
             transforms: List of transform/enricher instances. If None, uses registered defaults
@@ -116,15 +159,66 @@ class VulnDataset:
             computed_transforms = Registry.get_default_transforms()
             transforms = enrichers + computed_transforms
 
-        for t in transforms:
-            if hasattr(t, "transform"):
-                method = t.transform
-                if inspect.iscoroutinefunction(method):
-                    # Async transform (enricher) - run via asyncio
-                    asyncio.run(method(self))
-                else:
-                    # Sync transform
-                    method(self)
+        # Sort by dependencies
+        transforms = _topological_sort(transforms)
+
+        # Separate async from sync
+        async_transforms = [
+            t
+            for t in transforms
+            if hasattr(t, "transform") and inspect.iscoroutinefunction(t.transform)
+        ]
+        sync_transforms = [
+            t
+            for t in transforms
+            if hasattr(t, "transform") and not inspect.iscoroutinefunction(t.transform)
+        ]
+
+        # Run async concurrently
+        if async_transforms:
+            # Check if we're already in an async context
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No event loop running - create one with asyncio.run()
+                # Use a wrapper coroutine to avoid creating gather future before loop exists
+                async def run_all():
+                    return await asyncio.gather(*[t.transform(self) for t in async_transforms])
+
+                asyncio.run(run_all())
+            else:
+                # Event loop is running - run async code in a separate thread
+                # This allows transform() to be called from async test contexts
+                import threading
+
+                exception_container = []
+
+                def run_in_new_loop():
+                    """Run coroutine in a new event loop in this thread."""
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        # Create the gather coroutine in this thread's loop
+                        async def run_all():
+                            return await asyncio.gather(*[t.transform(self) for t in async_transforms])
+
+                        new_loop.run_until_complete(run_all())
+                    except Exception as e:
+                        exception_container.append(e)
+                    finally:
+                        new_loop.close()
+
+                thread = threading.Thread(target=run_in_new_loop)
+                thread.start()
+                thread.join()
+
+                # Re-raise any exception that occurred
+                if exception_container:
+                    raise exception_container[0]
+
+        # Run sync sequentially
+        for t in sync_transforms:
+            t.transform(self)
 
     @classmethod
     def _from_records(cls, records: list[VulnRecord]) -> VulnDataset:
