@@ -88,3 +88,73 @@ def test_cvd_state_registered():
     transform_names = [t.__name__ for t in transforms]
 
     assert "CVDStateTransform" in transform_names
+
+
+def test_cvd_state_adds_pair_mask():
+    """CVDStateTransform adds pair_mask column."""
+    import numpy as np
+    from datetime import datetime
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    n = len(dataset)
+
+    # Add mock CVD timestamps
+    v_ts = np.full(n, datetime(2024, 1, 1), dtype=object)
+    f_ts = np.full(n, datetime(2024, 1, 15), dtype=object)
+    p_ts = np.full(n, datetime(2024, 1, 10), dtype=object)
+
+    dataset.set_column("v_timestamp", v_ts)
+    dataset.set_column("f_timestamp", f_ts)
+    dataset.set_column("d_timestamp", np.full(n, None, dtype=object))
+    dataset.set_column("p_timestamp", p_ts)
+    dataset.set_column("x_timestamp", np.full(n, None, dtype=object))
+    dataset.set_column("a_timestamp", np.full(n, None, dtype=object))
+
+    # Apply CVDStateTransform
+    CVDStateTransform().transform(dataset)
+
+    # Should have pair_mask column
+    assert "pair_mask" in dataset.columns
+
+    pair_mask = dataset.get_column("pair_mask")
+
+    # V < F should set bit 0
+    # V < P should set bit 2
+    # Bit 0 = V<F (set), Bit 2 = V<P (set)
+    assert pair_mask[0] & (1 << 0) != 0  # V<F
+    assert pair_mask[0] & (1 << 2) != 0  # V<P
+
+
+def test_cvd_state_adds_time_deltas():
+    """CVDStateTransform adds time delta columns."""
+    import numpy as np
+    from datetime import datetime
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    n = len(dataset)
+
+    # V = day 1, F = day 16 (15 day lag)
+    v_ts = np.full(n, datetime(2024, 1, 1), dtype=object)
+    f_ts = np.full(n, datetime(2024, 1, 16), dtype=object)
+
+    dataset.set_column("v_timestamp", v_ts)
+    dataset.set_column("f_timestamp", f_ts)
+    dataset.set_column("d_timestamp", np.full(n, None, dtype=object))
+    dataset.set_column("p_timestamp", np.full(n, None, dtype=object))
+    dataset.set_column("x_timestamp", np.full(n, None, dtype=object))
+    dataset.set_column("a_timestamp", np.full(n, None, dtype=object))
+
+    CVDStateTransform().transform(dataset)
+
+    # Should have time delta columns
+    assert "fix_lag_days" in dataset.columns
+    assert "disclosure_lag_days" in dataset.columns
+    assert "deployment_lag_days" in dataset.columns
+    assert "exploit_lag_days" in dataset.columns
+    assert "attack_lag_days" in dataset.columns
+    assert "public_to_attack_days" in dataset.columns
+
+    fix_lag_days = dataset.get_column("fix_lag_days")
+
+    # V to F = 15 days
+    assert fix_lag_days[0] == 15.0
