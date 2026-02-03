@@ -9,44 +9,36 @@ Dependencies: transforms
 from __future__ import annotations
 
 
-def test_kev_enricher_has_schema_version():
-    """KEVEnricher defines SCHEMA_VERSION."""
-    from vulnflow.transforms.enrichers.kev import KEVEnricher
-
-    assert hasattr(KEVEnricher, "SCHEMA_VERSION")
-    assert isinstance(KEVEnricher.SCHEMA_VERSION, str)
-    assert KEVEnricher.SCHEMA_VERSION  # Not empty
-
-
 def test_kev_enricher_has_output_schema():
-    """KEVEnricher defines OUTPUT_SCHEMA."""
+    """KEVEnricher defines OUTPUT_SCHEMA with FieldDefinitions."""
+    from vulnflow.registry import FieldDefinition
     from vulnflow.transforms.enrichers.kev import KEVEnricher
 
     assert hasattr(KEVEnricher, "OUTPUT_SCHEMA")
     assert isinstance(KEVEnricher.OUTPUT_SCHEMA, list)
     assert len(KEVEnricher.OUTPUT_SCHEMA) > 0
 
-    # Verify schema structure
+    # Verify schema structure (new FieldDefinition format)
     for field in KEVEnricher.OUTPUT_SCHEMA:
-        assert "name" in field
-        assert "type" in field
-
-
-def test_epss_enricher_has_schema_version():
-    """EPSSEnricher defines SCHEMA_VERSION."""
-    from vulnflow.transforms.enrichers.epss import EPSSEnricher
-
-    assert hasattr(EPSSEnricher, "SCHEMA_VERSION")
-    assert isinstance(EPSSEnricher.SCHEMA_VERSION, str)
+        assert isinstance(field, FieldDefinition)
+        assert field.name
+        assert field.type
 
 
 def test_epss_enricher_has_output_schema():
-    """EPSSEnricher defines OUTPUT_SCHEMA."""
+    """EPSSEnricher defines OUTPUT_SCHEMA with FieldDefinitions."""
+    from vulnflow.registry import FieldDefinition
     from vulnflow.transforms.enrichers.epss import EPSSEnricher
 
     assert hasattr(EPSSEnricher, "OUTPUT_SCHEMA")
     assert isinstance(EPSSEnricher.OUTPUT_SCHEMA, list)
     assert len(EPSSEnricher.OUTPUT_SCHEMA) >= 4  # probability, percentile, date, model
+
+    # Verify schema structure (new FieldDefinition format)
+    for field in EPSSEnricher.OUTPUT_SCHEMA:
+        assert isinstance(field, FieldDefinition)
+        assert field.name
+        assert field.type
 
 
 def test_event_inference_has_schema():
