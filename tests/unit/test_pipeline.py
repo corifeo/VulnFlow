@@ -436,7 +436,7 @@ def test_pipeline_then_rejects_extractors():
 
     with pytest.raises(
         ValueError,
-        match="then\\(\\) requires transform-only pipelines \\(no extractors\\)",
+        match="then\\(\\) requires transform-only pipelines but self has extractors",
     ):
         p1.then(p2)
 
@@ -450,7 +450,7 @@ def test_pipeline_then_rejects_loaders():
 
     with pytest.raises(
         ValueError,
-        match="then\\(\\) requires transform-only pipelines \\(no loaders\\)",
+        match="then\\(\\) requires transform-only pipelines but other has loaders",
     ):
         p1.then(p2)
 
@@ -520,7 +520,7 @@ def test_pipeline_chain_rejects_incompatible_formats():
     p1 = VulnPipeline(loaders=[MockParquetLoader()])
     p2 = VulnPipeline(extractors=[MockJSONExtractor()])
 
-    with pytest.raises(ValueError, match="Format mismatch.*parquet.*json"):
+    with pytest.raises(ValueError, match="chain_with\\(\\) format mismatch.*parquet.*json"):
         p1.chain_with(p2)
 
 
@@ -531,7 +531,7 @@ def test_pipeline_chain_requires_loaders_in_first():
     p1 = VulnPipeline(extractors=[MockExtractor()])  # No loaders
     p2 = VulnPipeline(extractors=[MockExtractor()])
 
-    with pytest.raises(ValueError, match="First pipeline must have loaders"):
+    with pytest.raises(ValueError, match="chain_with\\(\\) requires first pipeline to have loaders"):
         p1.chain_with(p2)
 
 
@@ -548,7 +548,7 @@ def test_pipeline_chain_requires_extractors_in_second():
     p1 = VulnPipeline(loaders=[MockLoader()])
     p2 = VulnPipeline(loaders=[MockLoader()])  # No extractors
 
-    with pytest.raises(ValueError, match="Second pipeline must have extractors"):
+    with pytest.raises(ValueError, match="chain_with\\(\\) requires second pipeline to have extractors"):
         p1.chain_with(p2)
 
 
@@ -575,7 +575,7 @@ def test_pipeline_chain_validates_count_mismatch():
     p1 = VulnPipeline(loaders=[MockLoader(), MockLoader()])
     p2 = VulnPipeline(extractors=[MockExtractor()])
 
-    with pytest.raises(ValueError, match="Count mismatch.*2 loaders.*1 extractors"):
+    with pytest.raises(ValueError, match="chain_with\\(\\) count mismatch.*2 loader\\(s\\).*1 extractor\\(s\\)"):
         p1.chain_with(p2)
 
 
@@ -641,7 +641,7 @@ def test_pipeline_chain_rejects_wrong_order():
         extractors=[MockExtractor("e1", "json"), MockExtractor("e2", "parquet")]
     )
 
-    with pytest.raises(ValueError, match="Format mismatch at position 0"):
+    with pytest.raises(ValueError, match="chain_with\\(\\) format mismatch at position 0"):
         p1.chain_with(p2)
 
 
