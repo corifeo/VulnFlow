@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 if TYPE_CHECKING:
     pass
@@ -145,6 +145,14 @@ class Registry:
 # Module-level convenience functions
 
 
+@overload
+def register_transform(cls: type[T], *, default: bool = False) -> type[T]: ...
+
+
+@overload
+def register_transform(cls: None = None, *, default: bool = False) -> Callable[[type[T]], type[T]]: ...
+
+
 def register_transform(cls: type[T] | None = None, *, default: bool = False) -> type[T] | Callable[[type[T]], type[T]]:
     """Simple decorator to register a transform class.
 
@@ -175,6 +183,14 @@ def get_transforms() -> list[type[Any]]:
         List of registered transform classes
     """
     return [cls for cls, _ in Registry._transforms.values()]
+
+
+@overload
+def register_enricher(cls: type[T], *, default: bool = False) -> type[T]: ...
+
+
+@overload
+def register_enricher(cls: None = None, *, default: bool = False) -> Callable[[type[T]], type[T]]: ...
 
 
 def register_enricher(cls: type[T] | None = None, *, default: bool = False) -> type[T] | Callable[[type[T]], type[T]]:

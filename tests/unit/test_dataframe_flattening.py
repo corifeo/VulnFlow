@@ -55,9 +55,9 @@ def test_dataframe_flattens_cvss():
 
 
 def test_dataframe_preserves_full_lists():
-    """DataFrame export preserves full JSON lists alongside flattened columns."""
+    """DataFrame export preserves full JSON lists alongside flattened columns when include_nested=True."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-    df = dataset.to_pandas()
+    df = dataset.to_pandas(include_nested=True)
 
     # Full lists should still exist
     assert "cwes" in df.columns

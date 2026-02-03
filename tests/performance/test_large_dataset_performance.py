@@ -180,10 +180,9 @@ def test_memory_efficiency():
         EPSSEnricher(source=str(EPSS_FILE)),
     ])
 
-    current, peak = tracemalloc.get_traced_memory()
+    _, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
-    current_mb = current / 1024 / 1024
     peak_mb = peak / 1024 / 1024
     memory_used = peak_mb - initial_memory
 
