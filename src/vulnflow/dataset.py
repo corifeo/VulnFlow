@@ -99,14 +99,13 @@ class VulnDataset:
 
         Handles both:
         - Sync transforms (with sync transform() method)
-        - Async enrichers (with async transform() method) - run via asyncio
+        - Async enrichers (with async transform() method) - run via asyncio concurrently
 
         Args:
             transforms: List of transform/enricher instances. If None, uses registered defaults
                        (both enrichers and transforms).
         """
-        import asyncio
-        import inspect
+        from vulnflow.execution import execute_transforms_sync
 
         if transforms is None:
             from vulnflow.registry import Registry
@@ -116,15 +115,8 @@ class VulnDataset:
             computed_transforms = Registry.get_default_transforms()
             transforms = enrichers + computed_transforms
 
-        for t in transforms:
-            if hasattr(t, "transform"):
-                method = t.transform
-                if inspect.iscoroutinefunction(method):
-                    # Async transform (enricher) - run via asyncio
-                    asyncio.run(method(self))
-                else:
-                    # Sync transform
-                    method(self)
+        # Use unified execution engine (topology sort + async concurrency)
+        execute_transforms_sync(self, transforms, strict=True)
 
     @classmethod
     def _from_records(cls, records: list[VulnRecord]) -> VulnDataset:
@@ -394,27 +386,31 @@ class VulnDataset:
         records = extractor.extract()
         return cls._from_records(records)
 
-    def to_pandas(self) -> pd.DataFrame:
+    def to_pandas(self, use_registry: bool = False) -> pd.DataFrame:
         """Export dataset to pandas DataFrame.
 
+        Args:
+            use_registry: If True, only export registered schema fields
+
         Returns:
-            Pandas DataFrame with all columns
+            Pandas DataFrame with dataset columns
         """
-        import pandas as pd
+        from vulnflow.loaders.dataframe import to_pandas
 
-        return pd.DataFrame(self._data)
+        return to_pandas(self, use_registry=use_registry)
 
-    def to_polars(self) -> pl.DataFrame:
+    def to_polars(self, use_registry: bool = False) -> pl.DataFrame:
         """Export dataset to polars DataFrame.
 
-        Returns:
-            Polars DataFrame with all columns
-        """
-        import polars as pl
+        Args:
+            use_registry: If True, only export registered schema fields
 
-        # Convert numpy arrays to lists for polars compatibility
-        data = {k: v.tolist() for k, v in self._data.items()}
-        return pl.from_dict(data)
+        Returns:
+            Polars DataFrame with dataset columns
+        """
+        from vulnflow.loaders.dataframe import to_polars
+
+        return to_polars(self, use_registry=use_registry)
 
     def to_parquet(self, path: str | Path) -> None:
         """Export dataset to Parquet file.
