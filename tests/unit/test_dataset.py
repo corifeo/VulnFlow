@@ -266,8 +266,7 @@ def test_dataset_transform_detects_circular_dependencies():
         dataset.transform([Transform1(), Transform2()])
 
 
-@pytest.mark.asyncio
-async def test_dataset_transform_runs_async_concurrently():
+def test_dataset_transform_runs_async_concurrently():
     """dataset.transform() runs async enrichers concurrently."""
     import asyncio
     import time
