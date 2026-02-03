@@ -2,21 +2,19 @@
 DataFrame Loaders - Pandas and Polars export
 
 Provides:
-- PandasLoader: Class-based loader with schema-aware flattening
-- PolarsLoader: Class-based loader delegating to PandasLoader
+- PandasLoader: Export to pandas DataFrame
+- PolarsLoader: Export to polars DataFrame (native, not via pandas)
 - to_pandas: Legacy function for backward compatibility
 - to_polars: Legacy function for backward compatibility
 
 Layer: Load
-Dependencies: dataset, schema, utils.flattening
+Dependencies: dataset
 Used by: dataset.to_pandas(), to_polars()
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-
-import numpy as np
 
 from vulnflow.registry import Registry
 
@@ -26,19 +24,28 @@ if TYPE_CHECKING:
 
     from vulnflow.dataset import VulnDataset
 
+# Columns containing nested JSON that should be excluded by default
+NESTED_COLUMNS = frozenset({
+    "cvss_scores",
+    "cwes",
+    "cpes",
+    "references",
+    "exploits",
+    "epss_scores",
+    "kev",
+})
+
 
 @Registry.register_loader("pandas")
 class PandasLoader:
-    """Load VulnDataset to pandas DataFrame with schema-aware flattening.
+    """Load VulnDataset to pandas DataFrame.
 
-    Flattens nested JSON columns according to DATA-STRUCTURES.md rules:
-    - cvss_scores → cvss_base_score, cvss_base_severity, cvss_version, etc.
-    - cwes → primary_cwe_id, primary_cwe_name
-    - cpes → primary_vendor, primary_product, primary_version
+    By default, excludes nested JSON columns (cvss_scores, cwes, cpes, etc.)
+    since flattened scalar columns are already available from extraction.
 
     Args:
-        include_nested: If True, keep raw JSON columns in addition to flattened columns.
-                       If False (default), only include flattened scalar columns.
+        include_nested: If True, include raw JSON columns.
+                       If False (default), only include scalar columns.
     """
 
     format: str = "pandas"
@@ -47,7 +54,7 @@ class PandasLoader:
         """Initialize loader.
 
         Args:
-            include_nested: If True, keep both flattened and raw JSON columns
+            include_nested: If True, include raw JSON columns
         """
         self.include_nested = include_nested
 
@@ -58,103 +65,27 @@ class PandasLoader:
             dataset: VulnDataset to export
 
         Returns:
-            Pandas DataFrame with flattened columns
+            Pandas DataFrame
         """
         import pandas as pd
 
-        from vulnflow.utils.flattening import (
-            decode_json_column,
-            flatten_cpes,
-            flatten_cvss_scores,
-            flatten_cwes,
-        )
+        if self.include_nested:
+            return pd.DataFrame(dataset._data)
 
-        # Start with all columnar data
-        data = dict(dataset._data)
-
-        # Columns to skip unless include_nested=True
-        skip_unless_nested = {
-            "references",
-            "exploits",
-            "epss_scores",
-            "kev",
-        }
-
-        # Decode and flatten cvss_scores
-        if "cvss_scores" in data:
-            cvss_decoded = decode_json_column(data["cvss_scores"])
-            flattened_rows_cvss: list[dict[str, float | str | None]] = [
-                flatten_cvss_scores(row) for row in cvss_decoded
-            ]
-
-            # Add flattened columns
-            for key in [
-                "cvss_base_score",
-                "cvss_base_severity",
-                "cvss_version",
-                "cvss_vector_string",
-                "cvss_source",
-            ]:
-                data[key] = np.array(
-                    [row[key] for row in flattened_rows_cvss], dtype=object
-                )
-
-            # Remove raw column unless include_nested
-            if not self.include_nested:
-                del data["cvss_scores"]
-
-        # Decode and flatten cwes
-        if "cwes" in data:
-            cwes_decoded = decode_json_column(data["cwes"])
-            flattened_rows_cwe: list[dict[str, str | None]] = [
-                flatten_cwes(row) for row in cwes_decoded
-            ]
-
-            # Add flattened columns
-            for key in ["primary_cwe_id", "primary_cwe_name"]:
-                data[key] = np.array(
-                    [row[key] for row in flattened_rows_cwe], dtype=object
-                )
-
-            # Remove raw column unless include_nested
-            if not self.include_nested:
-                del data["cwes"]
-
-        # Decode and flatten cpes
-        if "cpes" in data:
-            cpes_decoded = decode_json_column(data["cpes"])
-            flattened_rows_cpe: list[dict[str, str | None]] = [
-                flatten_cpes(row) for row in cpes_decoded
-            ]
-
-            # Add flattened columns
-            for key in ["primary_vendor", "primary_product", "primary_version"]:
-                data[key] = np.array(
-                    [row[key] for row in flattened_rows_cpe], dtype=object
-                )
-
-            # Remove raw column unless include_nested
-            if not self.include_nested:
-                del data["cpes"]
-
-        # Remove skip_unless_nested columns if include_nested=False
-        if not self.include_nested:
-            for col in skip_unless_nested:
-                if col in data:
-                    del data[col]
-
+        # Filter out nested JSON columns
+        data = {k: v for k, v in dataset._data.items() if k not in NESTED_COLUMNS}
         return pd.DataFrame(data)
 
 
 @Registry.register_loader("polars")
 class PolarsLoader:
-    """Load VulnDataset to polars DataFrame with schema-aware flattening.
+    """Load VulnDataset to polars DataFrame.
 
-    Delegates to PandasLoader and converts result to Polars.
+    Builds directly from numpy arrays for performance (no pandas intermediate).
 
     Args:
-        include_nested: If True, keep raw JSON columns in addition to flattened columns.
-                       If False (default), only include flattened scalar columns.
+        include_nested: If True, include raw JSON columns.
+                       If False (default), only include scalar columns.
     """
 
     format: str = "polars"
@@ -163,7 +94,7 @@ class PolarsLoader:
         """Initialize loader.
 
         Args:
-            include_nested: If True, keep both flattened and raw JSON columns
+            include_nested: If True, include raw JSON columns
         """
         self.include_nested = include_nested
 
@@ -174,14 +105,20 @@ class PolarsLoader:
             dataset: VulnDataset to export
 
         Returns:
-            Polars DataFrame with flattened columns
+            Polars DataFrame
         """
         import polars as pl
 
-        # Delegate to PandasLoader and convert
-        pandas_loader = PandasLoader(include_nested=self.include_nested)
-        pdf = pandas_loader.load(dataset)
-        return pl.from_pandas(pdf)
+        if self.include_nested:
+            data = {k: v.tolist() for k, v in dataset._data.items()}
+        else:
+            data = {
+                k: v.tolist()
+                for k, v in dataset._data.items()
+                if k not in NESTED_COLUMNS
+            }
+
+        return pl.from_dict(data)
 
 
 # ============================================================================
