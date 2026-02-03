@@ -1,6 +1,6 @@
 """
 Dataset Core - VulnDataset with columnar storage
-Tests: VulnDataset creation, _from_records, __len__
+Tests: VulnDataset creation, __len__, columns
 
 Layer: Core ETL data structure
 Dependencies: schema
@@ -9,13 +9,14 @@ Dependencies: schema
 from __future__ import annotations
 
 import pytest
+from tests.conftest import dataset_from_records
 
 from vulnflow.dataset import VulnDataset
 from vulnflow.schema import VulnRecord
 
 
 def test_dataset_from_records():
-    """VulnDataset._from_records converts list of VulnRecord to columnar."""
+    """Test helper dataset_from_records converts list of VulnRecord to columnar."""
     records = [
         VulnRecord(
             cve_id="CVE-2024-0001",
@@ -26,7 +27,7 @@ def test_dataset_from_records():
             description="Second vulnerability",
         ),
     ]
-    dataset = VulnDataset._from_records(records)
+    dataset = dataset_from_records(records)
     assert len(dataset) == 2
     assert dataset._data is not None
     assert "cve_id" in dataset._data
@@ -40,13 +41,13 @@ def test_dataset_len():
             description="Test",
         )
     ]
-    dataset = VulnDataset._from_records(records)
+    dataset = dataset_from_records(records)
     assert len(dataset) == 1
 
 
 def test_dataset_empty():
     """VulnDataset handles empty records."""
-    dataset = VulnDataset._from_records([])
+    dataset = dataset_from_records([])
     assert len(dataset) == 0
 
 
@@ -148,7 +149,7 @@ def test_dataset_transform_empty_list():
 
 
 def test_dataset_columnar_schema_complete():
-    """VulnDataset._from_records stores all VulnRecord fields."""
+    """dataset_from_records stores all VulnRecord fields."""
     from datetime import UTC, datetime
 
     from vulnflow.schema import CVSSEntry
@@ -168,7 +169,7 @@ def test_dataset_columnar_schema_complete():
             cvss_scores=[cvss],
         )
     ]
-    dataset = VulnDataset._from_records(records)
+    dataset = dataset_from_records(records)
 
     # Core fields present
     expected_columns = [
@@ -299,3 +300,165 @@ def test_dataset_transform_runs_async_concurrently():
     # Both should start before either ends (overlapping execution)
     assert call_log[0][0] in ["async1_start", "async2_start"]
     assert call_log[1][0] in ["async1_start", "async2_start"]
+
+
+def test_from_records_handles_empty_cvss_list():
+    """dataset_from_records handles VulnRecord with empty cvss_scores list."""
+    records = [
+        VulnRecord(
+            cve_id="CVE-2024-0001",
+            description="Test",
+            cvss_scores=[],  # Empty list
+        )
+    ]
+    dataset = dataset_from_records(records)
+
+    assert dataset.get_column("cvss_base_score")[0] is None
+    assert dataset.get_column("cvss_base_severity")[0] is None
+    assert dataset.get_column("cvss_version")[0] is None
+    assert dataset.get_column("cvss_vector_string")[0] is None
+    assert dataset.get_column("cvss_source")[0] is None
+
+
+def test_from_records_handles_empty_cwe_list():
+    """dataset_from_records handles VulnRecord with empty cwes list."""
+    records = [
+        VulnRecord(
+            cve_id="CVE-2024-0001",
+            description="Test",
+            cwes=[],  # Empty list
+        )
+    ]
+    dataset = dataset_from_records(records)
+
+    assert dataset.get_column("primary_cwe_id")[0] is None
+    assert dataset.get_column("primary_cwe_name")[0] is None
+
+
+def test_from_records_handles_empty_cpe_list():
+    """dataset_from_records handles VulnRecord with empty cpes list."""
+    records = [
+        VulnRecord(
+            cve_id="CVE-2024-0001",
+            description="Test",
+            cpes=[],  # Empty list
+        )
+    ]
+    dataset = dataset_from_records(records)
+
+    assert dataset.get_column("primary_vendor")[0] is None
+    assert dataset.get_column("primary_product")[0] is None
+    assert dataset.get_column("primary_version")[0] is None
+
+
+def test_from_records_handles_none_values():
+    """dataset_from_records handles VulnRecord with None in optional fields."""
+    records = [
+        VulnRecord(
+            cve_id="CVE-2024-0001",
+            description="Test",
+            title=None,
+            nvd_published_at=None,
+            kev=None,
+        )
+    ]
+    dataset = dataset_from_records(records)
+
+    assert dataset.get_column("title")[0] is None
+    assert dataset.get_column("nvd_published_at")[0] is None
+    assert dataset.get_column("kev")[0] == "null"  # JSON-encoded None
+
+
+def test_from_records_json_encoding_handles_empty_lists():
+    """dataset_from_records JSON-encodes empty lists correctly."""
+    import json
+
+    records = [
+        VulnRecord(
+            cve_id="CVE-2024-0001",
+            description="Test",
+            aliases=[],
+            sources=[],
+            tags={},
+        )
+    ]
+    dataset = dataset_from_records(records)
+
+    assert json.loads(dataset.get_column("aliases")[0]) == []
+    assert json.loads(dataset.get_column("sources")[0]) == []
+    assert json.loads(dataset.get_column("tags")[0]) == {}
+
+
+def test_transform_returns_self_for_chaining():
+    """transform() returns self to enable method chaining."""
+    import numpy as np
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    class MockTransform:
+        name = "mock"
+        depends_on: list[str] = []
+
+        def transform(self, ds: VulnDataset) -> None:
+            ds.set_column("mock_column", np.array(["A", "B", "C"], dtype=object))
+
+    result = dataset.transform([MockTransform()])
+
+    # Should return self for chaining
+    assert result is dataset
+
+
+def test_method_chaining_transform_to_pandas():
+    """Method chaining works: transform().to_pandas()."""
+    import numpy as np
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    class MockTransform:
+        name = "mock"
+        depends_on: list[str] = []
+
+        def transform(self, ds: VulnDataset) -> None:
+            ds.set_column("mock_column", np.array(["A", "B", "C"], dtype=object))
+
+    # Should be able to chain
+    df = dataset.transform([MockTransform()]).to_pandas()
+
+    assert "mock_column" in df.columns
+    assert list(df["mock_column"]) == ["A", "B", "C"]
+
+
+def test_to_pandas_delegates_to_pandas_loader():
+    """dataset.to_pandas() delegates to PandasLoader."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    df = dataset.to_pandas()
+
+    # Should have flattened columns (proof of PandasLoader usage)
+    assert "cvss_base_score" in df.columns
+    assert "primary_cwe_id" in df.columns
+    assert "primary_vendor" in df.columns
+
+    # Should NOT include nested JSON columns (PandasLoader default behavior)
+    assert "references" not in df.columns
+    assert "exploits" not in df.columns
+    assert "epss_scores" not in df.columns
+    assert "kev" not in df.columns
+
+
+def test_to_polars_delegates_to_polars_loader():
+    """dataset.to_polars() delegates to PolarsLoader."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    df = dataset.to_polars()
+
+    # Should have flattened columns (proof of PolarsLoader usage)
+    assert "cvss_base_score" in df.columns
+    assert "primary_cwe_id" in df.columns
+    assert "primary_vendor" in df.columns
+
+    # Should NOT include nested JSON columns (PolarsLoader default behavior)
+    assert "references" not in df.columns
+    assert "exploits" not in df.columns
+    assert "epss_scores" not in df.columns
+    assert "kev" not in df.columns

@@ -13,59 +13,67 @@ Storage: Columnar (dict[str, np.ndarray]) for vectorized operations at scale
 
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
+from vulnflow.utils.graph import topological_sort
+
 if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
 
-    from vulnflow.schema import VulnRecord
 
-
-def _topological_sort(transforms: list[object]) -> list[object]:
-    """Sort transforms by dependencies using simple O(n²) algorithm.
-
-    Limitations vs. Kahn's algorithm:
-    - No parallel execution groups (can't identify independent transforms)
-    - Lenient on missing dependencies (assumes already satisfied)
-    - Slower O(n²) vs O(n+e) for large transform lists
-    - Good enough: typical usage has <10 transforms
-
-    Args:
-        transforms: List of transform instances with name and depends_on attributes
+def _get_record_columns() -> list[str]:
+    """Get column names from VulnRecord dataclass.
 
     Returns:
-        Sorted list where dependencies come before dependents
-
-    Raises:
-        ValueError: If circular dependencies detected
+        List of field names from VulnRecord
     """
-    by_name = {t.name: t for t in transforms}
-    result = []
-    remaining = list(transforms)
+    from vulnflow.schema import VulnRecord
 
-    while remaining:
-        # Find transforms with all dependencies satisfied
-        ready = [
-            t for t in remaining
-            if all(
-                dep in [r.name for r in result] or dep not in by_name
-                for dep in getattr(t, "depends_on", [])
-            )
-        ]
+    return [f.name for f in fields(VulnRecord)]
 
-        if not ready:
-            remaining_names = [t.name for t in remaining]
-            raise ValueError(f"Circular dependency among: {remaining_names}")
 
-        result.extend(ready)
-        for t in ready:
-            remaining.remove(t)
+def _get_flattened_columns() -> list[str]:
+    """Get computed/flattened column names.
 
-    return result
+    These columns are derived from VulnRecord fields (e.g., cvss_base_score
+    from cvss_scores) and don't exist in the schema directly.
+
+    Returns:
+        List of flattened column names
+    """
+    return [
+        # CVSS flattened (from cvss_scores)
+        "cvss_base_score",
+        "cvss_base_severity",
+        "cvss_version",
+        "cvss_vector_string",
+        "cvss_source",
+        # CWE flattened (from cwes)
+        "primary_cwe_id",
+        "primary_cwe_name",
+        # CPE flattened (from cpes)
+        "primary_vendor",
+        "primary_product",
+        "primary_version",
+    ]
+
+
+def _allocate_arrays(n: int) -> dict[str, np.ndarray]:
+    """Pre-allocate numpy arrays for all columns.
+
+    Args:
+        n: Number of records (array length)
+
+    Returns:
+        Dictionary mapping column names to pre-allocated numpy arrays
+    """
+    columns = _get_record_columns() + _get_flattened_columns()
+    return {col: np.empty(n, dtype=object) for col in columns}
 
 
 class VulnDataset:
@@ -137,7 +145,7 @@ class VulnDataset:
 
         self._data[name] = data
 
-    def transform(self, transforms: list[object] | None = None) -> None:
+    def transform(self, transforms: list[object] | None = None) -> VulnDataset:
         """Apply transforms and enrichers to dataset (modifies in place).
 
         Handles both:
@@ -147,6 +155,9 @@ class VulnDataset:
         Args:
             transforms: List of transform/enricher instances. If None, uses registered defaults
                        (both enrichers and transforms).
+
+        Returns:
+            Self for method chaining
         """
         import asyncio
         import inspect
@@ -160,7 +171,7 @@ class VulnDataset:
             transforms = enrichers + computed_transforms
 
         # Sort by dependencies
-        transforms = _topological_sort(transforms)
+        transforms = topological_sort(transforms)
 
         # Separate async from sync
         async_transforms = [
@@ -176,8 +187,8 @@ class VulnDataset:
 
         # Run async concurrently
         if async_transforms:
-            async def run_all():
-                await asyncio.gather(*[t.transform(self) for t in async_transforms])
+            async def run_all() -> None:
+                await asyncio.gather(*[t.transform(self) for t in async_transforms])  # type: ignore[misc]
 
             asyncio.run(run_all())
 
@@ -185,257 +196,7 @@ class VulnDataset:
         for t in sync_transforms:
             t.transform(self)
 
-    @classmethod
-    def _from_records(cls, records: list[VulnRecord]) -> VulnDataset:
-        """Convert list of VulnRecord to columnar storage.
-
-        Args:
-            records: List of VulnRecord instances
-
-        Returns:
-            VulnDataset with columnar storage
-
-        Note:
-            Complex fields (lists, nested dataclasses) stored as JSON strings.
-            Flattened columns (cvss_base_score, etc.) added for DataFrame convenience.
-            CVD timestamps are NOT stored here - EventInference adds them later.
-        """
-        import json
-        from dataclasses import is_dataclass
-        from typing import Any
-
-        from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry
-
-        # Create JSON encoder once for reuse
-        json_encoder = json.JSONEncoder(default=str)
-
-        def dataclass_to_dict(obj: Any) -> Any:
-            """Fast dataclass to dict conversion without asdict overhead."""
-            if obj is None:
-                return None
-            if is_dataclass(obj) and not isinstance(obj, type):
-                # Manually extract fields instead of using asdict()
-                return {f.name: getattr(obj, f.name) for f in obj.__dataclass_fields__.values()}  # type: ignore[union-attr]
-            return obj
-
-        def encode_nested(value: Any) -> str:
-            """Encode nested structure as JSON string."""
-            if value is None:
-                return "null"
-            if isinstance(value, list):
-                # Fast path for empty lists
-                if not value:
-                    return "[]"
-                # Convert dataclasses in list to dicts
-                items = [dataclass_to_dict(item) for item in value]
-                return json_encoder.encode(items)
-            if is_dataclass(value) and not isinstance(value, type):
-                return json_encoder.encode(dataclass_to_dict(value))
-            return json_encoder.encode(value)
-
-        def flatten_cvss(
-            cvss_scores: list[CVSSEntry],
-        ) -> dict[str, float | str | None]:
-            """Flatten list[CVSSEntry] to scalar columns.
-
-            Selection logic:
-            1. Prefer source: nvd > redhat > microsoft > other
-            2. If tie, take first in list
-            """
-            if not cvss_scores:
-                return {
-                    "cvss_base_score": None,
-                    "cvss_base_severity": None,
-                    "cvss_version": None,
-                    "cvss_vector_string": None,
-                    "cvss_source": None,
-                }
-
-            # Source preference order
-            source_priority = {"nvd": 0, "redhat": 1, "microsoft": 2}
-
-            def score_key(entry: CVSSEntry) -> int:
-                return source_priority.get(entry.source, 999)
-
-            # Select preferred entry
-            selected = min(cvss_scores, key=score_key)
-
-            return {
-                "cvss_base_score": selected.base_score,
-                "cvss_base_severity": selected.base_severity,
-                "cvss_version": selected.version,
-                "cvss_vector_string": selected.vector_string,
-                "cvss_source": selected.source,
-            }
-
-        def flatten_cwe(cwes: list[CWEEntry]) -> dict[str, str | None]:
-            """Flatten list[CWEEntry] to scalar columns (first entry)."""
-            if not cwes:
-                return {
-                    "primary_cwe_id": None,
-                    "primary_cwe_name": None,
-                }
-            # Take first CWE
-            first = cwes[0]
-            return {
-                "primary_cwe_id": first.id,
-                "primary_cwe_name": first.name,
-            }
-
-        def flatten_cpe(cpes: list[CPEEntry]) -> dict[str, str | None]:
-            """Flatten list[CPEEntry] to scalar columns (first entry)."""
-            if not cpes:
-                return {
-                    "primary_vendor": None,
-                    "primary_product": None,
-                    "primary_version": None,
-                }
-            # Take first CPE
-            first = cpes[0]
-            return {
-                "primary_vendor": first.vendor,
-                "primary_product": first.product,
-                "primary_version": first.version,
-            }
-
-        dataset = cls()
-        if not records:
-            return dataset
-
-        n = len(records)
-
-        # Pre-allocate arrays for single-pass population
-        # Identity
-        ids = np.empty(n, dtype=object)
-        cve_ids = np.empty(n, dtype=object)
-        aliases_arr = np.empty(n, dtype=object)
-        # Description
-        titles = np.empty(n, dtype=object)
-        descriptions = np.empty(n, dtype=object)
-        # Metadata
-        first_seen = np.empty(n, dtype=object)
-        last_updated = np.empty(n, dtype=object)
-        sources_arr = np.empty(n, dtype=object)
-        # NVD Temporal
-        nvd_published = np.empty(n, dtype=object)
-        nvd_modified = np.empty(n, dtype=object)
-        # Scoring
-        cvss_scores_arr = np.empty(n, dtype=object)
-        epss_scores_arr = np.empty(n, dtype=object)
-        # Flattened CVSS
-        cvss_base_score = np.empty(n, dtype=object)
-        cvss_base_severity = np.empty(n, dtype=object)
-        cvss_version = np.empty(n, dtype=object)
-        cvss_vector_string = np.empty(n, dtype=object)
-        cvss_source = np.empty(n, dtype=object)
-        # Exploitation
-        kev_arr = np.empty(n, dtype=object)
-        exploits_arr = np.empty(n, dtype=object)
-        # Classification
-        cwes_arr = np.empty(n, dtype=object)
-        cpes_arr = np.empty(n, dtype=object)
-        # Flattened CWE/CPE
-        primary_cwe_id = np.empty(n, dtype=object)
-        primary_cwe_name = np.empty(n, dtype=object)
-        primary_vendor = np.empty(n, dtype=object)
-        primary_product = np.empty(n, dtype=object)
-        primary_version = np.empty(n, dtype=object)
-        # References
-        references_arr = np.empty(n, dtype=object)
-        # Extensible
-        tags_arr = np.empty(n, dtype=object)
-        metadata_arr = np.empty(n, dtype=object)
-
-        # Single pass over records
-        for i, r in enumerate(records):
-            # Identity
-            ids[i] = str(r.id)
-            cve_ids[i] = r.cve_id
-            aliases_arr[i] = json.dumps(r.aliases)
-            # Description
-            titles[i] = r.title
-            descriptions[i] = r.description
-            # Metadata
-            first_seen[i] = r.first_seen_at
-            last_updated[i] = r.last_updated_at
-            sources_arr[i] = json.dumps(r.sources)
-            # NVD Temporal
-            nvd_published[i] = r.nvd_published_at
-            nvd_modified[i] = r.nvd_modified_at
-            # Scoring
-            cvss_scores_arr[i] = encode_nested(r.cvss_scores)
-            epss_scores_arr[i] = encode_nested(r.epss_scores)
-            # Flattened CVSS
-            flattened = flatten_cvss(r.cvss_scores)
-            cvss_base_score[i] = flattened["cvss_base_score"]
-            cvss_base_severity[i] = flattened["cvss_base_severity"]
-            cvss_version[i] = flattened["cvss_version"]
-            cvss_vector_string[i] = flattened["cvss_vector_string"]
-            cvss_source[i] = flattened["cvss_source"]
-            # Exploitation
-            kev_arr[i] = encode_nested(r.kev)
-            exploits_arr[i] = encode_nested(r.exploits)
-            # Classification
-            cwes_arr[i] = encode_nested(r.cwes)
-            cpes_arr[i] = encode_nested(r.cpes)
-            # Flattened CWE/CPE
-            cwe_flat = flatten_cwe(r.cwes)
-            primary_cwe_id[i] = cwe_flat["primary_cwe_id"]
-            primary_cwe_name[i] = cwe_flat["primary_cwe_name"]
-            cpe_flat = flatten_cpe(r.cpes)
-            primary_vendor[i] = cpe_flat["primary_vendor"]
-            primary_product[i] = cpe_flat["primary_product"]
-            primary_version[i] = cpe_flat["primary_version"]
-            # References
-            references_arr[i] = encode_nested(r.references)
-            # Extensible
-            tags_arr[i] = json.dumps(r.tags)
-            metadata_arr[i] = json.dumps(r.metadata, default=str)
-
-        dataset._data = {
-            # Identity
-            "id": ids,
-            "cve_id": cve_ids,
-            "aliases": aliases_arr,
-            # Description
-            "title": titles,
-            "description": descriptions,
-            # Metadata
-            "first_seen_at": first_seen,
-            "last_updated_at": last_updated,
-            "sources": sources_arr,
-            # NVD Temporal
-            "nvd_published_at": nvd_published,
-            "nvd_modified_at": nvd_modified,
-            # Scoring (JSON-encoded lists for Parquet round-trip)
-            "cvss_scores": cvss_scores_arr,
-            "epss_scores": epss_scores_arr,
-            # Flattened CVSS (for DataFrame convenience)
-            "cvss_base_score": cvss_base_score,
-            "cvss_base_severity": cvss_base_severity,
-            "cvss_version": cvss_version,
-            "cvss_vector_string": cvss_vector_string,
-            "cvss_source": cvss_source,
-            # Exploitation (JSON-encoded)
-            "kev": kev_arr,
-            "exploits": exploits_arr,
-            # Classification (JSON-encoded lists)
-            "cwes": cwes_arr,
-            "cpes": cpes_arr,
-            # Flattened CWE/CPE (for DataFrame convenience)
-            "primary_cwe_id": primary_cwe_id,
-            "primary_cwe_name": primary_cwe_name,
-            "primary_vendor": primary_vendor,
-            "primary_product": primary_product,
-            "primary_version": primary_version,
-            # References (JSON-encoded list)
-            "references": references_arr,
-            # Extensible (JSON-encoded dicts)
-            "tags": tags_arr,
-            "metadata": metadata_arr,
-        }
-
-        return dataset
+        return self
 
     @classmethod
     def from_nvd(cls, path: str | Path) -> VulnDataset:
@@ -450,30 +211,29 @@ class VulnDataset:
         from vulnflow.extractors.nvd import NVDExtractor
 
         extractor = NVDExtractor(str(path))
-        records = extractor.extract()
-        return cls._from_records(records)
+        return extractor.extract()
 
     def to_pandas(self) -> pd.DataFrame:
         """Export dataset to pandas DataFrame.
 
         Returns:
-            Pandas DataFrame with all columns
+            Pandas DataFrame with flattened scalar columns
         """
-        import pandas as pd
+        from vulnflow.loaders.dataframe import PandasLoader
 
-        return pd.DataFrame(self._data)
+        loader = PandasLoader()
+        return loader.load(self)
 
     def to_polars(self) -> pl.DataFrame:
         """Export dataset to polars DataFrame.
 
         Returns:
-            Polars DataFrame with all columns
+            Polars DataFrame with flattened scalar columns
         """
-        import polars as pl
+        from vulnflow.loaders.dataframe import PolarsLoader
 
-        # Convert numpy arrays to lists for polars compatibility
-        data = {k: v.tolist() for k, v in self._data.items()}
-        return pl.from_dict(data)
+        loader = PolarsLoader()
+        return loader.load(self)
 
     def to_parquet(self, path: str | Path) -> None:
         """Export dataset to Parquet file.
@@ -481,15 +241,10 @@ class VulnDataset:
         Args:
             path: Output file path
         """
-        import pyarrow as pa
-        import pyarrow.parquet as pq
+        from vulnflow.loaders.files import ParquetLoader
 
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Convert to PyArrow table
-        table = pa.table(self._data)
-        pq.write_table(table, path)
+        loader = ParquetLoader(path)
+        loader.load(self)
 
     @classmethod
     def from_parquet(cls, path: str | Path) -> VulnDataset:
@@ -501,15 +256,10 @@ class VulnDataset:
         Returns:
             VulnDataset with data from Parquet file
         """
-        import pyarrow.parquet as pq
+        from vulnflow.extractors.files import ParquetExtractor
 
-        table = pq.read_table(path)
-
-        dataset = cls()
-        # Convert PyArrow table to dict of numpy arrays
-        dataset._data = {col: table[col].to_numpy() for col in table.column_names}
-
-        return dataset
+        extractor = ParquetExtractor(str(path))
+        return extractor.extract()
 
     def update_sources(self, indices: list[int], source: str) -> None:
         """Update sources list for specified records.
