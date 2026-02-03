@@ -8,122 +8,130 @@ Dependencies: schema
 
 from __future__ import annotations
 
+import json
+
+from vulnflow.dataset import VulnDataset
 from vulnflow.extractors.nvd import NVDExtractor
-from vulnflow.schema import VulnRecord
 
 
 def test_nvd_extractor_returns_records():
-    """NVDExtractor.extract() returns list of VulnRecord."""
+    """NVDExtractor.extract() returns VulnDataset."""
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
-    records = extractor.extract()
+    dataset = extractor.extract()
 
-    assert isinstance(records, list)
-    assert len(records) == 3
-    assert all(isinstance(r, VulnRecord) for r in records)
+    assert isinstance(dataset, VulnDataset)
+    assert len(dataset) == 3
+    assert "cve_id" in dataset.columns
 
 
 def test_nvd_extractor_parses_cve_id():
     """NVDExtractor correctly parses CVE IDs."""
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
-    records = extractor.extract()
+    dataset = extractor.extract()
 
-    assert records[0].cve_id == "CVE-2024-0001"
-    assert records[1].cve_id == "CVE-2024-0002"
-    assert records[2].cve_id == "CVE-2024-0003"
+    cve_ids = dataset.get_column("cve_id")
+    assert cve_ids[0] == "CVE-2024-0001"
+    assert cve_ids[1] == "CVE-2024-0002"
+    assert cve_ids[2] == "CVE-2024-0003"
 
 
 def test_nvd_extractor_parses_nvd_timestamps():
     """NVDExtractor populates nvd_published_at and nvd_modified_at."""
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
-    records = extractor.extract()
+    dataset = extractor.extract()
 
     # First record has timestamps
-    assert records[0].nvd_published_at is not None
-    assert records[0].nvd_published_at.year == 2024
-    assert records[0].nvd_modified_at is not None
+    published = dataset.get_column("nvd_published_at")
+    assert published[0] is not None
+    assert published[0].year == 2024
+
+    modified = dataset.get_column("nvd_modified_at")
+    assert modified[0] is not None
 
 
 def test_nvd_extractor_parses_cvss():
-    """NVDExtractor parses CVSS v3 scores into cvss_scores list."""
+    """NVDExtractor parses CVSS v3 scores and flattens them."""
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
-    records = extractor.extract()
+    dataset = extractor.extract()
 
-    # First record has CVSS
-    assert len(records[0].cvss_scores) > 0
-    cvss = records[0].cvss_scores[0]
-    assert cvss.base_score == 9.8
-    assert cvss.base_severity == "CRITICAL"
-    assert cvss.source == "nvd"
+    # First record has CVSS (flattened)
+    cvss_scores = dataset.get_column("cvss_base_score")
+    assert cvss_scores[0] == 9.8
+
+    cvss_severity = dataset.get_column("cvss_base_severity")
+    assert cvss_severity[0] == "CRITICAL"
+
+    cvss_source = dataset.get_column("cvss_source")
+    assert cvss_source[0] == "nvd"
 
     # Second record (CVE-2024-0002) has no CVSS metrics
-    assert len(records[1].cvss_scores) == 0
+    assert cvss_scores[1] is None
 
 
 def test_nvd_extractor_parses_cwes():
-    """NVDExtractor parses CWE weaknesses as CWEEntry list."""
+    """NVDExtractor parses CWE weaknesses and flattens them."""
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
-    records = extractor.extract()
+    dataset = extractor.extract()
 
     # First record has CWE-94
-    assert len(records[0].cwes) > 0
-    cwe = records[0].cwes[0]
-    assert cwe.id == "CWE-94"
+    primary_cwe = dataset.get_column("primary_cwe_id")
+    assert primary_cwe[0] == "CWE-94"
 
     # Second record has no CWEs
-    assert len(records[1].cwes) == 0
+    assert primary_cwe[1] is None
 
     # Third record has CWE-79
-    assert len(records[2].cwes) > 0
-    assert records[2].cwes[0].id == "CWE-79"
+    assert primary_cwe[2] == "CWE-79"
 
 
 def test_nvd_extractor_parses_cpes():
-    """NVDExtractor parses CPE configurations as CPEEntry list."""
+    """NVDExtractor parses CPE configurations and flattens them."""
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
-    records = extractor.extract()
+    dataset = extractor.extract()
 
     # First record has CPE for example:product
-    assert len(records[0].cpes) > 0
-    cpe = records[0].cpes[0]
-    assert cpe.vendor == "example"
-    assert cpe.product == "product"
-    assert cpe.raw is not None
-    assert cpe.raw.startswith("cpe:2.3")
+    primary_vendor = dataset.get_column("primary_vendor")
+    primary_product = dataset.get_column("primary_product")
+
+    assert primary_vendor[0] == "example"
+    assert primary_product[0] == "product"
 
     # Second record has no CPEs
-    assert len(records[1].cpes) == 0
+    assert primary_vendor[1] is None
+    assert primary_product[1] is None
 
-    # Third record has 2 CPEs for widget_library
-    assert len(records[2].cpes) == 2
-    assert records[2].cpes[0].vendor == "vendor"
-    assert records[2].cpes[0].product == "widget_library"
+    # Third record has vendor:widget_library
+    assert primary_vendor[2] == "vendor"
+    assert primary_product[2] == "widget_library"
 
 
 def test_nvd_extractor_parses_references():
-    """NVDExtractor parses references with tags."""
+    """NVDExtractor parses references into JSON-encoded column."""
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
-    records = extractor.extract()
+    dataset = extractor.extract()
+
+    # References are JSON-encoded
+    references = dataset.get_column("references")
 
     # First record has 2 references
-    assert len(records[0].references) == 2
+    refs_0 = json.loads(references[0])
+    assert len(refs_0) == 2
 
     # First reference is Vendor Advisory
-    ref1 = records[0].references[0]
-    assert "Vendor Advisory" in ref1.tags
-    assert ref1.url == "https://example.com/security/advisory-2024-001"
+    assert "Vendor Advisory" in refs_0[0]["tags"]
+    assert refs_0[0]["url"] == "https://example.com/security/advisory-2024-001"
 
     # Second reference is Patch
-    ref2 = records[0].references[1]
-    assert "Patch" in ref2.tags
+    assert "Patch" in refs_0[1]["tags"]
 
     # Second record has 1 reference with no tags
-    assert len(records[1].references) == 1
-    assert records[1].references[0].tags == []
+    refs_1 = json.loads(references[1])
+    assert len(refs_1) == 1
+    assert refs_1[0]["tags"] == []
 
 
 def test_nvd_extractor_handles_utf8():
     """NVDExtractor handles UTF-8 encoded files."""
-    import json
     import tempfile
     from pathlib import Path
 
@@ -153,9 +161,23 @@ def test_nvd_extractor_handles_utf8():
 
     try:
         extractor = NVDExtractor(temp_path)
-        records = extractor.extract()
+        dataset = extractor.extract()
 
-        assert len(records) == 1
-        assert "café" in records[0].description
+        assert len(dataset) == 1
+        descriptions = dataset.get_column("description")
+        assert "café" in descriptions[0]
     finally:
         Path(temp_path).unlink()
+
+
+def test_all_extractors_have_format_attribute():
+    """All extractors have format attribute with correct values."""
+    from vulnflow.extractors.files import ParquetExtractor
+
+    # Test NVDExtractor
+    assert hasattr(NVDExtractor, 'format')
+    assert NVDExtractor.format == "nvd_json"
+
+    # Test ParquetExtractor
+    assert hasattr(ParquetExtractor, 'format')
+    assert ParquetExtractor.format == "parquet"
