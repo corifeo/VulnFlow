@@ -11,7 +11,7 @@ Used by: files, dataframe, sql loaders
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -21,6 +21,10 @@ if TYPE_CHECKING:
 class Loader(Protocol):
     """Protocol for data loaders/exporters."""
 
-    def load(self, dataset: VulnDataset) -> None:
-        """Load/export dataset to destination."""
+    def load(self, dataset: VulnDataset) -> dict[str, Any]:
+        """Load/export dataset to destination.
+
+        Returns:
+            Metadata dict with loader-specific information
+        """
         ...
