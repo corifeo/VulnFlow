@@ -12,7 +12,6 @@ Used by: dataset.from_nvd(), pipeline
 from __future__ import annotations
 
 import gzip
-from dataclasses import is_dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -268,31 +267,15 @@ class NVDExtractor(BaseExtractor):
         """
         from vulnflow.dataset import VulnDataset
 
-        def dataclass_to_dict(obj: Any) -> Any:
-            """Fast dataclass to dict conversion without asdict overhead."""
-            if obj is None:
-                return None
-            if is_dataclass(obj) and not isinstance(obj, type):
-                # Manually extract fields instead of using asdict()
-                return {
-                    f.name: getattr(obj, f.name)
-                    for f in obj.__dataclass_fields__.values()
-                }
-            return obj
-
         def encode_nested(value: Any) -> str:
-            """Encode nested structure as JSON string."""
+            """Encode nested structure as JSON string.
+
+            orjson handles dataclass serialization natively via OPT_SERIALIZE_DATACLASS.
+            """
             if value is None:
                 return "null"
-            if isinstance(value, list):
-                # Fast path for empty lists
-                if not value:
-                    return "[]"
-                # Convert dataclasses in list to dicts
-                items = [dataclass_to_dict(item) for item in value]
-                return json.dumps(items, default=str)
-            if is_dataclass(value) and not isinstance(value, type):
-                return json.dumps(dataclass_to_dict(value), default=str)
+            if isinstance(value, list) and not value:
+                return "[]"
             return json.dumps(value, default=str)
 
         def flatten_cvss(
