@@ -100,44 +100,40 @@ class EventInference:
         self.confidence_threshold = confidence_threshold
 
     def transform(self, dataset: VulnDataset) -> None:
-        """Create CVD timestamp columns from available metadata.
+        """Create CVD timestamp columns from available metadata (vectorized).
 
         Args:
             dataset: VulnDataset to transform (adds columns)
         """
         n = len(dataset)
 
-        # Initialize CVD timestamp columns
-        v_timestamps: list[datetime | None] = [None] * n
-        f_timestamps: list[datetime | None] = [None] * n
-        d_timestamps: list[datetime | None] = [None] * n
-        p_timestamps: list[datetime | None] = [None] * n
-        x_timestamps: list[datetime | None] = [None] * n
-        a_timestamps: list[datetime | None] = [None] * n
+        # Initialize CVD timestamp arrays
+        v_timestamps = np.full(n, None, dtype=object)
+        f_timestamps = np.full(n, None, dtype=object)
+        d_timestamps = np.full(n, None, dtype=object)
+        p_timestamps = np.full(n, None, dtype=object)
+        x_timestamps = np.full(n, None, dtype=object)
+        a_timestamps = np.full(n, None, dtype=object)
 
-        # Get source data (use public API)
+        # Get source columns
         nvd_published = dataset.get_column_or_none("nvd_published_at")
         kev_date_added = dataset.get_column_or_none("kev_date_added")
 
-        for i in range(n):
-            # Infer P from nvd_published_at (confidence 0.8 - NVD is authoritative for public disclosure)
-            p_confidence = 0.8
-            if p_confidence >= self.confidence_threshold and nvd_published is not None:
-                pub_date = nvd_published[i] if i < len(nvd_published) else None
-                if pub_date is not None:
-                    p_timestamps[i] = pub_date
+        # Vectorized P inference (confidence 0.8 - NVD is authoritative for public disclosure)
+        if self.confidence_threshold <= 0.8 and nvd_published is not None:
+            # Use boolean indexing instead of for loop
+            valid_mask = nvd_published != None  # noqa: E711
+            p_timestamps[valid_mask] = nvd_published[valid_mask]
 
-            # Infer A from KEV date_added (confidence 1.0 - CISA is authoritative)
-            a_confidence = 1.0
-            if a_confidence >= self.confidence_threshold and kev_date_added is not None:
-                kev_date = kev_date_added[i] if i < len(kev_date_added) else None
-                if kev_date is not None:
-                    a_timestamps[i] = kev_date
+        # Vectorized A inference (confidence 1.0 - CISA is authoritative)
+        if self.confidence_threshold <= 1.0 and kev_date_added is not None:
+            valid_mask = kev_date_added != None  # noqa: E711
+            a_timestamps[valid_mask] = kev_date_added[valid_mask]
 
         # Add CVD timestamp columns to dataset
-        dataset.set_column("v_timestamp", np.array(v_timestamps, dtype=object))
-        dataset.set_column("f_timestamp", np.array(f_timestamps, dtype=object))
-        dataset.set_column("d_timestamp", np.array(d_timestamps, dtype=object))
-        dataset.set_column("p_timestamp", np.array(p_timestamps, dtype=object))
-        dataset.set_column("x_timestamp", np.array(x_timestamps, dtype=object))
-        dataset.set_column("a_timestamp", np.array(a_timestamps, dtype=object))
+        dataset.set_column("v_timestamp", v_timestamps)
+        dataset.set_column("f_timestamp", f_timestamps)
+        dataset.set_column("d_timestamp", d_timestamps)
+        dataset.set_column("p_timestamp", p_timestamps)
+        dataset.set_column("x_timestamp", x_timestamps)
+        dataset.set_column("a_timestamp", a_timestamps)
