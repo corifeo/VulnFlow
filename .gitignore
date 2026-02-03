@@ -59,3 +59,5 @@ tmp/
 # uv
 uv.lock
 .claude/settings.local.json
+.cache/epss/522fdc2f4eb0c65f.cache
+.cache/kev/8f414a95a6482543.cache
