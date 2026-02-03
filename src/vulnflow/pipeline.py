@@ -83,21 +83,11 @@ class VulnPipeline:
         # Stage 2: Transform (enrichers + transforms)
         if self.transformers and dataset is not None:
             import asyncio
-            import inspect
+
+            from vulnflow.utils.transforms import partition_transforms
 
             # Separate async transforms (enrichers) from sync transforms
-            # All use transform() method - detect async via inspect
-            def is_async_transform(t: object) -> bool:
-                return hasattr(t, "transform") and inspect.iscoroutinefunction(
-                    t.transform
-                )
-
-            async_transforms = [t for t in self.transformers if is_async_transform(t)]
-            sync_transforms = [
-                t
-                for t in self.transformers
-                if hasattr(t, "transform") and not is_async_transform(t)
-            ]
+            async_transforms, sync_transforms = partition_transforms(self.transformers)
 
             # Run async transforms concurrently with asyncio.gather()
             if async_transforms:
