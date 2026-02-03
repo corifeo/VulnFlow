@@ -21,11 +21,12 @@ import numpy as np
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
-from vulnflow.registry import register_transform
+from vulnflow.registry import FieldDefinition, register_transform
+from vulnflow.transforms.base import BaseInference
 
 
 @register_transform
-class TagInference:
+class TagInference(BaseInference):
     """Infer tags from vulnerability descriptions and metadata.
 
     Tag categories inferred:
@@ -38,11 +39,12 @@ class TagInference:
 
     name: str = "TagInference"
     depends_on: list[str] = []
-    confidence_threshold: float
 
     SCHEMA_VERSION: str = "1.0.0"
-    OUTPUT_SCHEMA: list[dict[str, str]] = [
-        {"name": "inferred_tags", "type": "list[str]", "description": "Inferred classification tags"},
+    OUTPUT_SCHEMA: list[FieldDefinition] = [
+        FieldDefinition(
+            "inferred_tags", "list[str]", "Inferred classification tags", "TagInference"
+        ),
     ]
 
     def __init__(self, confidence_threshold: float = 0.7) -> None:
@@ -51,6 +53,7 @@ class TagInference:
         Args:
             confidence_threshold: Minimum confidence (0.0-1.0) to add tag
         """
+        super().__init__()
         self.confidence_threshold = confidence_threshold
 
     def transform(self, dataset: VulnDataset) -> None:
@@ -118,9 +121,7 @@ class TagInference:
         # Add column to dataset
         dataset.set_column("inferred_tags", np.array(inferred_tags, dtype=object))
 
-    def _infer_threat_tags(
-        self, description: str | None
-    ) -> tuple[list[str], float]:
+    def _infer_threat_tags(self, description: str | None) -> tuple[list[str], float]:
         """Infer threat-related tags from description text.
 
         Returns:
@@ -163,9 +164,7 @@ class TagInference:
 
         return [], 0.0
 
-    def _infer_vector_tags(
-        self, cwes: list[dict[str, str]]
-    ) -> tuple[list[str], float]:
+    def _infer_vector_tags(self, cwes: list[dict[str, str]]) -> tuple[list[str], float]:
         """Infer attack vector tags from CWE IDs.
 
         Returns:

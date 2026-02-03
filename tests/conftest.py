@@ -58,7 +58,9 @@ def dataset_from_records(records: list[VulnRecord]) -> VulnDataset:  # type: ign
         if obj is None:
             return None
         if is_dataclass(obj) and not isinstance(obj, type):
-            return {f.name: getattr(obj, f.name) for f in obj.__dataclass_fields__.values()}
+            return {
+                f.name: getattr(obj, f.name) for f in obj.__dataclass_fields__.values()
+            }
         return obj
 
     def encode_nested(value: Any) -> str:
@@ -104,9 +106,17 @@ def dataset_from_records(records: list[VulnRecord]) -> VulnDataset:  # type: ign
     def flatten_cpe(cpes: list[CPEEntry]) -> dict[str, str | None]:
         """Flatten list[CPEEntry] to scalar columns (first entry)."""
         if not cpes:
-            return {"primary_vendor": None, "primary_product": None, "primary_version": None}
+            return {
+                "primary_vendor": None,
+                "primary_product": None,
+                "primary_version": None,
+            }
         first = cpes[0]
-        return {"primary_vendor": first.vendor, "primary_product": first.product, "primary_version": first.version}
+        return {
+            "primary_vendor": first.vendor,
+            "primary_product": first.product,
+            "primary_version": first.version,
+        }
 
     dataset = VulnDataset()
     if not records:
@@ -115,8 +125,16 @@ def dataset_from_records(records: list[VulnRecord]) -> VulnDataset:  # type: ign
     n = len(records)
     record_cols = [f.name for f in fields(VulnRecord)]
     flattened_cols = [
-        "cvss_base_score", "cvss_base_severity", "cvss_version", "cvss_vector_string", "cvss_source",
-        "primary_cwe_id", "primary_cwe_name", "primary_vendor", "primary_product", "primary_version",
+        "cvss_base_score",
+        "cvss_base_severity",
+        "cvss_version",
+        "cvss_vector_string",
+        "cvss_source",
+        "primary_cwe_id",
+        "primary_cwe_name",
+        "primary_vendor",
+        "primary_product",
+        "primary_version",
     ]
     all_columns = record_cols + flattened_cols
     arrays = {col: np.empty(n, dtype=object) for col in all_columns}
@@ -252,7 +270,6 @@ def restore_registry():
     from vulnflow.registry import Registry
 
     # Save current state
-    saved_enrichers = Registry._enrichers.copy()
     saved_transforms = Registry._transforms.copy()
     saved_extractors = Registry._extractors.copy()
     saved_loaders = Registry._loaders.copy()
@@ -261,7 +278,6 @@ def restore_registry():
     yield
 
     # Restore state
-    Registry._enrichers = saved_enrichers
     Registry._transforms = saved_transforms
     Registry._extractors = saved_extractors
     Registry._loaders = saved_loaders

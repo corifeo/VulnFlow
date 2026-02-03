@@ -1,13 +1,13 @@
 """
-Registry - Plugin registration for enrichers and transforms
+Registry - Plugin registration for transforms, extractors, and loaders
 
 Provides:
-- Registry: Central registry for enricher and transform plugins
+- Registry: Central registry for transform plugins
 - FieldDefinition: Schema definition for dataset fields
 
 Layer: Core
 Dependencies: None
-Used by: dataset, transforms, enrichers
+Used by: dataset, transforms
 """
 
 from __future__ import annotations
@@ -41,26 +41,13 @@ class FieldDefinition:
 
 
 class Registry:
-    """Central registry for enricher and transform plugins."""
+    """Central registry for transform, extractor, and loader plugins."""
 
-    _enrichers: dict[str, tuple[type[Any], bool]] = {}  # name -> (class, is_default)
     _transforms: dict[str, tuple[type[Any], bool]] = {}  # name -> (class, is_default)
-
     _extractors: dict[str, type[BaseExtractor]] = {}  # name -> class
     _loaders: dict[str, type[BaseLoader]] = {}  # name -> class
-    _schemas: dict[str, list[FieldDefinition]] = {}  # component_name -> fields
-
-    @classmethod
-    def register_enricher(
-        cls, name: str, *, default: bool = False
-    ) -> Callable[[type[T]], type[T]]:
-        """Decorator to register an enricher class."""
-
-        def decorator(enricher_cls: type[T]) -> type[T]:
-            cls._enrichers[name] = (enricher_cls, default)
-            return enricher_cls
-
-        return decorator
+    # Schema storage with versioning: {component_name: {"version": "X.Y.Z", "fields": [...]}}
+    _schemas: dict[str, dict[str, Any]] = {}
 
     @classmethod
     def register_transform(
@@ -95,15 +82,6 @@ class Registry:
         return decorator
 
     @classmethod
-    def get_default_enrichers(cls) -> list[Any]:
-        """Return instances of all default enrichers."""
-        return [
-            enricher_cls()
-            for enricher_cls, is_default in cls._enrichers.values()
-            if is_default
-        ]
-
-    @classmethod
     def get_default_transforms(cls) -> list[Any]:
         """Return instances of all default transforms."""
         return [
@@ -113,53 +91,26 @@ class Registry:
         ]
 
     @classmethod
-    def get_enricher(cls, name: str) -> type[Any] | None:
-        """Get an enricher class by name."""
-        entry = cls._enrichers.get(name)
-        return entry[0] if entry else None
-
-    @classmethod
-    def get_transform(cls, name: str) -> type[Any] | None:
-        """Get a transform class by name."""
-        entry = cls._transforms.get(name)
-        return entry[0] if entry else None
-
-    @classmethod
-    def get_transform_any(cls, name: str) -> type[Any]:
-        """Get a transform class from enrichers or transforms registries.
-
-        Searches enrichers first, then transforms. This is the preferred
-        method for dynamic lookups (e.g., from_config) where the caller
-        doesn't know if the transform is an enricher or not.
+    def get_transform(cls, name: str) -> type[Any]:
+        """Get a transform class by name.
 
         Args:
             name: Transform name
 
         Returns:
-            Transform class (enricher or transform)
+            Transform class
 
         Raises:
-            KeyError: If transform not found in either registry
+            KeyError: If transform not found
         """
-        # Try enricher first
-        entry = cls._enrichers.get(name)
-        if entry:
-            return entry[0]
-
-        # Then try transform
         entry = cls._transforms.get(name)
-        if entry:
-            return entry[0]
-
-        # Not found - build helpful error message
-        available_enrichers = list(cls._enrichers.keys())
-        available_transforms = list(cls._transforms.keys())
-        all_available = sorted(available_enrichers + available_transforms)
-
-        raise KeyError(
-            f"Transform not found: {name}. "
-            f"Available transforms: {', '.join(all_available) if all_available else 'none'}"
-        )
+        if entry is None:
+            available = sorted(cls._transforms.keys())
+            raise KeyError(
+                f"Transform not found: {name}. "
+                f"Available: {', '.join(available) if available else 'none'}"
+            )
+        return entry[0]
 
     @classmethod
     def get_extractor(cls, name: str) -> type[BaseExtractor]:
@@ -196,14 +147,17 @@ class Registry:
         return cls._loaders[name]
 
     @classmethod
-    def register_schema(cls, component_name: str, fields: list[FieldDefinition]) -> None:
-        """Register schema fields for a component.
+    def register_schema(
+        cls, component_name: str, fields: list[FieldDefinition], version: str = "1.0.0"
+    ) -> None:
+        """Register schema fields for a component with versioning.
 
         Args:
             component_name: Name of component (e.g., "KEVEnricher")
             fields: List of FieldDefinition instances
+            version: Semantic version string (default "1.0.0")
         """
-        cls._schemas[component_name] = fields
+        cls._schemas[component_name] = {"version": version, "fields": fields}
 
     @classmethod
     def get_all_columns(cls) -> list[FieldDefinition]:
@@ -212,9 +166,9 @@ class Registry:
         Returns:
             List of all FieldDefinition instances
         """
-        all_fields = []
-        for component_fields in cls._schemas.values():
-            all_fields.extend(component_fields)
+        all_fields: list[FieldDefinition] = []
+        for schema_data in cls._schemas.values():
+            all_fields.extend(schema_data["fields"])
         return all_fields
 
     @classmethod
@@ -227,7 +181,29 @@ class Registry:
         Returns:
             List of FieldDefinition instances for that component
         """
-        return cls._schemas.get(component_name, [])
+        schema_data = cls._schemas.get(component_name)
+        if schema_data is None:
+            return []
+        fields: list[FieldDefinition] = schema_data["fields"]
+        return fields
+
+    @classmethod
+    def get_component_schema_version(cls, component_name: str) -> str:
+        """Get schema version for a component.
+
+        Args:
+            component_name: Name of component
+
+        Returns:
+            Version string (e.g., "1.0.0")
+
+        Raises:
+            KeyError: If component not found
+        """
+        if component_name not in cls._schemas:
+            raise KeyError(f"Schema not found: {component_name}")
+        version: str = cls._schemas[component_name]["version"]
+        return version
 
     @classmethod
     def list_extractors(cls) -> list[str]:
@@ -248,9 +224,37 @@ class Registry:
         return list(cls._loaders.keys())
 
     @classmethod
+    def list_transforms(cls) -> list[str]:
+        """Get list of all registered transform names.
+
+        Returns:
+            List of transform names
+        """
+        return list(cls._transforms.keys())
+
+    @classmethod
+    def get_default_extractors(cls) -> list[Any]:
+        """Return instances of all default extractors.
+
+        Returns:
+            List of default extractor instances (currently empty)
+        """
+        # Extractors don't have default flag yet - return empty list
+        return []
+
+    @classmethod
+    def get_default_loaders(cls) -> list[Any]:
+        """Return instances of all default loaders.
+
+        Returns:
+            List of default loader instances (currently empty)
+        """
+        # Loaders don't have default flag yet - return empty list
+        return []
+
+    @classmethod
     def clear(cls) -> None:
         """Clear all registrations (for testing)."""
-        cls._enrichers = {}
         cls._transforms = {}
         cls._extractors = {}
         cls._loaders = {}
@@ -265,10 +269,14 @@ def register_transform(cls: type[T], *, default: bool = False) -> type[T]: ...
 
 
 @overload
-def register_transform(cls: None = None, *, default: bool = False) -> Callable[[type[T]], type[T]]: ...
+def register_transform(
+    cls: None = None, *, default: bool = False
+) -> Callable[[type[T]], type[T]]: ...
 
 
-def register_transform(cls: type[T] | None = None, *, default: bool = False) -> type[T] | Callable[[type[T]], type[T]]:
+def register_transform(
+    cls: type[T] | None = None, *, default: bool = False
+) -> type[T] | Callable[[type[T]], type[T]]:
     """Simple decorator to register a transform class.
 
     Uses the class name as the registration key.
@@ -280,6 +288,7 @@ def register_transform(cls: type[T] | None = None, *, default: bool = False) -> 
     Returns:
         The same class (for decorator usage)
     """
+
     def decorator(transform_cls: type[T]) -> type[T]:
         name = getattr(transform_cls, "name", transform_cls.__name__)
         Registry._transforms[name] = (transform_cls, default)
@@ -298,46 +307,6 @@ def get_transforms() -> list[type[Any]]:
         List of registered transform classes
     """
     return [cls for cls, _ in Registry._transforms.values()]
-
-
-@overload
-def register_enricher(cls: type[T], *, default: bool = False) -> type[T]: ...
-
-
-@overload
-def register_enricher(cls: None = None, *, default: bool = False) -> Callable[[type[T]], type[T]]: ...
-
-
-def register_enricher(cls: type[T] | None = None, *, default: bool = False) -> type[T] | Callable[[type[T]], type[T]]:
-    """Simple decorator to register an enricher class.
-
-    Uses the class name as the registration key.
-
-    Args:
-        cls: Enricher class to register
-        default: If True, include in default enrichers
-
-    Returns:
-        The same class (for decorator usage)
-    """
-    def decorator(enricher_cls: type[T]) -> type[T]:
-        name = getattr(enricher_cls, "name", enricher_cls.__name__)
-        Registry._enrichers[name] = (enricher_cls, default)
-        return enricher_cls
-
-    # Support both @register_enricher and @register_enricher(default=True)
-    if cls is None:
-        return decorator
-    return decorator(cls)
-
-
-def get_enrichers() -> list[type[Any]]:
-    """Get list of all registered enricher classes.
-
-    Returns:
-        List of registered enricher classes
-    """
-    return [cls for cls, _ in Registry._enrichers.values()]
 
 
 def clear_registry() -> None:

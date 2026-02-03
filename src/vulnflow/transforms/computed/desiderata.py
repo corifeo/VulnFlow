@@ -23,11 +23,12 @@ import numpy as np
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
-from vulnflow.registry import register_transform
+from vulnflow.registry import FieldDefinition, register_transform
+from vulnflow.transforms.base import BaseComputed
 
 
 @register_transform(default=True)
-class CVDDesiderataTransform:
+class CVDDesiderataTransform(BaseComputed):
     """Compute 12 desiderata flags from CVD timestamps.
 
     Requires EventInference and CVDStateTransform to run first.
@@ -51,20 +52,49 @@ class CVDDesiderataTransform:
     depends_on: list[str] = ["EventInference", "CVDStateTransform"]
 
     SCHEMA_VERSION: str = "1.0.0"
-    OUTPUT_SCHEMA: list[dict[str, str]] = [
-        {"name": "desiderata_d1", "type": "bool", "description": "V before P"},
-        {"name": "desiderata_d2", "type": "bool", "description": "V before X"},
-        {"name": "desiderata_d3", "type": "bool", "description": "V before A"},
-        {"name": "desiderata_d4", "type": "bool", "description": "F before P"},
-        {"name": "desiderata_d5", "type": "bool", "description": "F before X"},
-        {"name": "desiderata_d6", "type": "bool", "description": "F before A"},
-        {"name": "desiderata_d7", "type": "bool", "description": "D before P"},
-        {"name": "desiderata_d8", "type": "bool", "description": "D before X"},
-        {"name": "desiderata_d9", "type": "bool", "description": "D before A"},
-        {"name": "desiderata_d10", "type": "bool", "description": "P before X"},
-        {"name": "desiderata_d11", "type": "bool", "description": "P before A"},
-        {"name": "desiderata_d12", "type": "bool", "description": "X before A"},
-        {"name": "desiderata_count", "type": "int", "description": "Count of satisfied desiderata"},
+    OUTPUT_SCHEMA: list[FieldDefinition] = [
+        FieldDefinition(
+            "desiderata_d1", "bool", "V before P", "CVDDesiderataTransform"
+        ),
+        FieldDefinition(
+            "desiderata_d2", "bool", "V before X", "CVDDesiderataTransform"
+        ),
+        FieldDefinition(
+            "desiderata_d3", "bool", "V before A", "CVDDesiderataTransform"
+        ),
+        FieldDefinition(
+            "desiderata_d4", "bool", "F before P", "CVDDesiderataTransform"
+        ),
+        FieldDefinition(
+            "desiderata_d5", "bool", "F before X", "CVDDesiderataTransform"
+        ),
+        FieldDefinition(
+            "desiderata_d6", "bool", "F before A", "CVDDesiderataTransform"
+        ),
+        FieldDefinition(
+            "desiderata_d7", "bool", "D before P", "CVDDesiderataTransform"
+        ),
+        FieldDefinition(
+            "desiderata_d8", "bool", "D before X", "CVDDesiderataTransform"
+        ),
+        FieldDefinition(
+            "desiderata_d9", "bool", "D before A", "CVDDesiderataTransform"
+        ),
+        FieldDefinition(
+            "desiderata_d10", "bool", "P before X", "CVDDesiderataTransform"
+        ),
+        FieldDefinition(
+            "desiderata_d11", "bool", "P before A", "CVDDesiderataTransform"
+        ),
+        FieldDefinition(
+            "desiderata_d12", "bool", "X before A", "CVDDesiderataTransform"
+        ),
+        FieldDefinition(
+            "desiderata_count",
+            "int",
+            "Count of satisfied desiderata",
+            "CVDDesiderataTransform",
+        ),
     ]
 
     def transform(self, dataset: VulnDataset) -> None:
@@ -139,26 +169,32 @@ class CVDDesiderataTransform:
             count = sum(
                 1
                 for val in [
-                    d1[i], d2[i], d3[i], d4[i], d5[i], d6[i],
-                    d7[i], d8[i], d9[i], d10[i], d11[i], d12[i]
+                    d1[i],
+                    d2[i],
+                    d3[i],
+                    d4[i],
+                    d5[i],
+                    d6[i],
+                    d7[i],
+                    d8[i],
+                    d9[i],
+                    d10[i],
+                    d11[i],
+                    d12[i],
                 ]
                 if val is True
             )
             counts.append(count)
         dataset.set_column("desiderata_count", np.array(counts, dtype=np.int32))
 
-    def _get_ts(
-        self, ts_array: np.ndarray | None, i: int
-    ) -> datetime | None:
+    def _get_ts(self, ts_array: np.ndarray | None, i: int) -> datetime | None:
         """Get timestamp from array safely."""
         if ts_array is None or i >= len(ts_array):
             return None
         val = ts_array[i]
         return val if val is not None else None
 
-    def _before(
-        self, first: datetime | None, second: datetime | None
-    ) -> bool | None:
+    def _before(self, first: datetime | None, second: datetime | None) -> bool | None:
         """Check if first timestamp is before second.
 
         Returns:

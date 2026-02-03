@@ -112,10 +112,8 @@ class VulnDataset:
         if transforms is None:
             from vulnflow.registry import Registry
 
-            # Get both default enrichers and transforms
-            enrichers = Registry.get_default_enrichers()
-            computed_transforms = Registry.get_default_transforms()
-            transforms = enrichers + computed_transforms
+            # Get all default transforms (enrichers, inferences, computed)
+            transforms = Registry.get_default_transforms()
 
         # Sort by dependencies
         transforms = topological_sort(transforms)
@@ -125,14 +123,17 @@ class VulnDataset:
 
         # Run async concurrently
         if async_transforms:
+
             async def run_all() -> None:
-                await asyncio.gather(*[t.transform(self) for t in async_transforms])
+                await asyncio.gather(
+                    *[t.transform(self) for t in async_transforms]  # type: ignore[attr-defined]
+                )
 
             asyncio.run(run_all())
 
         # Run sync sequentially
         for t in sync_transforms:
-            t.transform(self)
+            t.transform(self)  # type: ignore[attr-defined]
 
         return self
 

@@ -23,13 +23,13 @@ import numpy as np
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
-from vulnflow.registry import FieldDefinition, register_enricher
+from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseEnricher
 
 logger = logging.getLogger(__name__)
 
 
-@register_enricher(default=True)
+@register_transform(default=True)
 class KEVEnricher(BaseEnricher):
     """Enrich dataset with CISA KEV catalog data.
 
@@ -41,12 +41,20 @@ class KEVEnricher(BaseEnricher):
     depends_on: list[str] = []
 
     OUTPUT_SCHEMA: list[FieldDefinition] = [
-        FieldDefinition("kev_date_added", "datetime", "Date added to KEV catalog", "KEVEnricher"),
-        FieldDefinition("kev_due_date", "datetime", "Remediation due date", "KEVEnricher"),
-        FieldDefinition("kev_required_action", "str", "Required remediation action", "KEVEnricher"),
+        FieldDefinition(
+            "kev_date_added", "datetime", "Date added to KEV catalog", "KEVEnricher"
+        ),
+        FieldDefinition(
+            "kev_due_date", "datetime", "Remediation due date", "KEVEnricher"
+        ),
+        FieldDefinition(
+            "kev_required_action", "str", "Required remediation action", "KEVEnricher"
+        ),
         FieldDefinition("kev_vendor", "str", "Vendor name from KEV", "KEVEnricher"),
         FieldDefinition("kev_product", "str", "Product name from KEV", "KEVEnricher"),
-        FieldDefinition("kev_ransomware", "str", "Known ransomware campaign use", "KEVEnricher"),
+        FieldDefinition(
+            "kev_ransomware", "str", "Known ransomware campaign use", "KEVEnricher"
+        ),
     ]
 
     def __init__(
@@ -82,12 +90,24 @@ class KEVEnricher(BaseEnricher):
 
         # Build parallel arrays from KEV dict
         kev_cve_ids = np.array(list(kev_data.keys()), dtype=object)
-        kev_dates_added = np.array([kev_data[k]["date_added"] for k in kev_cve_ids], dtype=object)
-        kev_due_dates = np.array([kev_data[k]["due_date"] for k in kev_cve_ids], dtype=object)
-        kev_actions = np.array([kev_data[k]["required_action"] for k in kev_cve_ids], dtype=object)
-        kev_vendors = np.array([kev_data[k]["vendor"] for k in kev_cve_ids], dtype=object)
-        kev_products = np.array([kev_data[k]["product"] for k in kev_cve_ids], dtype=object)
-        kev_ransomware = np.array([kev_data[k]["ransomware"] for k in kev_cve_ids], dtype=object)
+        kev_dates_added = np.array(
+            [kev_data[k]["date_added"] for k in kev_cve_ids], dtype=object
+        )
+        kev_due_dates = np.array(
+            [kev_data[k]["due_date"] for k in kev_cve_ids], dtype=object
+        )
+        kev_actions = np.array(
+            [kev_data[k]["required_action"] for k in kev_cve_ids], dtype=object
+        )
+        kev_vendors = np.array(
+            [kev_data[k]["vendor"] for k in kev_cve_ids], dtype=object
+        )
+        kev_products = np.array(
+            [kev_data[k]["product"] for k in kev_cve_ids], dtype=object
+        )
+        kev_ransomware = np.array(
+            [kev_data[k]["ransomware"] for k in kev_cve_ids], dtype=object
+        )
 
         # Vectorized matching using np.searchsorted (requires sorted keys)
         sort_idx = np.argsort(kev_cve_ids)
@@ -97,7 +117,9 @@ class KEVEnricher(BaseEnricher):
         indices = np.searchsorted(kev_cve_ids_sorted, cve_ids)
 
         # Mask for valid matches
-        valid = (indices < len(kev_cve_ids_sorted)) & (kev_cve_ids_sorted[indices] == cve_ids)
+        valid = (indices < len(kev_cve_ids_sorted)) & (
+            kev_cve_ids_sorted[indices] == cve_ids
+        )
 
         # Initialize output arrays
         kev_date_added = np.full(n, None, dtype=object)

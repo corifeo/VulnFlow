@@ -61,16 +61,16 @@ def test_epss_enricher_sync_wrapper():
 
 
 def test_epss_enricher_registered():
-    """EPSSEnricher is registered in enricher registry."""
-    from vulnflow.registry import get_enrichers
+    """EPSSEnricher is registered in transform registry."""
+    from vulnflow.registry import get_transforms
 
     # Import to ensure registration
     from vulnflow.transforms.enrichers.epss import EPSSEnricher  # noqa: F401
 
-    enrichers = get_enrichers()
-    enricher_names = [e.__name__ for e in enrichers]
+    transforms = get_transforms()
+    transform_names = [t.__name__ for t in transforms]
 
-    assert "EPSSEnricher" in enricher_names
+    assert "EPSSEnricher" in transform_names
 
 
 def test_epss_enricher_updates_sources():

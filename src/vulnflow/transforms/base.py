@@ -42,10 +42,11 @@ class BaseTransform(ABC):
     - name attribute (class variable)
     - OUTPUT_SCHEMA attribute (list[FieldDefinition])
     - transform() method (abstract)
-    - Automatic schema registration
+    - Automatic schema registration with versioning
 
     Provides:
     - depends_on = [] (default, can override)
+    - SCHEMA_VERSION = "1.0.0" (default, can override)
     """
 
     # Required class attributes (subclass must define)
@@ -54,6 +55,7 @@ class BaseTransform(ABC):
 
     # Optional class attributes (subclass can override)
     depends_on: list[str] = []
+    SCHEMA_VERSION: str = "1.0.0"
 
     def __init__(self) -> None:
         """Initialize transform and register schema.
@@ -87,8 +89,9 @@ class BaseTransform(ABC):
                     f"got {type(item).__name__}"
                 )
 
-        # Automatically register schema
-        Registry.register_schema(self.name, self.OUTPUT_SCHEMA)
+        # Automatically register schema with version
+        version = getattr(self.__class__, "SCHEMA_VERSION", "1.0.0")
+        Registry.register_schema(self.name, self.OUTPUT_SCHEMA, version)
 
     @abstractmethod
     def transform(self, dataset: VulnDataset) -> None:

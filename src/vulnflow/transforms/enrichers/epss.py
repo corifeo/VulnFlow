@@ -23,13 +23,13 @@ import numpy as np
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
-from vulnflow.registry import FieldDefinition, register_enricher
+from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseEnricher
 
 logger = logging.getLogger(__name__)
 
 
-@register_enricher(default=True)
+@register_transform(default=True)
 class EPSSEnricher(BaseEnricher):
     """Enrich dataset with FIRST EPSS probability scores.
 
@@ -41,8 +41,12 @@ class EPSSEnricher(BaseEnricher):
     depends_on: list[str] = []
 
     OUTPUT_SCHEMA: list[FieldDefinition] = [
-        FieldDefinition("epss_probability", "float", "EPSS exploit probability", "EPSSEnricher"),
-        FieldDefinition("epss_percentile", "float", "EPSS percentile rank", "EPSSEnricher"),
+        FieldDefinition(
+            "epss_probability", "float", "EPSS exploit probability", "EPSSEnricher"
+        ),
+        FieldDefinition(
+            "epss_percentile", "float", "EPSS percentile rank", "EPSSEnricher"
+        ),
         FieldDefinition("epss_date", "datetime", "EPSS score date", "EPSSEnricher"),
         FieldDefinition("epss_model", "int", "EPSS model version", "EPSSEnricher"),
     ]
@@ -80,16 +84,26 @@ class EPSSEnricher(BaseEnricher):
 
         # Build parallel arrays from EPSS dict
         epss_cve_ids = np.array(list(epss_data.keys()), dtype=object)
-        epss_probs = np.array([epss_data[k]["probability"] for k in epss_cve_ids], dtype=np.float64)
-        epss_percs = np.array([epss_data[k]["percentile"] for k in epss_cve_ids], dtype=np.float64)
-        epss_dates = np.array([epss_data[k].get("date") for k in epss_cve_ids], dtype=object)
-        epss_models = np.array([epss_data[k].get("model", 3) for k in epss_cve_ids], dtype=object)
+        epss_probs = np.array(
+            [epss_data[k]["probability"] for k in epss_cve_ids], dtype=np.float64
+        )
+        epss_percs = np.array(
+            [epss_data[k]["percentile"] for k in epss_cve_ids], dtype=np.float64
+        )
+        epss_dates = np.array(
+            [epss_data[k].get("date") for k in epss_cve_ids], dtype=object
+        )
+        epss_models = np.array(
+            [epss_data[k].get("model", 3) for k in epss_cve_ids], dtype=object
+        )
 
         # Vectorized matching using np.searchsorted
         sort_idx = np.argsort(epss_cve_ids)
         epss_cve_ids_sorted = epss_cve_ids[sort_idx]
         indices = np.searchsorted(epss_cve_ids_sorted, cve_ids)
-        valid = (indices < len(epss_cve_ids_sorted)) & (epss_cve_ids_sorted[indices] == cve_ids)
+        valid = (indices < len(epss_cve_ids_sorted)) & (
+            epss_cve_ids_sorted[indices] == cve_ids
+        )
 
         # Initialize output arrays
         epss_probability = np.full(n, np.nan, dtype=np.float64)
@@ -141,16 +155,19 @@ class EPSSEnricher(BaseEnricher):
                 # Extract date from header comment
                 # Format: #model_version:vX,score_date:YYYY-MM-DDTHH:MM:SSZ
                 score_date: datetime | None = None
-                header_lines = [line for line in all_lines if line.startswith('#')]
+                header_lines = [line for line in all_lines if line.startswith("#")]
                 if header_lines:
                     import re
-                    date_match = re.search(r'score_date:(\d{4}-\d{2}-\d{2})', header_lines[0])
+
+                    date_match = re.search(
+                        r"score_date:(\d{4}-\d{2}-\d{2})", header_lines[0]
+                    )
                     if date_match:
                         score_date = datetime.strptime(date_match.group(1), "%Y-%m-%d")
                         score_date = score_date.replace(tzinfo=UTC)
 
                 # Filter out comment lines before CSV parsing
-                data_lines = [line for line in all_lines if not line.startswith('#')]
+                data_lines = [line for line in all_lines if not line.startswith("#")]
                 reader = csv.DictReader(data_lines)
 
                 for row in reader:
