@@ -219,20 +219,20 @@ class TestFlattenCwes:
     def test_none_input(self) -> None:
         """None input returns all None fields."""
         result = flatten_cwes(None)
-        assert result == {"cwe_id": None, "cwe_name": None}
+        assert result == {"primary_cwe_id": None, "primary_cwe_name": None}
 
     def test_empty_list(self) -> None:
         """Empty list returns all None fields."""
         result = flatten_cwes([])
-        assert result == {"cwe_id": None, "cwe_name": None}
+        assert result == {"primary_cwe_id": None, "primary_cwe_name": None}
 
     def test_single_entry(self) -> None:
         """Single entry extracts correctly."""
         cwe_list = [{"id": "CWE-79", "name": "Cross-site Scripting (XSS)"}]
         result = flatten_cwes(cwe_list)
         assert result == {
-            "cwe_id": "CWE-79",
-            "cwe_name": "Cross-site Scripting (XSS)",
+            "primary_cwe_id": "CWE-79",
+            "primary_cwe_name": "Cross-site Scripting (XSS)",
         }
 
     def test_multiple_entries_takes_first(self) -> None:
@@ -243,8 +243,8 @@ class TestFlattenCwes:
         ]
         result = flatten_cwes(cwe_list)
         assert result == {
-            "cwe_id": "CWE-79",
-            "cwe_name": "Cross-site Scripting (XSS)",
+            "primary_cwe_id": "CWE-79",
+            "primary_cwe_name": "Cross-site Scripting (XSS)",
         }
 
 
@@ -255,18 +255,18 @@ class TestFlattenCpes:
         """None input returns all None fields."""
         result = flatten_cpes(None)
         assert result == {
-            "cpe_uri": None,
-            "cpe_vendor": None,
-            "cpe_product": None,
+            "primary_vendor": None,
+            "primary_product": None,
+            "primary_version": None,
         }
 
     def test_empty_list(self) -> None:
         """Empty list returns all None fields."""
         result = flatten_cpes([])
         assert result == {
-            "cpe_uri": None,
-            "cpe_vendor": None,
-            "cpe_product": None,
+            "primary_vendor": None,
+            "primary_product": None,
+            "primary_version": None,
         }
 
     def test_single_entry(self) -> None:
@@ -276,13 +276,14 @@ class TestFlattenCpes:
                 "uri": "cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*",
                 "vendor": "apache",
                 "product": "log4j",
+                "version": "2.14.1",
             }
         ]
         result = flatten_cpes(cpe_list)
         assert result == {
-            "cpe_uri": "cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*",
-            "cpe_vendor": "apache",
-            "cpe_product": "log4j",
+            "primary_vendor": "apache",
+            "primary_product": "log4j",
+            "primary_version": "2.14.1",
         }
 
     def test_multiple_entries_takes_first(self) -> None:
@@ -292,16 +293,18 @@ class TestFlattenCpes:
                 "uri": "cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*",
                 "vendor": "apache",
                 "product": "log4j",
+                "version": "2.14.1",
             },
             {
                 "uri": "cpe:2.3:a:apache:log4j:2.15.0:*:*:*:*:*:*:*",
                 "vendor": "apache",
                 "product": "log4j",
+                "version": "2.15.0",
             },
         ]
         result = flatten_cpes(cpe_list)
         assert result == {
-            "cpe_uri": "cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*",
-            "cpe_vendor": "apache",
-            "cpe_product": "log4j",
+            "primary_vendor": "apache",
+            "primary_product": "log4j",
+            "primary_version": "2.14.1",
         }
