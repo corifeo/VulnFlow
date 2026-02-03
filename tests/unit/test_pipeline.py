@@ -136,7 +136,7 @@ def test_pipeline_executes_transforms():
 
     assert result.dataset is not None
     assert "mock_column" in result.dataset.columns
-    assert "MockTransform" in result.successful_stages
+    assert "mock" in result.successful_stages  # Uses name attribute, not class name
 
 
 def test_pipeline_10_pipelines_with_10_stages():
