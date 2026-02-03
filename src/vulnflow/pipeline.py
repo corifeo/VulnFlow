@@ -19,6 +19,7 @@ from typing import Any, cast
 from vulnflow.dataset import VulnDataset
 from vulnflow.extractors.base import Extractor
 from vulnflow.loaders.base import Loader
+from vulnflow.registry import Registry
 from vulnflow.transforms.base import BaseTransform
 
 logger = logging.getLogger(__name__)
@@ -495,3 +496,89 @@ class VulnPipeline:
             result = result.merge(next_pipeline)
 
         return result
+
+    @classmethod
+    def from_config(cls, config: dict[str, Any]) -> VulnPipeline:
+        """Build pipeline from configuration dict.
+
+        Enables config-driven pipeline construction for production use.
+        Components are looked up via Registry and instantiated with params.
+
+        Args:
+            config: Dict with 'extractors', 'transformers', 'loaders' keys.
+                    Each value is a list of component specs:
+                    - String spec: "kev" (uses default constructor)
+                    - Dict spec: {"type": "parquet", "path": "out.parquet"}
+
+        Returns:
+            Configured VulnPipeline instance
+
+        Raises:
+            KeyError: If component type not found in Registry
+
+        Example:
+            >>> config = {
+            ...     "extractors": [{"type": "nvd_json", "path": "data.json"}],
+            ...     "transformers": ["KEVEnricher"],
+            ...     "loaders": [{"type": "parquet", "path": "out.parquet"}]
+            ... }
+            >>> pipeline = VulnPipeline.from_config(config)
+        """
+        extractors: list[Extractor] = []
+        transformers: list[BaseTransform] = []
+        loaders: list[Loader] = []
+
+        # Build extractors
+        for spec in config.get("extractors", []):
+            if isinstance(spec, str):
+                # String spec: use default constructor
+                extractor_cls = Registry.get_extractor(spec)
+                extractors.append(extractor_cls())
+            else:
+                # Dict spec: extract type and params
+                component_type = spec["type"]
+                params = {k: v for k, v in spec.items() if k != "type"}
+                extractor_cls = Registry.get_extractor(component_type)
+                extractors.append(extractor_cls(**params))
+
+        # Build transformers (enrichers + transforms)
+        for spec in config.get("transformers", []):
+            if isinstance(spec, str):
+                # String spec: use default constructor
+                # Try enricher first, then transform
+                transform_cls = Registry.get_enricher(spec)
+                if transform_cls is None:
+                    transform_cls = Registry.get_transform(spec)
+                if transform_cls is None:
+                    raise KeyError(f"Transform not found: {spec}")
+                transformers.append(transform_cls())
+            else:
+                # Dict spec: extract type and params
+                component_type = spec["type"]
+                params = {k: v for k, v in spec.items() if k != "type"}
+                # Try enricher first, then transform
+                transform_cls = Registry.get_enricher(component_type)
+                if transform_cls is None:
+                    transform_cls = Registry.get_transform(component_type)
+                if transform_cls is None:
+                    raise KeyError(f"Transform not found: {component_type}")
+                transformers.append(transform_cls(**params))
+
+        # Build loaders
+        for spec in config.get("loaders", []):
+            if isinstance(spec, str):
+                # String spec: use default constructor
+                loader_cls = Registry.get_loader(spec)
+                loaders.append(loader_cls())
+            else:
+                # Dict spec: extract type and params
+                component_type = spec["type"]
+                params = {k: v for k, v in spec.items() if k != "type"}
+                loader_cls = Registry.get_loader(component_type)
+                loaders.append(loader_cls(**params))
+
+        return cls(
+            extractors=extractors,
+            transformers=transformers,
+            loaders=loaders,
+        )
