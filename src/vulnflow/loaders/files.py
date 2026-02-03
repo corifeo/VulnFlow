@@ -16,11 +16,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from vulnflow.loaders.base import BaseLoader
+from vulnflow.registry import Registry
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
 
+@Registry.register_loader("parquet")
 class ParquetLoader(BaseLoader):
     """Load dataset to Parquet file."""
 
@@ -57,6 +59,7 @@ class ParquetLoader(BaseLoader):
         return {"path": str(self.path), "record_count": len(dataset)}
 
 
+@Registry.register_loader("json")
 class JSONLoader(BaseLoader):
     """Load dataset to JSON file."""
 

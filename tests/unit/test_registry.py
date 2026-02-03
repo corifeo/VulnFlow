@@ -257,3 +257,33 @@ def test_builtin_extractors_registered() -> None:
 
     parquet_cls = Registry.get_extractor("parquet")
     assert parquet_cls.__name__ == "ParquetExtractor"
+
+
+def test_builtin_loaders_registered() -> None:
+    """Built-in loaders are registered on module import."""
+    from vulnflow.registry import Registry
+
+    clear_registry()
+
+    # Import modules to trigger registration
+    import vulnflow.loaders.dataframe  # noqa: F401
+    import vulnflow.loaders.files  # noqa: F401
+
+    loaders = Registry.list_loaders()
+    assert "parquet" in loaders
+    assert "json" in loaders
+    assert "pandas" in loaders
+    assert "polars" in loaders
+
+    # Verify classes can be retrieved
+    parquet_cls = Registry.get_loader("parquet")
+    assert parquet_cls.__name__ == "ParquetLoader"
+
+    json_cls = Registry.get_loader("json")
+    assert json_cls.__name__ == "JSONLoader"
+
+    pandas_cls = Registry.get_loader("pandas")
+    assert pandas_cls.__name__ == "PandasLoader"
+
+    polars_cls = Registry.get_loader("polars")
+    assert polars_cls.__name__ == "PolarsLoader"
