@@ -382,6 +382,84 @@ class VulnPipeline:
         # Chain transformers
         return VulnPipeline(transformers=self.transformers + other.transformers)
 
+    def chain_with(self, other: VulnPipeline) -> VulnPipeline:
+        """Chain pipelines with format validation (load → extract).
+
+        Validates format compatibility between this pipeline's loaders and the
+        other pipeline's extractors. This is useful for multi-stage file-based
+        workflows where output format must match input format.
+
+        Validation checks (in order):
+        1. First pipeline must have loaders
+        2. Second pipeline must have extractors
+        3. Counts must match: len(self.loaders) == len(other.extractors)
+        4. Formats must match by position: loader[i].format == extractor[i].format
+
+        If all validations pass, merges stages horizontally (like merge()).
+
+        Args:
+            other: Pipeline whose extractors must be compatible with our loaders
+
+        Returns:
+            New VulnPipeline with all stages merged horizontally.
+            Original pipelines are unchanged (immutable).
+
+        Raises:
+            ValueError: If any validation check fails
+
+        Example:
+            >>> # Pipeline 1: extract → load to parquet
+            >>> p1 = VulnPipeline(
+            ...     extractors=[NVDExtractor("data.json")],
+            ...     loaders=[ParquetLoader("out.parquet")]
+            ... )
+            >>> # Pipeline 2: extract from parquet → load to json
+            >>> p2 = VulnPipeline(
+            ...     extractors=[ParquetExtractor("out.parquet")],
+            ...     loaders=[JSONLoader("out.json")]
+            ... )
+            >>> # Chain them (validates parquet format compatibility)
+            >>> chained = p1.chain_with(p2)
+        """
+        # Validation 1: First pipeline must have loaders
+        if not self.loaders:
+            raise ValueError(
+                "First pipeline must have loaders to chain with another pipeline. "
+                "Use merge() for general stage combining."
+            )
+
+        # Validation 2: Second pipeline must have extractors
+        if not other.extractors:
+            raise ValueError(
+                "Second pipeline must have extractors to chain with another pipeline. "
+                "Use merge() for general stage combining."
+            )
+
+        # Validation 3: Counts must match
+        if len(self.loaders) != len(other.extractors):
+            raise ValueError(
+                f"Count mismatch: first pipeline has {len(self.loaders)} loaders "
+                f"but second pipeline has {len(other.extractors)} extractors. "
+                "Loader and extractor counts must match for chaining."
+            )
+
+        # Validation 4: Formats must match by position
+        for i, (loader, extractor) in enumerate(
+            zip(self.loaders, other.extractors, strict=True)
+        ):
+            loader_format = cast(str, getattr(loader, "format", None))
+            extractor_format = cast(str, getattr(extractor, "format", None))
+
+            if loader_format != extractor_format:
+                raise ValueError(
+                    f"Format mismatch at position {i}: "
+                    f"loader format '{loader_format}' != extractor format '{extractor_format}'. "
+                    "Loader and extractor formats must match by position for chaining."
+                )
+
+        # All validations passed - merge horizontally
+        return self.merge(other)
+
     @classmethod
     def chain(cls, pipelines: list[VulnPipeline]) -> VulnPipeline:
         """Merge multiple pipelines into one (horizontal stage concatenation).
@@ -409,13 +487,11 @@ class VulnPipeline:
             >>> full = VulnPipeline.chain([extract, transform, load])
             >>> # Equivalent to: extract.merge(transform).merge(load)
         """
-        extractors: list[Extractor] = []
-        transformers: list[BaseTransform] = []
-        loaders: list[Loader] = []
+        if not pipelines:
+            return cls()
 
-        for pipeline in pipelines:
-            extractors.extend(pipeline.extractors)
-            transformers.extend(pipeline.transformers)
-            loaders.extend(pipeline.loaders)
+        result = pipelines[0]
+        for next_pipeline in pipelines[1:]:
+            result = result.merge(next_pipeline)
 
-        return cls(extractors=extractors, transformers=transformers, loaders=loaders)
+        return result

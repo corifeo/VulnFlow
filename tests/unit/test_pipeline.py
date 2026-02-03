@@ -460,3 +460,180 @@ def test_pipeline_then_empty_pipelines():
     assert len(chained.extractors) == 0
     assert len(chained.transformers) == 0
     assert len(chained.loaders) == 0
+
+
+def test_pipeline_chain_validates_loader_extractor_compatibility():
+    """chain_with() validates format compatibility between loaders and extractors."""
+    # Create mock loaders/extractors with format attribute
+    class MockParquetLoader:
+        name = "parquet_loader"
+        format = "parquet"
+
+        def load(self, dataset):  # type: ignore[no-untyped-def]
+            return {"path": "out.parquet"}
+
+    class MockParquetExtractor:
+        name = "parquet_extractor"
+        format = "parquet"
+
+        def extract(self):  # type: ignore[no-untyped-def]
+            from tests.conftest import MockExtractor
+
+            return MockExtractor().extract()
+
+    p1 = VulnPipeline(loaders=[MockParquetLoader()])
+    p2 = VulnPipeline(extractors=[MockParquetExtractor()])
+
+    # Should merge successfully (formats match)
+    chained = p1.chain_with(p2)
+
+    assert len(chained.loaders) == 1
+    assert len(chained.extractors) == 1
+    assert chained.loaders[0].format == chained.extractors[0].format  # type: ignore[attr-defined]
+
+
+def test_pipeline_chain_rejects_incompatible_formats():
+    """chain_with() rejects format mismatches."""
+
+    class MockParquetLoader:
+        name = "parquet_loader"
+        format = "parquet"
+
+        def load(self, dataset):  # type: ignore[no-untyped-def]
+            return {}
+
+    class MockJSONExtractor:
+        name = "json_extractor"
+        format = "json"
+
+        def extract(self):  # type: ignore[no-untyped-def]
+            from tests.conftest import MockExtractor
+
+            return MockExtractor().extract()
+
+    p1 = VulnPipeline(loaders=[MockParquetLoader()])
+    p2 = VulnPipeline(extractors=[MockJSONExtractor()])
+
+    with pytest.raises(ValueError, match="Format mismatch.*parquet.*json"):
+        p1.chain_with(p2)
+
+
+def test_pipeline_chain_requires_loaders_in_first():
+    """chain_with() requires first pipeline to have loaders."""
+    from tests.conftest import MockExtractor
+
+    p1 = VulnPipeline(extractors=[MockExtractor()])  # No loaders
+    p2 = VulnPipeline(extractors=[MockExtractor()])
+
+    with pytest.raises(ValueError, match="First pipeline must have loaders"):
+        p1.chain_with(p2)
+
+
+def test_pipeline_chain_requires_extractors_in_second():
+    """chain_with() requires second pipeline to have extractors."""
+
+    class MockLoader:
+        name = "mock_loader"
+        format = "parquet"
+
+        def load(self, dataset):  # type: ignore[no-untyped-def]
+            return {}
+
+    p1 = VulnPipeline(loaders=[MockLoader()])
+    p2 = VulnPipeline(loaders=[MockLoader()])  # No extractors
+
+    with pytest.raises(ValueError, match="Second pipeline must have extractors"):
+        p1.chain_with(p2)
+
+
+def test_pipeline_chain_validates_count_mismatch():
+    """chain_with() requires matching loader/extractor counts."""
+
+    class MockLoader:
+        name = "mock_loader"
+        format = "parquet"
+
+        def load(self, dataset):  # type: ignore[no-untyped-def]
+            return {}
+
+    class MockExtractor:
+        name = "mock_extractor"
+        format = "parquet"
+
+        def extract(self):  # type: ignore[no-untyped-def]
+            from tests.conftest import MockExtractor as ME
+
+            return ME().extract()
+
+    # 2 loaders vs 1 extractor
+    p1 = VulnPipeline(loaders=[MockLoader(), MockLoader()])
+    p2 = VulnPipeline(extractors=[MockExtractor()])
+
+    with pytest.raises(ValueError, match="Count mismatch.*2 loaders.*1 extractors"):
+        p1.chain_with(p2)
+
+
+def test_pipeline_chain_order_based_pairing():
+    """chain_with() uses order-based pairing for format validation."""
+
+    class MockLoader:
+        def __init__(self, name: str, format_type: str) -> None:
+            self.name = name
+            self.format = format_type
+
+        def load(self, dataset):  # type: ignore[no-untyped-def]
+            return {}
+
+    class MockExtractor:
+        def __init__(self, name: str, format_type: str) -> None:
+            self.name = name
+            self.format = format_type
+
+        def extract(self):  # type: ignore[no-untyped-def]
+            from tests.conftest import MockExtractor as ME
+
+            return ME().extract()
+
+    # loaders: [parquet, json]
+    # extractors: [parquet, json]
+    p1 = VulnPipeline(loaders=[MockLoader("l1", "parquet"), MockLoader("l2", "json")])
+    p2 = VulnPipeline(
+        extractors=[MockExtractor("e1", "parquet"), MockExtractor("e2", "json")]
+    )
+
+    # Should succeed (order matches)
+    chained = p1.chain_with(p2)
+    assert len(chained.loaders) == 2
+    assert len(chained.extractors) == 2
+
+
+def test_pipeline_chain_rejects_wrong_order():
+    """chain_with() rejects when order-based pairing finds mismatch."""
+
+    class MockLoader:
+        def __init__(self, name: str, format_type: str) -> None:
+            self.name = name
+            self.format = format_type
+
+        def load(self, dataset):  # type: ignore[no-untyped-def]
+            return {}
+
+    class MockExtractor:
+        def __init__(self, name: str, format_type: str) -> None:
+            self.name = name
+            self.format = format_type
+
+        def extract(self):  # type: ignore[no-untyped-def]
+            from tests.conftest import MockExtractor as ME
+
+            return ME().extract()
+
+    # loaders: [parquet, json]
+    # extractors: [json, parquet]  <- WRONG ORDER
+    p1 = VulnPipeline(loaders=[MockLoader("l1", "parquet"), MockLoader("l2", "json")])
+    p2 = VulnPipeline(
+        extractors=[MockExtractor("e1", "json"), MockExtractor("e2", "parquet")]
+    )
+
+    with pytest.raises(ValueError, match="Format mismatch at position 0"):
+        p1.chain_with(p2)
