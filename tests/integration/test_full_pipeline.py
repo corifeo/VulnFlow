@@ -19,10 +19,12 @@ def test_transform_with_no_args_uses_enricher_defaults():
 
     # Transform with explicit enrichers using test fixtures
     # (Default enrichers don't have sources configured)
-    dataset.transform([
-        KEVEnricher(source="tests/fixtures/kev_sample.csv"),
-        EPSSEnricher(source="tests/fixtures/epss_sample.csv"),
-    ])
+    dataset.transform(
+        [
+            KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+            EPSSEnricher(source="tests/fixtures/epss_sample.csv"),
+        ]
+    )
 
     # Should have KEV and EPSS columns
     assert "kev_date_added" in dataset.columns or "epss_probability" in dataset.columns
@@ -37,18 +39,29 @@ def test_transform_with_no_args_uses_transform_defaults():
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     # First, run enrichers with test sources
-    dataset.transform([
-        KEVEnricher(source="tests/fixtures/kev_sample.csv"),
-        EPSSEnricher(source="tests/fixtures/epss_sample.csv"),
-    ])
+    dataset.transform(
+        [
+            KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+            EPSSEnricher(source="tests/fixtures/epss_sample.csv"),
+        ]
+    )
 
     # Then run computed transforms explicitly (since defaults include enrichers too)
     dataset.transform([EventInference(), CVDStateTransform(), CVDDesiderataTransform()])
 
     # Should have EventInference columns (CVD timestamps)
-    expected_columns = ["v_timestamp", "f_timestamp", "d_timestamp", "p_timestamp", "x_timestamp", "a_timestamp"]
+    expected_columns = [
+        "v_timestamp",
+        "f_timestamp",
+        "d_timestamp",
+        "p_timestamp",
+        "x_timestamp",
+        "a_timestamp",
+    ]
     has_event_columns = any(col in dataset.columns for col in expected_columns)
-    assert has_event_columns, "Expected at least one CVD timestamp column from EventInference"
+    assert (
+        has_event_columns
+    ), "Expected at least one CVD timestamp column from EventInference"
 
 
 def test_full_pipeline_with_defaults():
@@ -60,10 +73,12 @@ def test_full_pipeline_with_defaults():
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     # Run enrichers with test sources (defaults don't have sources configured)
-    dataset.transform([
-        KEVEnricher(source="tests/fixtures/kev_sample.csv"),
-        EPSSEnricher(source="tests/fixtures/epss_sample.csv"),
-    ])
+    dataset.transform(
+        [
+            KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+            EPSSEnricher(source="tests/fixtures/epss_sample.csv"),
+        ]
+    )
 
     # Run computed transforms
     dataset.transform([EventInference(), CVDStateTransform(), CVDDesiderataTransform()])
@@ -80,6 +95,7 @@ def test_explicit_transform_list_overrides_defaults():
 
     # Create CVD timestamps manually for testing
     import numpy as np
+
     n = len(dataset)
     dataset.set_column("v_timestamp", np.array([None] * n, dtype=object))
     dataset.set_column("f_timestamp", np.array([None] * n, dtype=object))

@@ -1,4 +1,5 @@
 """Tests that verify transform hierarchy is enforced."""
+
 from vulnflow.registry import FieldDefinition, Registry
 from vulnflow.transforms.base import BaseEnricher, BaseTransform
 from vulnflow.transforms.enrichers.epss import EPSSEnricher
@@ -10,8 +11,9 @@ def test_all_enrichers_inherit_from_base_enricher():
     enrichers = [KEVEnricher, EPSSEnricher]
 
     for enricher_cls in enrichers:
-        assert issubclass(enricher_cls, BaseEnricher), \
-            f"{enricher_cls.__name__} must inherit from BaseEnricher"
+        assert issubclass(
+            enricher_cls, BaseEnricher
+        ), f"{enricher_cls.__name__} must inherit from BaseEnricher"
 
 
 def test_all_enrichers_inherit_from_base_transform():
@@ -19,8 +21,9 @@ def test_all_enrichers_inherit_from_base_transform():
     enrichers = [KEVEnricher, EPSSEnricher]
 
     for enricher_cls in enrichers:
-        assert issubclass(enricher_cls, BaseTransform), \
-            f"{enricher_cls.__name__} must inherit from BaseTransform"
+        assert issubclass(
+            enricher_cls, BaseTransform
+        ), f"{enricher_cls.__name__} must inherit from BaseTransform"
 
 
 def test_all_enrichers_use_field_definition():
@@ -29,12 +32,14 @@ def test_all_enrichers_use_field_definition():
 
     for enricher_cls in enrichers:
         schema = enricher_cls.OUTPUT_SCHEMA
-        assert isinstance(schema, list), \
-            f"{enricher_cls.__name__}.OUTPUT_SCHEMA must be a list"
+        assert isinstance(
+            schema, list
+        ), f"{enricher_cls.__name__}.OUTPUT_SCHEMA must be a list"
 
         for field in schema:
-            assert isinstance(field, FieldDefinition), \
-                f"{enricher_cls.__name__}.OUTPUT_SCHEMA must use FieldDefinition, got {type(field)}"
+            assert isinstance(
+                field, FieldDefinition
+            ), f"{enricher_cls.__name__}.OUTPUT_SCHEMA must use FieldDefinition, got {type(field)}"
 
 
 def test_all_enrichers_register_schema():
@@ -72,6 +77,7 @@ def test_enricher_has_async_transform():
     enrichers = [KEVEnricher, EPSSEnricher]
 
     for enricher_cls in enrichers:
-        assert hasattr(enricher_cls, 'transform')
-        assert inspect.iscoroutinefunction(enricher_cls.transform), \
-            f"{enricher_cls.__name__}.transform must be async"
+        assert hasattr(enricher_cls, "transform")
+        assert inspect.iscoroutinefunction(
+            enricher_cls.transform
+        ), f"{enricher_cls.__name__}.transform must be async"

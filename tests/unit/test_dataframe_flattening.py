@@ -66,6 +66,7 @@ def test_dataframe_preserves_full_lists():
 
     # They should be JSON strings
     import json
+
     cwes = json.loads(df["cwes"].iloc[0])
     assert isinstance(cwes, list)
     assert len(cwes) > 0

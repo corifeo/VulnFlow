@@ -142,20 +142,23 @@ def test_nvd_extractor_handles_utf8():
         "totalResults": 1,
         "format": "NVD_CVE",
         "version": "2.0",
-        "vulnerabilities": [{
-            "cve": {
-                "id": "CVE-2024-0001",
-                "descriptions": [{
-                    "lang": "en",
-                    "value": "Test with UTF-8: café résumé"
-                }],
-                "published": "2024-01-01T00:00:00.000",
-                "lastModified": "2024-01-01T00:00:00.000"
+        "vulnerabilities": [
+            {
+                "cve": {
+                    "id": "CVE-2024-0001",
+                    "descriptions": [
+                        {"lang": "en", "value": "Test with UTF-8: café résumé"}
+                    ],
+                    "published": "2024-01-01T00:00:00.000",
+                    "lastModified": "2024-01-01T00:00:00.000",
+                }
             }
-        }]
+        ],
     }
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False, encoding="utf-8"
+    ) as f:
         json.dump(nvd_data, f)
         temp_path = f.name
 
@@ -175,9 +178,9 @@ def test_all_extractors_have_format_attribute():
     from vulnflow.extractors.files import ParquetExtractor
 
     # Test NVDExtractor
-    assert hasattr(NVDExtractor, 'format')
+    assert hasattr(NVDExtractor, "format")
     assert NVDExtractor.format == "nvd_json"
 
     # Test ParquetExtractor
-    assert hasattr(ParquetExtractor, 'format')
+    assert hasattr(ParquetExtractor, "format")
     assert ParquetExtractor.format == "parquet"

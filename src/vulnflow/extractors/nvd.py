@@ -140,7 +140,10 @@ class NVDExtractor(BaseExtractor):
                 return None
             if is_dataclass(obj) and not isinstance(obj, type):
                 # Manually extract fields instead of using asdict()
-                return {f.name: getattr(obj, f.name) for f in obj.__dataclass_fields__.values()}
+                return {
+                    f.name: getattr(obj, f.name)
+                    for f in obj.__dataclass_fields__.values()
+                }
             return obj
 
         def encode_nested(value: Any) -> str:
@@ -383,9 +386,7 @@ class NVDExtractor(BaseExtractor):
                     return domain.lower()
             return source_raw.lower()
 
-    def _parse_cwes(
-        self, weaknesses: list[dict[str, object]]
-    ) -> list[CWEEntry]:
+    def _parse_cwes(self, weaknesses: list[dict[str, object]]) -> list[CWEEntry]:
         """Parse CWE weaknesses from NVD format."""
         cwes: list[CWEEntry] = []
 
@@ -409,9 +410,7 @@ class NVDExtractor(BaseExtractor):
 
         return cwes
 
-    def _parse_cpes(
-        self, configurations: list[dict[str, object]]
-    ) -> list[CPEEntry]:
+    def _parse_cpes(self, configurations: list[dict[str, object]]) -> list[CPEEntry]:
         """Parse CPE configurations from NVD format."""
         cpes: list[CPEEntry] = []
 
@@ -431,7 +430,11 @@ class NVDExtractor(BaseExtractor):
                     if not isinstance(cpe_match, dict):
                         continue
                     cpe_str = cpe_match.get("criteria", "")
-                    if cpe_str and isinstance(cpe_str, str) and cpe_str.startswith("cpe:2.3"):
+                    if (
+                        cpe_str
+                        and isinstance(cpe_str, str)
+                        and cpe_str.startswith("cpe:2.3")
+                    ):
                         try:
                             cpe = parse_cpe23(cpe_str)
                             cpes.append(cpe)

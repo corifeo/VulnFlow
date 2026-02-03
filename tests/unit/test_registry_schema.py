@@ -1,4 +1,5 @@
 """Tests for schema registry functionality."""
+
 from vulnflow.registry import FieldDefinition, Registry
 
 
@@ -8,7 +9,7 @@ def test_field_definition_creation():
         name="kev_date_added",
         type="datetime",
         description="Date added to KEV catalog",
-        source_component="KEVEnricher"
+        source_component="KEVEnricher",
     )
 
     assert field.name == "kev_date_added"

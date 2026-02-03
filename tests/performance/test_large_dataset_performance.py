@@ -76,14 +76,18 @@ def test_kev_enrichment_performance():
 
     # Check results
     kev_col = dataset.get_column_or_none("kev_date_added")
-    matched_count = sum(1 for x in kev_col if x is not None) if kev_col is not None else 0
+    matched_count = (
+        sum(1 for x in kev_col if x is not None) if kev_col is not None else 0
+    )
 
     print(f"\nKEV enrichment: {record_count:,} records in {elapsed:.2f}s")
     print(f"Throughput: {record_count/elapsed:,.0f} records/sec")
     print(f"Matched: {matched_count:,} records with KEV data")
 
     # Performance target: <2 seconds for 42k records (vectorized)
-    assert elapsed < 2.0, f"KEV enrichment took {elapsed:.2f}s (should be <2s with vectorization)"
+    assert (
+        elapsed < 2.0
+    ), f"KEV enrichment took {elapsed:.2f}s (should be <2s with vectorization)"
     assert matched_count > 0, "Expected some KEV matches"
 
 
@@ -102,6 +106,7 @@ def test_epss_enrichment_performance():
     # Check results
     epss_col = dataset.get_column_or_none("epss_probability")
     import numpy as np
+
     matched_count = np.sum(~np.isnan(epss_col)) if epss_col is not None else 0
 
     print(f"\nEPSS enrichment: {record_count:,} records in {elapsed:.2f}s")
@@ -109,7 +114,9 @@ def test_epss_enrichment_performance():
     print(f"Matched: {matched_count:,} records with EPSS scores")
 
     # Performance target: <2 seconds for 42k records (vectorized)
-    assert elapsed < 2.0, f"EPSS enrichment took {elapsed:.2f}s (should be <2s with vectorization)"
+    assert (
+        elapsed < 2.0
+    ), f"EPSS enrichment took {elapsed:.2f}s (should be <2s with vectorization)"
     assert matched_count > 0, "Expected some EPSS matches"
 
 
@@ -144,6 +151,7 @@ def test_full_pipeline_performance():
 
     epss_col = dataset.get_column_or_none("epss_probability")
     import numpy as np
+
     epss_matches = np.sum(~np.isnan(epss_col)) if epss_col is not None else 0
 
     print(f"\n{'='*60}")
@@ -155,8 +163,12 @@ def test_full_pipeline_performance():
     print(f"Transform time:       {transform_time:>10.2f}s")
     print(f"Total time:           {total_elapsed:>10.2f}s")
     print("")
-    print(f"KEV matches:          {kev_matches:>10,} ({kev_matches/record_count*100:.1f}%)")
-    print(f"EPSS matches:         {epss_matches:>10,} ({epss_matches/record_count*100:.1f}%)")
+    print(
+        f"KEV matches:          {kev_matches:>10,} ({kev_matches/record_count*100:.1f}%)"
+    )
+    print(
+        f"EPSS matches:         {epss_matches:>10,} ({epss_matches/record_count*100:.1f}%)"
+    )
     print("")
     print(f"Overall throughput:   {record_count/total_elapsed:>10,.0f} records/sec")
     print(f"{'='*60}")
@@ -182,10 +194,12 @@ def test_memory_efficiency():
 
     # Run full pipeline
     dataset = VulnDataset.from_nvd(str(NVD_FILE))
-    dataset.transform([
-        KEVEnricher(source=str(KEV_FILE)),
-        EPSSEnricher(source=str(EPSS_FILE)),
-    ])
+    dataset.transform(
+        [
+            KEVEnricher(source=str(KEV_FILE)),
+            EPSSEnricher(source=str(EPSS_FILE)),
+        ]
+    )
 
     _, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
@@ -203,17 +217,21 @@ def test_memory_efficiency():
 
     # Performance target: <500MB peak memory
     assert memory_used < 500, f"Used {memory_used:.1f}MB (should be <500MB)"
-    assert memory_per_record < 15, f"Using {memory_per_record:.2f}KB/record (should be <15KB)"
+    assert (
+        memory_per_record < 15
+    ), f"Using {memory_per_record:.2f}KB/record (should be <15KB)"
 
 
 def test_dataframe_export_performance():
     """DataFrame export completes in <3 seconds for 42k records."""
     # Load and enrich dataset
     dataset = VulnDataset.from_nvd(str(NVD_FILE))
-    dataset.transform([
-        KEVEnricher(source=str(KEV_FILE)),
-        EPSSEnricher(source=str(EPSS_FILE)),
-    ])
+    dataset.transform(
+        [
+            KEVEnricher(source=str(KEV_FILE)),
+            EPSSEnricher(source=str(EPSS_FILE)),
+        ]
+    )
 
     record_count = len(dataset)
 
@@ -251,10 +269,12 @@ def test_parquet_roundtrip_performance():
 
     # Load and enrich dataset
     dataset = VulnDataset.from_nvd(str(NVD_FILE))
-    dataset.transform([
-        KEVEnricher(source=str(KEV_FILE)),
-        EPSSEnricher(source=str(EPSS_FILE)),
-    ])
+    dataset.transform(
+        [
+            KEVEnricher(source=str(KEV_FILE)),
+            EPSSEnricher(source=str(EPSS_FILE)),
+        ]
+    )
 
     record_count = len(dataset)
 
@@ -306,39 +326,39 @@ if __name__ == "__main__":
         sys.exit(1)
 
     try:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("Test 1: NVD Extraction")
-        print("="*60)
+        print("=" * 60)
         test_nvd_extraction_performance()
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("Test 2: KEV Enrichment")
-        print("="*60)
+        print("=" * 60)
         test_kev_enrichment_performance()
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("Test 3: EPSS Enrichment")
-        print("="*60)
+        print("=" * 60)
         test_epss_enrichment_performance()
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("Test 4: Full Pipeline")
-        print("="*60)
+        print("=" * 60)
         test_full_pipeline_performance()
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("Test 5: Memory Efficiency")
-        print("="*60)
+        print("=" * 60)
         test_memory_efficiency()
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("Test 6: DataFrame Export")
-        print("="*60)
+        print("=" * 60)
         test_dataframe_export_performance()
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("PASS: All performance tests passed!")
-        print("="*60)
+        print("=" * 60)
 
     except AssertionError as e:
         print(f"\nFAIL: Performance test failed: {e}")
@@ -346,5 +366,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\nERROR: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
