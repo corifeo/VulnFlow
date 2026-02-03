@@ -50,6 +50,103 @@ class VulnPipeline:
         transformers: list[Any] = field(default_factory=list)
         loaders: list[Any] = field(default_factory=list)
 
+    def _get_stage_name(self, obj: Any) -> str:
+        """Get stage name from object (prefer name attribute, fallback to class name)."""
+        return getattr(obj, "name", obj.__class__.__name__)
+
+    async def _run_async_transforms(
+        self,
+        dataset: VulnDataset,
+        transforms: list[Any],
+        strict: bool,
+    ) -> tuple[list[str], list[str], list[Exception]]:
+        """Execute async transforms concurrently with error handling.
+
+        Args:
+            dataset: Dataset to transform
+            transforms: Async transform instances
+            strict: If True, raise on errors. If False, collect errors.
+
+        Returns:
+            Tuple of (successful_stages, failed_stages, errors)
+        """
+        import asyncio
+
+        if not transforms:
+            return [], [], []
+
+        successful: list[str] = []
+        failed: list[str] = []
+        errors: list[Exception] = []
+
+        async def run_all() -> list[BaseException | None]:
+            """Run all transforms concurrently with error handling."""
+            if strict:
+                await asyncio.gather(*[t.transform(dataset) for t in transforms])
+                return []
+            else:
+                return await asyncio.gather(
+                    *[t.transform(dataset) for t in transforms],
+                    return_exceptions=True,
+                )
+
+        try:
+            results = await run_all()
+
+            if strict:
+                # All succeeded
+                successful = [self._get_stage_name(t) for t in transforms]
+            else:
+                # Check each result
+                for t, result in zip(transforms, results, strict=True):
+                    t_name = self._get_stage_name(t)
+                    if isinstance(result, Exception):
+                        logger.warning("Transform %s failed: %s", t_name, result)
+                        errors.append(result)
+                        failed.append(t_name)
+                    else:
+                        successful.append(t_name)
+        except Exception as e:
+            failed = [self._get_stage_name(t) for t in transforms]
+            errors.append(e)
+            raise
+
+        return successful, failed, errors
+
+    def _run_sync_transforms(
+        self,
+        dataset: VulnDataset,
+        transforms: list[Any],
+        strict: bool,
+    ) -> tuple[list[str], list[str], list[Exception]]:
+        """Execute sync transforms sequentially with error handling.
+
+        Args:
+            dataset: Dataset to transform
+            transforms: Sync transform instances
+            strict: If True, raise on errors. If False, collect errors.
+
+        Returns:
+            Tuple of (successful_stages, failed_stages, errors)
+        """
+        successful: list[str] = []
+        failed: list[str] = []
+        errors: list[Exception] = []
+
+        for t in transforms:
+            t_name = self._get_stage_name(t)
+            try:
+                t.transform(dataset)
+                successful.append(t_name)
+            except Exception as e:
+                logger.warning("Transform %s failed: %s", t_name, e)
+                failed.append(t_name)
+                errors.append(e)
+                if strict:
+                    raise
+
+        return successful, failed, errors
+
     def run(
         self, dataset: VulnDataset | None = None, strict: bool = False
     ) -> PipelineResult:
@@ -77,9 +174,9 @@ class VulnPipeline:
                 try:
                     ds = extractor.extract()  # Returns VulnDataset
                     datasets.append(ds)
-                    successful_stages.append(extractor.__class__.__name__)
+                    successful_stages.append(self._get_stage_name(extractor))
                 except Exception as e:
-                    failed_stages.append(extractor.__class__.__name__)
+                    failed_stages.append(self._get_stage_name(extractor))
                     errors.append(e)
                     raise  # Extractor failures always raise
 
@@ -94,69 +191,25 @@ class VulnPipeline:
 
             from vulnflow.utils.transforms import partition_transforms
 
-            # Separate async transforms (enrichers) from sync transforms
             async_transforms, sync_transforms = partition_transforms(self.transformers)
 
-            # Run async transforms concurrently with asyncio.gather()
+            # Run async concurrently
             if async_transforms:
+                async_succ, async_fail, async_err = asyncio.run(
+                    self._run_async_transforms(dataset, async_transforms, strict)
+                )
+                successful_stages.extend(async_succ)
+                failed_stages.extend(async_fail)
+                errors.extend(async_err)
 
-                async def run_async_concurrent() -> list[BaseException | None]:
-                    if strict:
-                        # In strict mode, any failure raises immediately
-                        await asyncio.gather(
-                            *[t.transform(dataset) for t in async_transforms]
-                        )
-                        return []
-                    else:
-                        # In lenient mode, collect exceptions
-                        results = await asyncio.gather(
-                            *[t.transform(dataset) for t in async_transforms],
-                            return_exceptions=True,
-                        )
-                        return results
-
-                try:
-                    results = asyncio.run(run_async_concurrent())
-                    if strict:
-                        # All succeeded if we got here
-                        for t in async_transforms:
-                            successful_stages.append(t.__class__.__name__)
-                    else:
-                        # Check for exceptions in results
-                        for t, result in zip(async_transforms, results, strict=True):
-                            t_name = t.__class__.__name__
-                            if isinstance(result, Exception):
-                                logger.warning(
-                                    "Transform %s failed: %s",
-                                    getattr(t, "name", t_name),
-                                    result,
-                                )
-                                errors.append(result)
-                                failed_stages.append(t_name)
-                            else:
-                                successful_stages.append(t_name)
-                except Exception as e:
-                    for t in async_transforms:
-                        failed_stages.append(t.__class__.__name__)
-                    errors.append(e)
-                    raise
-
-            # Run sync transforms sequentially (may have dependencies)
-            for transformer in sync_transforms:
-                transformer_name = transformer.__class__.__name__
-                try:
-                    transformer.transform(dataset)
-                    successful_stages.append(transformer_name)
-                except Exception as e:
-                    logger.warning(
-                        "Transform %s failed: %s",
-                        getattr(transformer, "name", transformer_name),
-                        e,
-                    )
-                    failed_stages.append(transformer_name)
-                    errors.append(e)
-                    if strict:
-                        raise
+            # Run sync sequentially
+            if sync_transforms:
+                sync_succ, sync_fail, sync_err = self._run_sync_transforms(
+                    dataset, sync_transforms, strict
+                )
+                successful_stages.extend(sync_succ)
+                failed_stages.extend(sync_fail)
+                errors.extend(sync_err)
 
         # Stage 3: Load
         loader_outputs: dict[str, Any] = {}
@@ -164,11 +217,11 @@ class VulnPipeline:
             for loader in self.loaders:
                 try:
                     output = loader.load(dataset)
-                    loader_name = loader.__class__.__name__
+                    loader_name = self._get_stage_name(loader)
                     loader_outputs[loader_name] = output
                     successful_stages.append(loader_name)
                 except Exception as e:
-                    failed_stages.append(loader.__class__.__name__)
+                    failed_stages.append(self._get_stage_name(loader))
                     errors.append(e)
                     raise  # Loader failures always raise
 
