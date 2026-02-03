@@ -5,29 +5,41 @@ Provides:
 - NVDExtractor: Extracts vulnerability records from NVD JSON files
 
 Layer: Extract
-Dependencies: schema
+Dependencies: schema, utils
 Used by: dataset.from_nvd(), pipeline
 """
 
 from __future__ import annotations
 
 import json
+from dataclasses import is_dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
+
+import numpy as np
 
 from vulnflow.extractors.base import Extractor
 from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, ReferenceEntry, VulnRecord
 from vulnflow.utils.cpe import parse_cpe23
+from vulnflow.utils.schema import get_flattened_columns, get_record_columns
+
+if TYPE_CHECKING:
+    from vulnflow.dataset import VulnDataset
 
 
 class NVDExtractor(Extractor):
-    """Extracts vulnerability records from NVD JSON files.
+    """Extract from NVD JSON files → VulnDataset.
 
-    Parses NVD 2.0 JSON format. Populates:
-    - cve_id, description
-    - nvd_published_at, nvd_modified_at (NVD temporal)
-    - cvss_scores (CVSS 3.1 entries)
+    Parses NVD 2.0 JSON format and converts directly to columnar storage.
+
+    Conversion logic:
+    - Parse JSON → intermediate VulnRecord structures
+    - Build columnar storage (dict[str, np.ndarray])
+    - Flatten CVSS/CWE/CPE to scalar columns
+    - Apply NVD-specific CVSS source priority (nvd > redhat > microsoft)
+    - Encode complex fields (lists) as JSON strings
 
     Does NOT populate CVD timestamps (v/f/d/p/x/a) - those come from EventInference.
     """
@@ -37,12 +49,21 @@ class NVDExtractor(Extractor):
     def __init__(self, path: str) -> None:
         self.path = path
 
-    def extract(self) -> list[VulnRecord]:
-        """Extract vulnerability records from NVD JSON file(s)."""
+    def extract(self) -> VulnDataset:
+        """Extract from NVD JSON file → VulnDataset.
+
+        Returns:
+            VulnDataset with columnar storage populated
+
+        Raises:
+            FileNotFoundError: If NVD JSON file doesn't exist
+        """
+
         path = Path(self.path)
         with path.open(encoding="utf-8") as f:
             data = json.load(f)
 
+        # First pass: Parse to VulnRecord structures
         records: list[VulnRecord] = []
         vulnerabilities = data.get("vulnerabilities", [])
 
@@ -87,7 +108,178 @@ class NVDExtractor(Extractor):
             )
             records.append(record)
 
-        return records
+        # Second pass: Convert to columnar storage
+        return self._records_to_dataset(records)
+
+    def _records_to_dataset(self, records: list[VulnRecord]) -> VulnDataset:
+        """Convert list of VulnRecord to VulnDataset (columnar storage).
+
+        This method owns the NVD-specific conversion logic including:
+        - JSON encoding of complex fields
+        - Flattening CVSS/CWE/CPE to scalar columns
+        - NVD source priority for CVSS selection
+
+        Args:
+            records: List of parsed VulnRecord instances
+
+        Returns:
+            VulnDataset with columnar storage
+        """
+        from vulnflow.dataset import VulnDataset
+
+        # Create JSON encoder once for reuse
+        json_encoder = json.JSONEncoder(default=str)
+
+        def dataclass_to_dict(obj: Any) -> Any:
+            """Fast dataclass to dict conversion without asdict overhead."""
+            if obj is None:
+                return None
+            if is_dataclass(obj) and not isinstance(obj, type):
+                # Manually extract fields instead of using asdict()
+                return {f.name: getattr(obj, f.name) for f in obj.__dataclass_fields__.values()}
+            return obj
+
+        def encode_nested(value: Any) -> str:
+            """Encode nested structure as JSON string."""
+            if value is None:
+                return "null"
+            if isinstance(value, list):
+                # Fast path for empty lists
+                if not value:
+                    return "[]"
+                # Convert dataclasses in list to dicts
+                items = [dataclass_to_dict(item) for item in value]
+                return json_encoder.encode(items)
+            if is_dataclass(value) and not isinstance(value, type):
+                return json_encoder.encode(dataclass_to_dict(value))
+            return json_encoder.encode(value)
+
+        def flatten_cvss(
+            cvss_scores: list[CVSSEntry],
+        ) -> dict[str, float | str | None]:
+            """Flatten list[CVSSEntry] to scalar columns.
+
+            Selection logic (NVD-specific):
+            1. Prefer source: nvd > redhat > microsoft > other
+            2. If tie, take first in list
+            """
+            if not cvss_scores:
+                return {
+                    "cvss_base_score": None,
+                    "cvss_base_severity": None,
+                    "cvss_version": None,
+                    "cvss_vector_string": None,
+                    "cvss_source": None,
+                }
+
+            # Source preference order (NVD domain knowledge)
+            source_priority = {"nvd": 0, "redhat": 1, "microsoft": 2}
+
+            def score_key(entry: CVSSEntry) -> int:
+                return source_priority.get(entry.source, 999)
+
+            # Select preferred entry
+            selected = min(cvss_scores, key=score_key)
+
+            return {
+                "cvss_base_score": selected.base_score,
+                "cvss_base_severity": selected.base_severity,
+                "cvss_version": selected.version,
+                "cvss_vector_string": selected.vector_string,
+                "cvss_source": selected.source,
+            }
+
+        def flatten_cwe(cwes: list[CWEEntry]) -> dict[str, str | None]:
+            """Flatten list[CWEEntry] to scalar columns (first entry)."""
+            if not cwes:
+                return {
+                    "primary_cwe_id": None,
+                    "primary_cwe_name": None,
+                }
+            # Take first CWE
+            first = cwes[0]
+            return {
+                "primary_cwe_id": first.id,
+                "primary_cwe_name": first.name,
+            }
+
+        def flatten_cpe(cpes: list[CPEEntry]) -> dict[str, str | None]:
+            """Flatten list[CPEEntry] to scalar columns (first entry)."""
+            if not cpes:
+                return {
+                    "primary_vendor": None,
+                    "primary_product": None,
+                    "primary_version": None,
+                }
+            # Take first CPE
+            first = cpes[0]
+            return {
+                "primary_vendor": first.vendor,
+                "primary_product": first.product,
+                "primary_version": first.version,
+            }
+
+        dataset = VulnDataset()
+        if not records:
+            return dataset
+
+        # Pre-allocate columnar arrays
+        n = len(records)
+        # Get all column names from VulnRecord + flattened columns
+        record_cols = get_record_columns()
+        flattened_cols = get_flattened_columns()
+        all_columns = record_cols + flattened_cols
+        arrays = {col: np.empty(n, dtype=object) for col in all_columns}
+
+        # Single pass over records
+        for i, r in enumerate(records):
+            # Identity
+            arrays["id"][i] = str(r.id)
+            arrays["cve_id"][i] = r.cve_id
+            arrays["aliases"][i] = json.dumps(r.aliases)
+            # Description
+            arrays["title"][i] = r.title
+            arrays["description"][i] = r.description
+            # Metadata
+            arrays["first_seen_at"][i] = r.first_seen_at
+            arrays["last_updated_at"][i] = r.last_updated_at
+            arrays["sources"][i] = json.dumps(r.sources)
+            # NVD Temporal
+            arrays["nvd_published_at"][i] = r.nvd_published_at
+            arrays["nvd_modified_at"][i] = r.nvd_modified_at
+            # Scoring
+            arrays["cvss_scores"][i] = encode_nested(r.cvss_scores)
+            arrays["epss_scores"][i] = encode_nested(r.epss_scores)
+            # Flattened CVSS
+            flattened = flatten_cvss(r.cvss_scores)
+            arrays["cvss_base_score"][i] = flattened["cvss_base_score"]
+            arrays["cvss_base_severity"][i] = flattened["cvss_base_severity"]
+            arrays["cvss_version"][i] = flattened["cvss_version"]
+            arrays["cvss_vector_string"][i] = flattened["cvss_vector_string"]
+            arrays["cvss_source"][i] = flattened["cvss_source"]
+            # Exploitation
+            arrays["kev"][i] = encode_nested(r.kev)
+            arrays["exploits"][i] = encode_nested(r.exploits)
+            # Classification
+            arrays["cwes"][i] = encode_nested(r.cwes)
+            arrays["cpes"][i] = encode_nested(r.cpes)
+            # Flattened CWE/CPE
+            cwe_flat = flatten_cwe(r.cwes)
+            arrays["primary_cwe_id"][i] = cwe_flat["primary_cwe_id"]
+            arrays["primary_cwe_name"][i] = cwe_flat["primary_cwe_name"]
+            cpe_flat = flatten_cpe(r.cpes)
+            arrays["primary_vendor"][i] = cpe_flat["primary_vendor"]
+            arrays["primary_product"][i] = cpe_flat["primary_product"]
+            arrays["primary_version"][i] = cpe_flat["primary_version"]
+            # References
+            arrays["references"][i] = encode_nested(r.references)
+            # Extensible
+            arrays["tags"][i] = json.dumps(r.tags)
+            arrays["metadata"][i] = json.dumps(r.metadata, default=str)
+
+        dataset._data = arrays
+
+        return dataset
 
     def _parse_timestamp(self, ts: str | None) -> datetime | None:
         """Parse ISO timestamp string to datetime."""
