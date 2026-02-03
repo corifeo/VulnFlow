@@ -66,7 +66,7 @@ class KEVEnricher:
         self._cache_time: float = 0.0
 
     async def transform(self, dataset: VulnDataset) -> None:
-        """Add KEV columns to dataset.
+        """Enrich dataset with KEV data (fully vectorized).
 
         Args:
             dataset: VulnDataset to enrich (modifies in place)
@@ -78,40 +78,51 @@ class KEVEnricher:
         cve_ids = dataset.get_column("cve_id")
         n = len(dataset)
 
-        # Initialize KEV columns with None
-        kev_date_added: list[datetime | None] = [None] * n
-        kev_due_date: list[datetime | None] = [None] * n
-        kev_required_action: list[str | None] = [None] * n
-        kev_vendor: list[str | None] = [None] * n
-        kev_product: list[str | None] = [None] * n
-        kev_ransomware: list[str | None] = [None] * n
+        # Build parallel arrays from KEV dict
+        kev_cve_ids = np.array(list(kev_data.keys()), dtype=object)
+        kev_dates_added = np.array([kev_data[k]["date_added"] for k in kev_cve_ids], dtype=object)
+        kev_due_dates = np.array([kev_data[k]["due_date"] for k in kev_cve_ids], dtype=object)
+        kev_actions = np.array([kev_data[k]["required_action"] for k in kev_cve_ids], dtype=object)
+        kev_vendors = np.array([kev_data[k]["vendor"] for k in kev_cve_ids], dtype=object)
+        kev_products = np.array([kev_data[k]["product"] for k in kev_cve_ids], dtype=object)
+        kev_ransomware = np.array([kev_data[k]["ransomware"] for k in kev_cve_ids], dtype=object)
 
-        # Track matched indices for source tracking
-        matched_indices: list[int] = []
+        # Vectorized matching using np.searchsorted (requires sorted keys)
+        sort_idx = np.argsort(kev_cve_ids)
+        kev_cve_ids_sorted = kev_cve_ids[sort_idx]
 
-        # Match by CVE ID
-        for i, cve_id in enumerate(cve_ids):
-            if cve_id in kev_data:
-                matched_indices.append(i)
-                entry = kev_data[cve_id]
-                kev_date_added[i] = entry["date_added"]
-                kev_due_date[i] = entry["due_date"]
-                kev_required_action[i] = entry["required_action"]
-                kev_vendor[i] = entry["vendor"]
-                kev_product[i] = entry["product"]
-                kev_ransomware[i] = entry["ransomware"]
+        # Find position of each CVE in sorted KEV list
+        indices = np.searchsorted(kev_cve_ids_sorted, cve_ids)
 
-        # Add columns to dataset
-        dataset.set_column("kev_date_added", np.array(kev_date_added, dtype=object))
-        dataset.set_column("kev_due_date", np.array(kev_due_date, dtype=object))
-        dataset.set_column(
-            "kev_required_action", np.array(kev_required_action, dtype=object)
-        )
-        dataset.set_column("kev_vendor", np.array(kev_vendor, dtype=object))
-        dataset.set_column("kev_product", np.array(kev_product, dtype=object))
-        dataset.set_column("kev_ransomware", np.array(kev_ransomware, dtype=object))
+        # Mask for valid matches
+        valid = (indices < len(kev_cve_ids_sorted)) & (kev_cve_ids_sorted[indices] == cve_ids)
 
-        # Update sources for matched records
+        # Initialize output arrays
+        kev_date_added = np.full(n, None, dtype=object)
+        kev_due_date = np.full(n, None, dtype=object)
+        kev_required_action = np.full(n, None, dtype=object)
+        kev_vendor = np.full(n, None, dtype=object)
+        kev_product = np.full(n, None, dtype=object)
+        kev_ransomware_out = np.full(n, None, dtype=object)
+
+        # Assign using boolean indexing (fully vectorized)
+        kev_date_added[valid] = kev_dates_added[sort_idx[indices[valid]]]
+        kev_due_date[valid] = kev_due_dates[sort_idx[indices[valid]]]
+        kev_required_action[valid] = kev_actions[sort_idx[indices[valid]]]
+        kev_vendor[valid] = kev_vendors[sort_idx[indices[valid]]]
+        kev_product[valid] = kev_products[sort_idx[indices[valid]]]
+        kev_ransomware_out[valid] = kev_ransomware[sort_idx[indices[valid]]]
+
+        # Set columns
+        dataset.set_column("kev_date_added", kev_date_added)
+        dataset.set_column("kev_due_date", kev_due_date)
+        dataset.set_column("kev_required_action", kev_required_action)
+        dataset.set_column("kev_vendor", kev_vendor)
+        dataset.set_column("kev_product", kev_product)
+        dataset.set_column("kev_ransomware", kev_ransomware_out)
+
+        # Update sources
+        matched_indices = np.where(valid)[0].tolist()
         if matched_indices:
             dataset.update_sources(matched_indices, "KEV")
 

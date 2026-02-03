@@ -111,3 +111,21 @@ def test_kev_enricher_updates_sources():
     # CVE-2024-0002 is NOT in KEV fixture
     sources_1 = json.loads(sources_col[1])
     assert "KEV" not in sources_1, "Unmatched record should not have KEV source"
+
+
+def test_kev_enricher_vectorized_matches_correctly():
+    """KEVEnricher vectorized implementation matches correctly."""
+    from datetime import datetime
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    enricher = KEVEnricher(source="tests/fixtures/kev_sample.csv")
+
+    dataset.transform([enricher])
+
+    kev_date_added = dataset.get_column("kev_date_added")
+
+    # First record should have KEV data
+    assert kev_date_added[0] is not None
+
+    # Verify it's still a datetime object
+    assert isinstance(kev_date_added[0], datetime)
