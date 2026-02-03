@@ -1,5 +1,15 @@
 """Flattening utilities for DataFrame export.
 
+Provides:
+- decode_json_column: Decode JSON-encoded column to Python objects
+- flatten_cvss_scores: Flatten list[CVSSEntry] to scalar columns
+- flatten_cwes: Flatten CWE list to primary entry
+- flatten_cpes: Flatten CPE list to primary entry
+
+Layer: Utility
+Dependencies: None
+Used by: loaders/dataframe
+
 Implements flattening rules from DATA-STRUCTURES.md:
 - Most Recent First: Time-series data prefers latest entry
 - Authoritative Source First: Official sources (NVD, CISA) over vendor
@@ -18,11 +28,17 @@ import numpy as np
 def decode_json_column(col: np.ndarray) -> list[Any]:
     """Decode JSON-encoded column to Python objects.
 
+    Handles None, empty strings, and "null" strings by returning None.
+    All other values are parsed as JSON.
+
     Args:
-        col: Array of JSON strings (or None/""/null)
+        col: NumPy array of JSON strings (or None/""/null)
 
     Returns:
-        List of decoded Python objects (lists, dicts, None)
+        List of decoded Python objects (lists, dicts, or None)
+
+    Raises:
+        json.JSONDecodeError: If any non-null value is invalid JSON
 
     Examples:
         >>> decode_json_column(np.array(['[]', '[{"a": 1}]']))
@@ -51,14 +67,25 @@ def flatten_cvss_scores(
     3. If tie, take first
 
     Args:
-        cvss_scores: List of CVSS score dicts (decoded from JSON)
+        cvss_scores: List of CVSS score dicts (decoded from JSON), or None
 
     Returns:
-        Dict with flattened scalar columns
+        Dict with keys: cvss_base_score, cvss_base_severity, cvss_version,
+        cvss_vector_string, cvss_source. All values None if input is None/empty
+        or no valid scores found.
 
     Examples:
-        >>> flatten_cvss_scores([{"version": "3.1", "vector_string": "...", "base_score": 9.8, "base_severity": "CRITICAL", "source": "nvd"}])
-        {'cvss_base_score': 9.8, 'cvss_base_severity': 'CRITICAL', 'cvss_version': '3.1', 'cvss_vector_string': '...', 'cvss_source': 'nvd'}
+        >>> scores = [{
+        ...     "version": "3.1",
+        ...     "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        ...     "base_score": 9.8,
+        ...     "base_severity": "CRITICAL",
+        ...     "source": "nvd"
+        ... }]
+        >>> flatten_cvss_scores(scores)
+        {'cvss_base_score': 9.8, 'cvss_base_severity': 'CRITICAL', ...}
+        >>> flatten_cvss_scores(None)
+        {'cvss_base_score': None, 'cvss_base_severity': None, ...}
     """
     if not cvss_scores:
         return {
@@ -89,9 +116,7 @@ def flatten_cvss_scores(
     def score_key(entry: dict[str, Any]) -> tuple[int, float]:
         source_rank = source_priority.get(entry.get("source", ""), 999)
         # Negative timestamp for descending sort (most recent first)
-        time_rank = (
-            -entry.get("published_at", 0) if entry.get("published_at") else 0
-        )
+        time_rank = -entry.get("published_at", 0) if entry.get("published_at") else 0
         return (source_rank, time_rank)
 
     selected = min(valid_scores, key=score_key)
@@ -108,15 +133,20 @@ def flatten_cvss_scores(
 def flatten_cwes(cwes: list[dict[str, Any]] | None) -> dict[str, str | None]:
     """Flatten CWE list to primary (first) entry.
 
+    Applies "Primary/First Entry" rule from DATA-STRUCTURES.md.
+
     Args:
-        cwes: List of CWE dicts with id/name
+        cwes: List of CWE dicts with id/name fields, or None
 
     Returns:
-        Dict with primary_cwe_id, primary_cwe_name (both None if input is None/empty)
+        Dict with keys: primary_cwe_id, primary_cwe_name.
+        Both values None if input is None/empty.
 
     Examples:
         >>> flatten_cwes([{"id": "CWE-79", "name": "Cross-site Scripting (XSS)"}])
         {'primary_cwe_id': 'CWE-79', 'primary_cwe_name': 'Cross-site Scripting (XSS)'}
+        >>> flatten_cwes(None)
+        {'primary_cwe_id': None, 'primary_cwe_name': None}
     """
     if not cwes:
         return {"primary_cwe_id": None, "primary_cwe_name": None}
@@ -131,18 +161,28 @@ def flatten_cwes(cwes: list[dict[str, Any]] | None) -> dict[str, str | None]:
 def flatten_cpes(cpes: list[dict[str, Any]] | None) -> dict[str, str | None]:
     """Flatten CPE list to primary (first) entry.
 
+    Applies "Primary/First Entry" rule from DATA-STRUCTURES.md.
+
     Args:
-        cpes: List of CPE dicts with uri/vendor/product/version
+        cpes: List of CPE dicts with uri/vendor/product/version fields, or None
 
     Returns:
-        Dict with primary_vendor, primary_product, primary_version (all None if input is None/empty)
+        Dict with keys: primary_vendor, primary_product, primary_version.
+        All values None if input is None/empty.
 
     Examples:
-        >>> flatten_cpes([{"uri": "cpe:2.3:a:apache:log4j:2.14.1", "vendor": "apache", "product": "log4j", "version": "2.14.1"}])
+        >>> cpes = [{"vendor": "apache", "product": "log4j", "version": "2.14.1"}]
+        >>> flatten_cpes(cpes)
         {'primary_vendor': 'apache', 'primary_product': 'log4j', 'primary_version': '2.14.1'}
+        >>> flatten_cpes(None)
+        {'primary_vendor': None, 'primary_product': None, 'primary_version': None}
     """
     if not cpes:
-        return {"primary_vendor": None, "primary_product": None, "primary_version": None}
+        return {
+            "primary_vendor": None,
+            "primary_product": None,
+            "primary_version": None,
+        }
 
     first_cpe = cpes[0]
     return {
