@@ -14,8 +14,9 @@ Used by: dataset.to_pandas(), to_polars()
 
 from __future__ import annotations
 
-import numpy as np
 from typing import TYPE_CHECKING
+
+import numpy as np
 
 if TYPE_CHECKING:
     import pandas as pd
