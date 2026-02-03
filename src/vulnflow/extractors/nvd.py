@@ -20,7 +20,7 @@ from uuid import uuid4
 
 import numpy as np
 
-from vulnflow.extractors.base import Extractor
+from vulnflow.extractors.base import BaseExtractor
 from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, ReferenceEntry, VulnRecord
 from vulnflow.utils.cpe import parse_cpe23
 from vulnflow.utils.schema import get_flattened_columns, get_record_columns
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
 
-class NVDExtractor(Extractor):
+class NVDExtractor(BaseExtractor):
     """Extract from NVD JSON files → VulnDataset.
 
     Parses NVD 2.0 JSON format and converts directly to columnar storage.
@@ -45,8 +45,10 @@ class NVDExtractor(Extractor):
     """
 
     name: str = "nvd"
+    format: str = "nvd_json"
 
     def __init__(self, path: str) -> None:
+        super().__init__()
         self.path = path
 
     def extract(self) -> VulnDataset:
