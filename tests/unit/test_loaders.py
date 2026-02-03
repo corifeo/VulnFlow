@@ -8,7 +8,11 @@ Dependencies: dataset
 
 from __future__ import annotations
 
+import pytest
+
 from vulnflow.dataset import VulnDataset
+from vulnflow.exceptions import LoaderError
+from vulnflow.loaders.base import BaseLoader
 from vulnflow.loaders.files import ParquetLoader
 
 
@@ -41,3 +45,50 @@ def test_parquet_loader_in_pipeline(tmp_path):
     assert output_path.exists()
     assert len(result.dataset) == 3
     assert "parquet" in result.loader_outputs  # Uses name attribute, not class name
+
+
+def test_base_loader_validates_format_attribute() -> None:
+    """BaseLoader raises LoaderError if format not set."""
+
+    class MissingFormatLoader(BaseLoader):
+        # Intentionally missing format attribute
+        name = "MissingFormatLoader"
+
+        def load(self, dataset: VulnDataset) -> dict[str, any]:
+            return {}
+
+    with pytest.raises(
+        LoaderError, match="must define a non-empty 'format' class attribute"
+    ):
+        MissingFormatLoader()
+
+
+def test_base_loader_accepts_valid_format() -> None:
+    """BaseLoader does not raise if format is set."""
+
+    class ValidFormatLoader(BaseLoader):
+        format = "json"
+        name = "ValidFormatLoader"
+
+        def load(self, dataset: VulnDataset) -> dict[str, any]:
+            return {}
+
+    # Should not raise
+    loader = ValidFormatLoader()
+    assert loader.format == "json"
+
+
+def test_base_loader_rejects_empty_format() -> None:
+    """BaseLoader raises LoaderError if format is empty string."""
+
+    class EmptyFormatLoader(BaseLoader):
+        format = ""
+        name = "EmptyFormatLoader"
+
+        def load(self, dataset: VulnDataset) -> dict[str, any]:
+            return {}
+
+    with pytest.raises(
+        LoaderError, match="must define a non-empty 'format' class attribute"
+    ):
+        EmptyFormatLoader()

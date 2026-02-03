@@ -3,6 +3,7 @@ Loaders - Data output writers
 
 Provides:
 - Loader: Protocol for data loading/export
+- BaseLoader: ABC for loaders with format validation
 - ParquetLoader: Parquet file writer
 - DataFrameLoader: Pandas/Polars export
 
@@ -11,6 +12,6 @@ Dependencies: schema, dataset
 Used by: dataset.to_parquet(), to_pandas(), to_polars()
 """
 
-from vulnflow.loaders.base import Loader
+from vulnflow.loaders.base import BaseLoader, Loader
 
-__all__ = ["Loader"]
+__all__ = ["Loader", "BaseLoader"]
