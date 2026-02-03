@@ -1,17 +1,36 @@
 """
-Transforms - Enrichers and computed transforms
+Transforms - Data enrichment and computation
 
 Provides:
-- Enricher: Protocol for async enrichment (I/O-bound)
-- Transform: Protocol for sync transforms (CPU-bound)
+- BaseTransform: Root abstract base class
+- BaseEnricher: Async I/O-bound transforms
+- BaseInference: Sync transforms with confidence
+- BaseComputed: Sync pure computation transforms
+- Enricher, Transform, Inference: Protocols (type hints)
 
 Layer: Transform
-Dependencies: schema, dataset
-Used by: dataset.enrich(), dataset.transform()
+Dependencies: registry, base
+Used by: enrichers/, computed/, inferences/
 """
 
 # Import all transform modules to trigger registration decorators
 from vulnflow.transforms import computed, enrichers, inferences  # noqa: F401
-from vulnflow.transforms.base import Enricher, Transform
+from vulnflow.transforms.base import (
+    BaseComputed,
+    BaseEnricher,
+    BaseInference,
+    BaseTransform,
+    Enricher,
+    Inference,
+    Transform,
+)
 
-__all__ = ["Enricher", "Transform"]
+__all__ = [
+    "BaseTransform",
+    "BaseEnricher",
+    "BaseInference",
+    "BaseComputed",
+    "Enricher",
+    "Transform",
+    "Inference",
+]
