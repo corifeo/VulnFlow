@@ -92,8 +92,9 @@ def test_cvd_state_registered():
 
 def test_cvd_state_adds_pair_mask():
     """CVDStateTransform adds pair_mask column."""
-    import numpy as np
     from datetime import datetime
+
+    import numpy as np
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
     n = len(dataset)
@@ -127,8 +128,9 @@ def test_cvd_state_adds_pair_mask():
 
 def test_cvd_state_adds_time_deltas():
     """CVDStateTransform adds time delta columns."""
-    import numpy as np
     from datetime import datetime
+
+    import numpy as np
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
     n = len(dataset)

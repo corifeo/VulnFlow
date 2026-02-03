@@ -112,9 +112,10 @@ async def test_epss_enricher_adds_date_and_model_columns():
 
 def test_epss_enricher_vectorized_matches_correctly():
     """EPSSEnricher vectorized implementation matches correctly."""
+    import asyncio
+
     from vulnflow.dataset import VulnDataset
     from vulnflow.transforms.enrichers.epss import EPSSEnricher
-    import asyncio
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
     enricher = EPSSEnricher(source="tests/fixtures/epss_sample.csv")
