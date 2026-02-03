@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -52,7 +52,7 @@ class VulnPipeline:
 
     def _get_stage_name(self, obj: Any) -> str:
         """Get stage name from object (prefer name attribute, fallback to class name)."""
-        return getattr(obj, "name", obj.__class__.__name__)
+        return cast(str, getattr(obj, "name", obj.__class__.__name__))
 
     async def _run_async_transforms(
         self,
@@ -85,9 +85,12 @@ class VulnPipeline:
                 await asyncio.gather(*[t.transform(dataset) for t in transforms])
                 return []
             else:
-                return await asyncio.gather(
-                    *[t.transform(dataset) for t in transforms],
-                    return_exceptions=True,
+                return cast(
+                    list[BaseException | None],
+                    await asyncio.gather(
+                        *[t.transform(dataset) for t in transforms],
+                        return_exceptions=True,
+                    ),
                 )
 
         try:
