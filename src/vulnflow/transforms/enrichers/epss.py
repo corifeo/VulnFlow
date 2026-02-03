@@ -23,13 +23,14 @@ import numpy as np
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
-from vulnflow.registry import register_enricher
+from vulnflow.registry import FieldDefinition, register_enricher
+from vulnflow.transforms.base import BaseEnricher
 
 logger = logging.getLogger(__name__)
 
 
 @register_enricher(default=True)
-class EPSSEnricher:
+class EPSSEnricher(BaseEnricher):
     """Enrich dataset with FIRST EPSS probability scores.
 
     BulkEnricher pattern: Downloads full EPSS CSV, caches locally,
@@ -39,12 +40,11 @@ class EPSSEnricher:
     name: str = "EPSSEnricher"
     depends_on: list[str] = []
 
-    SCHEMA_VERSION: str = "1.0.0"
-    OUTPUT_SCHEMA: list[dict[str, str]] = [
-        {"name": "epss_probability", "type": "float", "description": "EPSS probability score"},
-        {"name": "epss_percentile", "type": "float", "description": "EPSS percentile rank"},
-        {"name": "epss_date", "type": "datetime", "description": "Score calculation date"},
-        {"name": "epss_model", "type": "int", "description": "EPSS model version (1, 2, or 3)"},
+    OUTPUT_SCHEMA: list[FieldDefinition] = [
+        FieldDefinition("epss_probability", "float", "EPSS exploit probability", "EPSSEnricher"),
+        FieldDefinition("epss_percentile", "float", "EPSS percentile rank", "EPSSEnricher"),
+        FieldDefinition("epss_date", "datetime", "EPSS score date", "EPSSEnricher"),
+        FieldDefinition("epss_model", "int", "EPSS model version", "EPSSEnricher"),
     ]
 
     def __init__(
@@ -58,12 +58,14 @@ class EPSSEnricher:
             source: Path to EPSS CSV file. If None, will fetch from FIRST API (future).
             cache_ttl: Cache time-to-live in seconds (default 24h)
         """
+        super().__init__()
+
         self.source = Path(source) if source else None
         self.cache_ttl = cache_ttl
         self._cache: dict[str, dict[str, Any]] | None = None
         self._cache_time: float = 0.0
 
-    async def transform(self, dataset: VulnDataset) -> None:
+    async def transform(self, dataset: VulnDataset) -> None:  # type: ignore[override]
         """Enrich dataset with EPSS data (fully vectorized).
 
         Args:

@@ -140,13 +140,50 @@ def test_kev_enricher_inherits_from_base():
 
 def test_kev_enricher_registers_schema():
     """KEVEnricher automatically registers its schema."""
+    import importlib
+
     from vulnflow.registry import FieldDefinition, Registry
 
     Registry.clear()
+
+    # Re-import to trigger decorator registration after clear
+    import vulnflow.transforms.enrichers.kev
+
+    importlib.reload(vulnflow.transforms.enrichers.kev)
 
     # Instantiate to trigger schema registration via __init__
     _ = KEVEnricher(source="tests/fixtures/kev_sample.csv")
 
     columns = Registry.get_component_columns("KEVEnricher")
     assert len(columns) == 6
+    assert all(isinstance(col, FieldDefinition) for col in columns)
+
+
+def test_epss_enricher_inherits_from_base():
+    """EPSSEnricher inherits from BaseEnricher."""
+    from vulnflow.transforms.base import BaseEnricher
+    from vulnflow.transforms.enrichers.epss import EPSSEnricher
+
+    assert issubclass(EPSSEnricher, BaseEnricher)
+
+
+def test_epss_enricher_registers_schema():
+    """EPSSEnricher automatically registers its schema."""
+    import importlib
+
+    from vulnflow.registry import FieldDefinition, Registry
+    from vulnflow.transforms.enrichers.epss import EPSSEnricher
+
+    Registry.clear()
+
+    # Re-import to trigger decorator registration after clear
+    import vulnflow.transforms.enrichers.epss
+
+    importlib.reload(vulnflow.transforms.enrichers.epss)
+
+    # Instantiate to trigger schema registration via __init__
+    _ = EPSSEnricher(source="tests/fixtures/epss_sample.csv")
+
+    columns = Registry.get_component_columns("EPSSEnricher")
+    assert len(columns) == 4  # 4 fields for EPSS
     assert all(isinstance(col, FieldDefinition) for col in columns)
