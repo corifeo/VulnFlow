@@ -111,3 +111,21 @@ def test_event_inference_registered():
     transform_names = [t.__name__ for t in transforms]
 
     assert "EventInference" in transform_names
+
+
+def test_event_inference_vectorized_works_correctly():
+    """EventInference vectorized implementation infers timestamps correctly."""
+    from datetime import datetime
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Apply EventInference
+    EventInference().transform(dataset)
+
+    p_timestamp = dataset.get_column("p_timestamp")
+
+    # Should have inferred P from nvd_published_at
+    assert p_timestamp[0] is not None
+
+    # Verify it's still a datetime
+    assert isinstance(p_timestamp[0], datetime)
