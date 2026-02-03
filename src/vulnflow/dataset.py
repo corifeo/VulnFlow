@@ -137,7 +137,7 @@ class VulnDataset:
         # Run async concurrently
         if async_transforms:
             async def run_all() -> None:
-                await asyncio.gather(*[t.transform(self) for t in async_transforms])  # type: ignore[misc]
+                await asyncio.gather(*[t.transform(self) for t in async_transforms])
 
             asyncio.run(run_all())
 
@@ -162,26 +162,34 @@ class VulnDataset:
         extractor = NVDExtractor(str(path))
         return extractor.extract()
 
-    def to_pandas(self) -> pd.DataFrame:
+    def to_pandas(self, include_nested: bool = False) -> pd.DataFrame:
         """Export dataset to pandas DataFrame.
+
+        Args:
+            include_nested: If True, keep raw JSON columns in addition to flattened columns.
+                           If False (default), only include flattened scalar columns.
 
         Returns:
             Pandas DataFrame with flattened scalar columns
         """
         from vulnflow.loaders.dataframe import PandasLoader
 
-        loader = PandasLoader()
+        loader = PandasLoader(include_nested=include_nested)
         return loader.load(self)
 
-    def to_polars(self) -> pl.DataFrame:
+    def to_polars(self, include_nested: bool = False) -> pl.DataFrame:
         """Export dataset to polars DataFrame.
+
+        Args:
+            include_nested: If True, keep raw JSON columns in addition to flattened columns.
+                           If False (default), only include flattened scalar columns.
 
         Returns:
             Polars DataFrame with flattened scalar columns
         """
         from vulnflow.loaders.dataframe import PolarsLoader
 
-        loader = PolarsLoader()
+        loader = PolarsLoader(include_nested=include_nested)
         return loader.load(self)
 
     def to_parquet(self, path: str | Path) -> None:

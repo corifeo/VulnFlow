@@ -14,6 +14,7 @@ Used by: dataset.to_pandas(), to_polars()
 
 from __future__ import annotations
 
+import numpy as np
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -76,7 +77,7 @@ class PandasLoader:
         # Decode and flatten cvss_scores
         if "cvss_scores" in data:
             cvss_decoded = decode_json_column(data["cvss_scores"])
-            flattened_rows = [flatten_cvss_scores(row) for row in cvss_decoded]
+            flattened_rows_cvss: list[dict[str, float | str | None]] = [flatten_cvss_scores(row) for row in cvss_decoded]
 
             # Add flattened columns
             for key in [
@@ -86,7 +87,7 @@ class PandasLoader:
                 "cvss_vector_string",
                 "cvss_source",
             ]:
-                data[key] = [row[key] for row in flattened_rows]
+                data[key] = np.array([row[key] for row in flattened_rows_cvss], dtype=object)
 
             # Remove raw column unless include_nested
             if not self.include_nested:
@@ -95,11 +96,11 @@ class PandasLoader:
         # Decode and flatten cwes
         if "cwes" in data:
             cwes_decoded = decode_json_column(data["cwes"])
-            flattened_rows = [flatten_cwes(row) for row in cwes_decoded]
+            flattened_rows_cwe: list[dict[str, str | None]] = [flatten_cwes(row) for row in cwes_decoded]
 
             # Add flattened columns
             for key in ["primary_cwe_id", "primary_cwe_name"]:
-                data[key] = [row[key] for row in flattened_rows]
+                data[key] = np.array([row[key] for row in flattened_rows_cwe], dtype=object)
 
             # Remove raw column unless include_nested
             if not self.include_nested:
@@ -108,11 +109,11 @@ class PandasLoader:
         # Decode and flatten cpes
         if "cpes" in data:
             cpes_decoded = decode_json_column(data["cpes"])
-            flattened_rows = [flatten_cpes(row) for row in cpes_decoded]
+            flattened_rows_cpe: list[dict[str, str | None]] = [flatten_cpes(row) for row in cpes_decoded]
 
             # Add flattened columns
             for key in ["primary_vendor", "primary_product", "primary_version"]:
-                data[key] = [row[key] for row in flattened_rows]
+                data[key] = np.array([row[key] for row in flattened_rows_cpe], dtype=object)
 
             # Remove raw column unless include_nested
             if not self.include_nested:
