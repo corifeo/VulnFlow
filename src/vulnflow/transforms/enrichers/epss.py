@@ -64,7 +64,7 @@ class EPSSEnricher:
         self._cache_time: float = 0.0
 
     async def transform(self, dataset: VulnDataset) -> None:
-        """Add EPSS columns to dataset.
+        """Enrich dataset with EPSS data (fully vectorized).
 
         Args:
             dataset: VulnDataset to enrich (modifies in place)
@@ -76,32 +76,39 @@ class EPSSEnricher:
         cve_ids = dataset.get_column("cve_id")
         n = len(dataset)
 
-        # Initialize EPSS columns
-        epss_probability: np.ndarray = np.full(n, np.nan, dtype=np.float64)
-        epss_percentile: np.ndarray = np.full(n, np.nan, dtype=np.float64)
-        epss_date: np.ndarray = np.array([None] * n, dtype=object)
-        epss_model: np.ndarray = np.array([None] * n, dtype=object)
+        # Build parallel arrays from EPSS dict
+        epss_cve_ids = np.array(list(epss_data.keys()), dtype=object)
+        epss_probs = np.array([epss_data[k]["probability"] for k in epss_cve_ids], dtype=np.float64)
+        epss_percs = np.array([epss_data[k]["percentile"] for k in epss_cve_ids], dtype=np.float64)
+        epss_dates = np.array([epss_data[k].get("date") for k in epss_cve_ids], dtype=object)
+        epss_models = np.array([epss_data[k].get("model", 3) for k in epss_cve_ids], dtype=object)
 
-        # Track matched indices for source tracking
-        matched_indices: list[int] = []
+        # Vectorized matching using np.searchsorted
+        sort_idx = np.argsort(epss_cve_ids)
+        epss_cve_ids_sorted = epss_cve_ids[sort_idx]
+        indices = np.searchsorted(epss_cve_ids_sorted, cve_ids)
+        valid = (indices < len(epss_cve_ids_sorted)) & (epss_cve_ids_sorted[indices] == cve_ids)
 
-        # Match by CVE ID
-        for i, cve_id in enumerate(cve_ids):
-            if cve_id in epss_data:
-                matched_indices.append(i)
-                entry = epss_data[cve_id]
-                epss_probability[i] = entry["probability"]
-                epss_percentile[i] = entry["percentile"]
-                epss_date[i] = entry.get("date")
-                epss_model[i] = entry.get("model", 3)  # Default to model 3
+        # Initialize output arrays
+        epss_probability = np.full(n, np.nan, dtype=np.float64)
+        epss_percentile = np.full(n, np.nan, dtype=np.float64)
+        epss_date = np.full(n, None, dtype=object)
+        epss_model = np.full(n, None, dtype=object)
 
-        # Add columns to dataset
+        # Assign using boolean indexing
+        epss_probability[valid] = epss_probs[sort_idx[indices[valid]]]
+        epss_percentile[valid] = epss_percs[sort_idx[indices[valid]]]
+        epss_date[valid] = epss_dates[sort_idx[indices[valid]]]
+        epss_model[valid] = epss_models[sort_idx[indices[valid]]]
+
+        # Set columns
         dataset.set_column("epss_probability", epss_probability)
         dataset.set_column("epss_percentile", epss_percentile)
         dataset.set_column("epss_date", epss_date)
         dataset.set_column("epss_model", epss_model)
 
-        # Update sources for matched records
+        # Update sources
+        matched_indices = np.where(valid)[0].tolist()
         if matched_indices:
             dataset.update_sources(matched_indices, "EPSS")
 

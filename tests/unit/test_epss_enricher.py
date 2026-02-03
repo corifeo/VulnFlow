@@ -108,3 +108,21 @@ async def test_epss_enricher_adds_date_and_model_columns():
     assert epss_dates[0] is not None
     assert isinstance(epss_dates[0], datetime)
     assert epss_models[0] == 3  # Default model version
+
+
+def test_epss_enricher_vectorized_matches_correctly():
+    """EPSSEnricher vectorized implementation matches correctly."""
+    from vulnflow.dataset import VulnDataset
+    from vulnflow.transforms.enrichers.epss import EPSSEnricher
+    import asyncio
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    enricher = EPSSEnricher(source="tests/fixtures/epss_sample.csv")
+
+    asyncio.run(enricher.transform(dataset))
+
+    epss_probability = dataset.get_column("epss_probability")
+
+    # First record should have EPSS data
+    assert epss_probability[0] is not None
+    assert 0.0 <= epss_probability[0] <= 1.0
