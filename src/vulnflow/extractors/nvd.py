@@ -2,7 +2,7 @@
 NVD Extractor - NVD JSON file reader
 
 Provides:
-- NVDExtractor: Extracts vulnerability records from NVD JSON files
+- NVDExtractor: Extracts vulnerability records from NVD JSON/JSONL files or URLs
 
 Layer: Extract
 Dependencies: schema, utils
@@ -11,6 +11,7 @@ Used by: dataset.from_nvd(), pipeline
 
 from __future__ import annotations
 
+import gzip
 import json
 from dataclasses import is_dataclass
 from datetime import datetime
@@ -24,6 +25,7 @@ from vulnflow.extractors.base import BaseExtractor
 from vulnflow.registry import Registry
 from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, ReferenceEntry, VulnRecord
 from vulnflow.utils.cpe import parse_cpe23
+from vulnflow.utils.http import HttpFetcher, is_url
 from vulnflow.utils.schema import get_flattened_columns, get_record_columns
 
 if TYPE_CHECKING:
@@ -32,9 +34,14 @@ if TYPE_CHECKING:
 
 @Registry.register_extractor("nvd_json")
 class NVDExtractor(BaseExtractor):
-    """Extract from NVD JSON files → VulnDataset.
+    """Extract from NVD JSON/JSONL files or URLs → VulnDataset.
 
     Parses NVD 2.0 JSON format and converts directly to columnar storage.
+
+    Supported formats:
+    - .json: Standard NVD JSON with "vulnerabilities" array
+    - .json.gz: Gzip-compressed JSON
+    - .jsonl/.ndjson: Newline-delimited JSON (one CVE per line)
 
     Conversion logic:
     - Parse JSON → intermediate VulnRecord structures
@@ -49,27 +56,42 @@ class NVDExtractor(BaseExtractor):
     name: str = "nvd"
     format: str = "nvd_json"
 
-    def __init__(self, path: str) -> None:
+    def __init__(
+        self,
+        path: str,
+        cache_dir: Path | str | None = ".cache/nvd",
+        cache_ttl: int | None = None,
+        timeout: float = 120.0,
+    ) -> None:
+        """Initialize NVD extractor.
+
+        Args:
+            path: File path or HTTP/HTTPS URL to NVD data
+            cache_dir: Directory for HTTP response caching (None to disable)
+            cache_ttl: HTTP cache time-to-live in seconds (None disables caching)
+            timeout: HTTP request timeout in seconds
+        """
         super().__init__()
         self.path = path
+        self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.cache_ttl = cache_ttl
+        self.timeout = timeout
 
     def extract(self) -> VulnDataset:
-        """Extract from NVD JSON file → VulnDataset.
+        """Extract from NVD JSON/JSONL file or URL → VulnDataset.
 
         Returns:
             VulnDataset with columnar storage populated
 
         Raises:
             FileNotFoundError: If NVD JSON file doesn't exist
+            httpx.HTTPError: On network or HTTP errors for URLs
         """
-
-        path = Path(self.path)
-        with path.open(encoding="utf-8") as f:
-            data = json.load(f)
+        content = self._load_content()
+        vulnerabilities = self._parse_content(content)
 
         # First pass: Parse to VulnRecord structures
         records: list[VulnRecord] = []
-        vulnerabilities = data.get("vulnerabilities", [])
 
         for vuln in vulnerabilities:
             cve_data = vuln.get("cve", {})
@@ -114,6 +136,121 @@ class NVDExtractor(BaseExtractor):
 
         # Second pass: Convert to columnar storage
         return self._records_to_dataset(records)
+
+    def _load_content(self) -> bytes:
+        """Load content from file or URL.
+
+        Handles:
+        - Local files (with gzip support for .gz extension)
+        - HTTP/HTTPS URLs (with automatic gzip decompression)
+
+        Returns:
+            Raw or decompressed content bytes
+
+        Raises:
+            FileNotFoundError: If local file doesn't exist
+            httpx.HTTPError: On network or HTTP errors
+        """
+        if is_url(self.path):
+            return self._load_from_url(self.path)
+        else:
+            return self._load_from_file(Path(self.path))
+
+    def _load_from_file(self, path: Path) -> bytes:
+        """Load content from local file.
+
+        Args:
+            path: Path to file (supports .gz extension)
+
+        Returns:
+            File content bytes (decompressed if .gz)
+
+        Raises:
+            FileNotFoundError: If file doesn't exist
+        """
+        content = path.read_bytes()
+
+        # Auto-decompress gzip by extension or magic bytes
+        if path.suffix.lower() == ".gz" or content[:2] == b"\x1f\x8b":
+            content = gzip.decompress(content)
+
+        return content
+
+    def _load_from_url(self, url: str) -> bytes:
+        """Load content from HTTP/HTTPS URL.
+
+        Args:
+            url: URL to fetch
+
+        Returns:
+            Response content bytes (auto-decompressed if gzip)
+
+        Raises:
+            httpx.HTTPError: On network or HTTP errors
+        """
+        fetcher = HttpFetcher(
+            cache_dir=self.cache_dir or Path(".cache/nvd"),
+            timeout=self.timeout,
+        )
+        content, _ = fetcher.fetch_sync(url, self.cache_ttl)
+        return content
+
+    def _parse_content(self, content: bytes) -> list[dict[str, Any]]:
+        """Parse content into list of vulnerability dicts.
+
+        Handles:
+        - Standard JSON with "vulnerabilities" array
+        - JSONL/NDJSON (newline-delimited JSON)
+
+        Args:
+            content: Raw content bytes
+
+        Returns:
+            List of vulnerability dicts
+        """
+        # Detect format from path
+        path_lower = self.path.lower()
+        if path_lower.endswith(".gz"):
+            path_lower = path_lower[:-3]
+
+        is_jsonl = path_lower.endswith((".jsonl", ".ndjson"))
+
+        if is_jsonl:
+            return self._parse_jsonl(content)
+        else:
+            return self._parse_json(content)
+
+    def _parse_json(self, content: bytes) -> list[dict[str, Any]]:
+        """Parse standard NVD JSON format.
+
+        Args:
+            content: JSON content bytes
+
+        Returns:
+            List of vulnerability dicts from "vulnerabilities" array
+        """
+        data = json.loads(content)
+        return data.get("vulnerabilities", [])  # type: ignore[no-any-return]
+
+    def _parse_jsonl(self, content: bytes) -> list[dict[str, Any]]:
+        """Parse JSONL/NDJSON format (one CVE per line).
+
+        Args:
+            content: JSONL content bytes
+
+        Returns:
+            List of vulnerability dicts
+        """
+        vulnerabilities: list[dict[str, Any]] = []
+        for line in content.decode("utf-8").splitlines():
+            line = line.strip()
+            if line:
+                obj = json.loads(line)
+                # Wrap in vulnerability structure if needed
+                if "cve" not in obj:
+                    obj = {"cve": obj}
+                vulnerabilities.append(obj)
+        return vulnerabilities
 
     def _records_to_dataset(self, records: list[VulnRecord]) -> VulnDataset:
         """Convert list of VulnRecord to VulnDataset (columnar storage).
