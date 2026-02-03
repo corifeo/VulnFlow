@@ -469,23 +469,13 @@ class VulnPipeline:
         for spec in config.get("transformers", []):
             if isinstance(spec, str):
                 # String spec: use default constructor
-                # Try enricher first, then transform
-                transform_cls = Registry.get_enricher(spec)
-                if transform_cls is None:
-                    transform_cls = Registry.get_transform(spec)
-                if transform_cls is None:
-                    raise KeyError(f"Transform not found: {spec}")
+                transform_cls = Registry.get_transform_any(spec)
                 transformers.append(transform_cls())
             else:
                 # Dict spec: extract type and params
                 component_type = spec["type"]
                 params = {k: v for k, v in spec.items() if k != "type"}
-                # Try enricher first, then transform
-                transform_cls = Registry.get_enricher(component_type)
-                if transform_cls is None:
-                    transform_cls = Registry.get_transform(component_type)
-                if transform_cls is None:
-                    raise KeyError(f"Transform not found: {component_type}")
+                transform_cls = Registry.get_transform_any(component_type)
                 transformers.append(transform_cls(**params))
 
         # Build loaders
