@@ -27,7 +27,7 @@ from vulnflow.exceptions import (
     VulnFlowError,
 )
 from vulnflow.pipeline import PipelineResult, VulnPipeline
-from vulnflow.registry import Registry
+from vulnflow.registry import FieldDefinition, Registry
 from vulnflow.schema import VulnRecord
 
 __all__ = [
@@ -36,6 +36,7 @@ __all__ = [
     "VulnPipeline",
     "PipelineResult",
     "Registry",
+    "FieldDefinition",
     "VulnFlowError",
     "ExtractorError",
     "EnricherError",
