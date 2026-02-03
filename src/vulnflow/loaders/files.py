@@ -84,7 +84,7 @@ class JSONLoader(BaseLoader):
         Returns:
             Metadata with path and record count
         """
-        import json
+        from vulnflow.utils import json
 
         path = Path(self.path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -102,6 +102,6 @@ class JSONLoader(BaseLoader):
                 records.append(record)
 
         with path.open("w") as f:
-            json.dump(records, f, indent=2, default=str)
+            json.dump(records, f, indent=True, default=str)
 
         return {"path": str(self.path), "record_count": len(dataset)}

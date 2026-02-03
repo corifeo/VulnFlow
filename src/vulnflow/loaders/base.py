@@ -12,12 +12,12 @@ Used by: files, dataframe, sql loaders
 
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from vulnflow.exceptions import LoaderError
+from vulnflow.utils import json
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -128,7 +128,7 @@ class BaseLoader(ABC):
         """
         try:
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                json.dump(data, f, indent=True, ensure_ascii=False)
         except OSError as e:
             raise LoaderError(f"Cannot write file {path}: {e}") from e
         except (TypeError, ValueError) as e:

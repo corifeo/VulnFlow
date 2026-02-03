@@ -12,7 +12,6 @@ Used by: dataset.from_nvd(), pipeline
 from __future__ import annotations
 
 import gzip
-import json
 from dataclasses import is_dataclass
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +23,7 @@ import numpy as np
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.registry import Registry
 from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, ReferenceEntry, VulnRecord
+from vulnflow.utils import json
 from vulnflow.utils.cpe import parse_cpe23
 from vulnflow.utils.http import HttpFetcher, is_url
 from vulnflow.utils.schema import get_flattened_columns, get_record_columns
@@ -268,9 +268,6 @@ class NVDExtractor(BaseExtractor):
         """
         from vulnflow.dataset import VulnDataset
 
-        # Create JSON encoder once for reuse
-        json_encoder = json.JSONEncoder(default=str)
-
         def dataclass_to_dict(obj: Any) -> Any:
             """Fast dataclass to dict conversion without asdict overhead."""
             if obj is None:
@@ -293,10 +290,10 @@ class NVDExtractor(BaseExtractor):
                     return "[]"
                 # Convert dataclasses in list to dicts
                 items = [dataclass_to_dict(item) for item in value]
-                return json_encoder.encode(items)
+                return json.dumps(items, default=str)
             if is_dataclass(value) and not isinstance(value, type):
-                return json_encoder.encode(dataclass_to_dict(value))
-            return json_encoder.encode(value)
+                return json.dumps(dataclass_to_dict(value), default=str)
+            return json.dumps(value, default=str)
 
         def flatten_cvss(
             cvss_scores: list[CVSSEntry],

@@ -317,8 +317,9 @@ class VulnDataset:
             indices: List of record indices to update
             source: Source name to add (e.g., "KEV", "EPSS")
         """
-        import json
         from datetime import datetime
+
+        from vulnflow.utils import json
 
         # Make writable copies (Parquet load returns read-only arrays)
         sources_col = self.get_column("sources").copy()
