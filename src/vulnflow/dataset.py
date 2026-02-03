@@ -106,7 +106,8 @@ class VulnDataset:
             Self for method chaining
         """
         import asyncio
-        import inspect
+
+        from vulnflow.utils.transforms import partition_transforms
 
         if transforms is None:
             from vulnflow.registry import Registry
@@ -120,16 +121,7 @@ class VulnDataset:
         transforms = topological_sort(transforms)
 
         # Separate async from sync
-        async_transforms = [
-            t
-            for t in transforms
-            if hasattr(t, "transform") and inspect.iscoroutinefunction(t.transform)
-        ]
-        sync_transforms = [
-            t
-            for t in transforms
-            if hasattr(t, "transform") and not inspect.iscoroutinefunction(t.transform)
-        ]
+        async_transforms, sync_transforms = partition_transforms(transforms)
 
         # Run async concurrently
         if async_transforms:
