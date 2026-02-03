@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from vulnflow.registry import Registry
+
 if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
@@ -25,6 +27,7 @@ if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
 
+@Registry.register_loader("pandas")
 class PandasLoader:
     """Load VulnDataset to pandas DataFrame with schema-aware flattening.
 
@@ -131,6 +134,7 @@ class PandasLoader:
         return pd.DataFrame(data)
 
 
+@Registry.register_loader("polars")
 class PolarsLoader:
     """Load VulnDataset to polars DataFrame with schema-aware flattening.
 
