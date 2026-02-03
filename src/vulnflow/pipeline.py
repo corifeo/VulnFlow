@@ -12,6 +12,7 @@ Used by: User code, integration tests
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, cast
@@ -21,6 +22,7 @@ from vulnflow.extractors.base import BaseExtractor
 from vulnflow.loaders.base import BaseLoader
 from vulnflow.registry import Registry
 from vulnflow.transforms.base import BaseTransform
+from vulnflow.utils.transforms import partition_transforms
 
 logger = logging.getLogger(__name__)
 
@@ -254,9 +256,6 @@ class VulnPipeline:
 
         # Stage 2: Transform (enrichers + transforms)
         if self.transformers and dataset is not None:
-            import asyncio
-
-            from vulnflow.utils.transforms import partition_transforms
 
             async_transforms, sync_transforms = partition_transforms(self.transformers)
 
@@ -333,6 +332,27 @@ class VulnPipeline:
             loaders=self.loaders + other.loaders,
         )
 
+    def _validate_transform_only(self, pipeline: VulnPipeline, context: str) -> None:
+        """Validate that a pipeline contains only transformers.
+
+        Args:
+            pipeline: Pipeline to validate
+            context: Context string for error messages (e.g., "self", "other")
+
+        Raises:
+            ValueError: If pipeline contains extractors or loaders
+        """
+        if pipeline.extractors:
+            raise ValueError(
+                f"then() requires transform-only pipelines but {context} has extractors. "
+                "Use merge() for general stage combining."
+            )
+        if pipeline.loaders:
+            raise ValueError(
+                f"then() requires transform-only pipelines but {context} has loaders. "
+                "Use merge() for general stage combining."
+            )
+
     def then(self, other: VulnPipeline) -> VulnPipeline:
         """Chain transform-only pipelines (sklearn-like behavior).
 
@@ -351,34 +371,16 @@ class VulnPipeline:
             ValueError: If either pipeline contains extractors or loaders
 
         Example:
-            >>> normalize = VulnPipeline(transformers=[NormalizeTransform()])
+            >>> from vulnflow.transforms.computed import CVDStateTransform
+            >>> from vulnflow.transforms.enrichers import KEVEnricher, EPSSEnricher
+            >>> cvd = VulnPipeline(transformers=[CVDStateTransform()])
             >>> enrich = VulnPipeline(transformers=[KEVEnricher(), EPSSEnricher()])
-            >>> transform_chain = normalize.then(enrich)
+            >>> transform_chain = cvd.then(enrich)
             >>> # transform_chain has 3 transformers, no extractors/loaders
         """
-        # Validate self has no extractors or loaders
-        if self.extractors:
-            raise ValueError(
-                "then() requires transform-only pipelines (no extractors). "
-                "Use merge() for general stage combining."
-            )
-        if self.loaders:
-            raise ValueError(
-                "then() requires transform-only pipelines (no loaders). "
-                "Use merge() for general stage combining."
-            )
-
-        # Validate other has no extractors or loaders
-        if other.extractors:
-            raise ValueError(
-                "then() requires transform-only pipelines (no extractors). "
-                "Use merge() for general stage combining."
-            )
-        if other.loaders:
-            raise ValueError(
-                "then() requires transform-only pipelines (no loaders). "
-                "Use merge() for general stage combining."
-            )
+        # Validate both pipelines are transform-only
+        self._validate_transform_only(self, "self")
+        self._validate_transform_only(other, "other")
 
         # Chain transformers
         return VulnPipeline(transformers=self.transformers + other.transformers)
@@ -425,23 +427,28 @@ class VulnPipeline:
         # Validation 1: First pipeline must have loaders
         if not self.loaders:
             raise ValueError(
-                "First pipeline must have loaders to chain with another pipeline. "
+                "chain_with() requires first pipeline to have loaders (to output data). "
+                f"Current pipeline has {len(self.extractors)} extractors, "
+                f"{len(self.transformers)} transformers, but 0 loaders. "
                 "Use merge() for general stage combining."
             )
 
         # Validation 2: Second pipeline must have extractors
         if not other.extractors:
             raise ValueError(
-                "Second pipeline must have extractors to chain with another pipeline. "
+                "chain_with() requires second pipeline to have extractors (to consume data). "
+                f"Other pipeline has 0 extractors, {len(other.transformers)} transformers, "
+                f"{len(other.loaders)} loaders. "
                 "Use merge() for general stage combining."
             )
 
         # Validation 3: Counts must match
         if len(self.loaders) != len(other.extractors):
             raise ValueError(
-                f"Count mismatch: first pipeline has {len(self.loaders)} loaders "
-                f"but second pipeline has {len(other.extractors)} extractors. "
-                "Loader and extractor counts must match for chaining."
+                f"chain_with() count mismatch: first pipeline has {len(self.loaders)} loader(s) "
+                f"but second pipeline has {len(other.extractors)} extractor(s). "
+                "Each loader output must have a corresponding extractor input. "
+                "Counts must match for format validation."
             )
 
         # Validation 4: Formats must match by position
@@ -452,10 +459,13 @@ class VulnPipeline:
             extractor_format = cast(str, getattr(extractor, "format", None))
 
             if loader_format != extractor_format:
+                loader_name = self._get_stage_name(loader)
+                extractor_name = self._get_stage_name(extractor)
                 raise ValueError(
-                    f"Format mismatch at position {i}: "
-                    f"loader format '{loader_format}' != extractor format '{extractor_format}'. "
-                    "Loader and extractor formats must match by position for chaining."
+                    f"chain_with() format mismatch at position {i}: "
+                    f"{loader_name} outputs '{loader_format}' but "
+                    f"{extractor_name} expects '{extractor_format}'. "
+                    "Formats must match by position for data flow compatibility."
                 )
 
         # All validations passed - merge horizontally
