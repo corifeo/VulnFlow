@@ -108,7 +108,7 @@ class BaseEnricher(BaseTransform):
     """
 
     @abstractmethod
-    async def transform(self, dataset: VulnDataset) -> None:
+    async def transform(self, dataset: VulnDataset) -> None:  # type: ignore[override]
         """Enrich dataset with external data (async).
 
         Args:
