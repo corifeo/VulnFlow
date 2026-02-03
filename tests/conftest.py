@@ -239,3 +239,30 @@ def epss_sample_path(fixtures_dir: Path) -> Path:
 def tmp_dir(tmp_path: Path) -> Path:
     """Temporary directory for test outputs."""
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def restore_registry():
+    """Save and restore registry state for test isolation.
+
+    This fixture runs automatically for all tests. It saves the registry
+    state before each test and restores it after, ensuring that tests
+    which call clear_registry() don't affect other tests.
+    """
+    from vulnflow.registry import Registry
+
+    # Save current state
+    saved_enrichers = Registry._enrichers.copy()
+    saved_transforms = Registry._transforms.copy()
+    saved_extractors = Registry._extractors.copy()
+    saved_loaders = Registry._loaders.copy()
+    saved_schemas = Registry._schemas.copy()
+
+    yield
+
+    # Restore state
+    Registry._enrichers = saved_enrichers
+    Registry._transforms = saved_transforms
+    Registry._extractors = saved_extractors
+    Registry._loaders = saved_loaders
+    Registry._schemas = saved_schemas

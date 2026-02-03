@@ -241,11 +241,9 @@ def test_builtin_extractors_registered() -> None:
     """Built-in extractors are registered on module import."""
     from vulnflow.registry import Registry
 
-    clear_registry()
-
-    # Import modules to trigger registration
-    import vulnflow.extractors.files  # noqa: F401
-    import vulnflow.extractors.nvd  # noqa: F401
+    # Don't clear registry - modules are already imported elsewhere
+    # and Python's import cache means re-importing won't re-run decorators
+    # Just verify that built-in extractors are present
 
     extractors = Registry.list_extractors()
     assert "nvd_json" in extractors
@@ -263,11 +261,9 @@ def test_builtin_loaders_registered() -> None:
     """Built-in loaders are registered on module import."""
     from vulnflow.registry import Registry
 
-    clear_registry()
-
-    # Import modules to trigger registration
-    import vulnflow.loaders.dataframe  # noqa: F401
-    import vulnflow.loaders.files  # noqa: F401
+    # Don't clear registry - modules are already imported elsewhere
+    # and Python's import cache means re-importing won't re-run decorators
+    # Just verify that built-in loaders are present
 
     loaders = Registry.list_loaders()
     assert "parquet" in loaders
