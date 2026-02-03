@@ -184,3 +184,262 @@ def test_all_extractors_have_format_attribute():
     # Test ParquetExtractor
     assert hasattr(ParquetExtractor, "format")
     assert ParquetExtractor.format == "parquet"
+
+
+# JSONExtractor tests
+
+
+def test_json_extractor_roundtrip():
+    """JSONExtractor roundtrip through JSONLoader preserves data."""
+    import tempfile
+
+    from vulnflow.loaders.files import JSONLoader
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from pathlib import Path
+
+        output_path = Path(tmpdir) / "output.json"
+        loader = JSONLoader(output_path)
+
+        # Write
+        loader.load(dataset)
+
+        # Read back
+        restored = VulnDataset.from_json(output_path)
+
+        # Verify
+        assert len(restored) == len(dataset)
+        assert set(restored.columns) == set(dataset.columns)
+
+        # Check CVE IDs preserved
+        original_cves = dataset.get_column("cve_id")
+        restored_cves = restored.get_column("cve_id")
+        assert list(original_cves) == list(restored_cves)
+
+
+def test_json_extractor_schema_aware_datetime():
+    """JSONExtractor reconstructs datetime types using Registry schema."""
+    import tempfile
+    from datetime import datetime
+    from pathlib import Path
+
+    import numpy as np
+
+    from vulnflow.loaders.files import JSONLoader
+    from vulnflow.registry import FieldDefinition, Registry
+
+    # Register a datetime field
+    Registry.register_schema(
+        "TestComponent",
+        [FieldDefinition("test_timestamp", "datetime", "Test datetime field")],
+    )
+
+    # Create dataset with datetime
+    dataset = VulnDataset()
+    test_time = datetime(2024, 1, 15, 12, 30, 45)
+    dataset._data = {
+        "cve_id": np.array(["CVE-2024-0001"], dtype=object),
+        "test_timestamp": np.array([test_time], dtype=object),
+    }
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "test.json"
+        loader = JSONLoader(output_path)
+        loader.load(dataset)
+
+        # Read back
+        restored = VulnDataset.from_json(output_path)
+
+        # Verify datetime reconstructed
+        restored_time = restored.get_column("test_timestamp")[0]
+        assert isinstance(restored_time, datetime)
+        assert restored_time == test_time
+
+
+def test_json_extractor_schema_aware_uuid():
+    """JSONExtractor reconstructs UUID types using Registry schema."""
+    import tempfile
+    from pathlib import Path
+    from uuid import UUID, uuid4
+
+    import numpy as np
+
+    from vulnflow.loaders.files import JSONLoader
+    from vulnflow.registry import FieldDefinition, Registry
+
+    # Register a UUID field
+    Registry.register_schema(
+        "TestComponent2", [FieldDefinition("id", "uuid", "Test UUID field")]
+    )
+
+    # Create dataset with UUID
+    dataset = VulnDataset()
+    test_uuid = uuid4()
+    dataset._data = {
+        "cve_id": np.array(["CVE-2024-0001"], dtype=object),
+        "id": np.array([test_uuid], dtype=object),
+    }
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "test.json"
+        loader = JSONLoader(output_path)
+        loader.load(dataset)
+
+        # Read back
+        restored = VulnDataset.from_json(output_path)
+
+        # Verify UUID reconstructed
+        restored_uuid = restored.get_column("id")[0]
+        assert isinstance(restored_uuid, UUID)
+        assert restored_uuid == test_uuid
+
+
+def test_json_extractor_fallback_inference():
+    """JSONExtractor infers types for unregistered fields."""
+    import tempfile
+    from pathlib import Path
+
+    # Create JSON with various unregistered types
+    json_data = [
+        {
+            "cve_id": "CVE-2024-0001",
+            "score": "9.8",  # Should become float
+            "count": "42",  # Should become int
+            "is_active": "True",  # Should become bool
+            "description": "Some text",  # Should stay str
+        }
+    ]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "test.json"
+        with open(output_path, "w") as f:
+            json.dump(json_data, f)
+
+        # Read
+        dataset = VulnDataset.from_json(output_path)
+
+        # Verify type inference
+        assert isinstance(dataset.get_column("score")[0], float)
+        assert dataset.get_column("score")[0] == 9.8
+
+        assert isinstance(dataset.get_column("count")[0], int)
+        assert dataset.get_column("count")[0] == 42
+
+        assert isinstance(dataset.get_column("is_active")[0], bool)
+        assert dataset.get_column("is_active")[0] is True
+
+        assert isinstance(dataset.get_column("description")[0], str)
+
+
+def test_json_extractor_handles_empty_file():
+    """JSONExtractor handles empty JSON array."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "empty.json"
+        with open(output_path, "w") as f:
+            json.dump([], f)
+
+        dataset = VulnDataset.from_json(output_path)
+        assert len(dataset) == 0
+
+
+def test_json_extractor_validates_json_format():
+    """JSONExtractor validates JSON is a list."""
+    import tempfile
+    from pathlib import Path
+
+    import pytest
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "invalid.json"
+        with open(output_path, "w") as f:
+            json.dump({"not": "a list"}, f)
+
+        with pytest.raises(ValueError, match="Expected JSON array"):
+            VulnDataset.from_json(output_path)
+
+
+# PandasExtractor tests
+
+
+def test_pandas_extractor_roundtrip():
+    """PandasExtractor roundtrip through to_pandas preserves data."""
+    from vulnflow.loaders.dataframe import to_pandas
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Convert to pandas
+    df = to_pandas(dataset)
+
+    # Read back
+    restored = VulnDataset.from_pandas(df)
+
+    # Verify
+    assert len(restored) == len(dataset)
+    assert set(restored.columns) == set(dataset.columns)
+
+
+def test_pandas_extractor_handles_empty_dataframe():
+    """PandasExtractor handles empty DataFrame."""
+    import pandas as pd
+
+    df = pd.DataFrame()
+    dataset = VulnDataset.from_pandas(df)
+
+    assert len(dataset) == 0
+    assert dataset.columns == []
+
+
+def test_pandas_extractor_warns_missing_core_fields(caplog):
+    """PandasExtractor warns if core fields missing."""
+    import pandas as pd
+
+    df = pd.DataFrame({"some_column": [1, 2, 3]})
+
+    dataset = VulnDataset.from_pandas(df)
+
+    assert "missing 'cve_id' column" in caplog.text
+    assert "missing 'description' column" in caplog.text
+    assert len(dataset) == 3
+
+
+# PolarsExtractor tests
+
+
+def test_polars_extractor_roundtrip():
+    """PolarsExtractor roundtrip through to_polars preserves data."""
+    from vulnflow.loaders.dataframe import to_polars
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Convert to polars
+    df = to_polars(dataset)
+
+    # Read back
+    restored = VulnDataset.from_polars(df)
+
+    # Verify
+    assert len(restored) == len(dataset)
+    assert set(restored.columns) == set(dataset.columns)
+
+
+def test_polars_extractor_delegates_to_pandas():
+    """PolarsExtractor delegates to PandasExtractor."""
+    import polars as pl
+
+    from vulnflow.extractors.files import PolarsExtractor
+
+    # Create test Polars DataFrame
+    df = pl.DataFrame({"cve_id": ["CVE-2024-0001"], "description": ["Test"]})
+
+    extractor = PolarsExtractor(df)
+
+    # Should delegate to PandasExtractor (verify by checking it works)
+    dataset = extractor.extract()
+
+    assert len(dataset) == 1
+    assert dataset.get_column("cve_id")[0] == "CVE-2024-0001"
