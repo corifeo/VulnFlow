@@ -2,22 +2,25 @@
 KEV Enricher - CISA Known Exploited Vulnerabilities catalog
 
 Provides:
-- KEVEnricher: Enriches records with KEV data via CSV join
+- KEVEnricher: Enriches records with KEV data via CSV/JSON join
 
 Layer: Transform/Enrichers
-Dependencies: dataset
+Dependencies: dataset, utils.http
 Used by: dataset.transform(), pipeline
 """
 
 from __future__ import annotations
 
 import csv
+import io
+import json
 import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import httpx
 import numpy as np
 
 if TYPE_CHECKING:
@@ -25,8 +28,13 @@ if TYPE_CHECKING:
 
 from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseEnricher
+from vulnflow.utils.http import HttpFetcher, is_url
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_KEV_URL = (
+    "https://www.cisa.gov/sites/default/files/csv/known_exploited_vulnerabilities.csv"
+)
 
 
 @register_transform(default=True)
@@ -61,19 +69,33 @@ class KEVEnricher(BaseEnricher):
         self,
         source: str | Path | None = None,
         cache_ttl: int = 86400,
+        cache_dir: Path | str = ".cache",
+        timeout: float = 60.0,
     ) -> None:
         """Initialize enricher with KEV source.
 
         Args:
-            source: Path to KEV CSV file. If None, will fetch from CISA API (future).
+            source: Path to KEV CSV/JSON file, URL, or None for default CISA URL.
             cache_ttl: Cache time-to-live in seconds (default 24h)
+            cache_dir: Directory for HTTP response caching
+            timeout: HTTP request timeout in seconds
         """
         super().__init__()
 
-        self.source = Path(source) if source else None
+        # Determine source type
+        if source is None:
+            self.source: str | Path = DEFAULT_KEV_URL
+        elif isinstance(source, str) and is_url(source):
+            self.source = source
+        else:
+            self.source = Path(source)
+
         self.cache_ttl = cache_ttl
+        self.cache_dir = Path(cache_dir)
+        self.timeout = timeout
         self._cache: dict[str, dict[str, Any]] | None = None
         self._cache_time: float = 0.0
+        self._http_fetcher: HttpFetcher | None = None
 
     async def transform(self, dataset: VulnDataset) -> None:  # type: ignore[override]
         """Enrich dataset with KEV data (fully vectorized).
@@ -82,7 +104,7 @@ class KEVEnricher(BaseEnricher):
             dataset: VulnDataset to enrich (modifies in place)
         """
         # Load KEV catalog with caching
-        kev_data = self._get_cached_data()
+        kev_data = await self._get_cached_data_async()
 
         # Get CVE IDs from dataset
         cve_ids = dataset.get_column("cve_id")
@@ -150,49 +172,148 @@ class KEVEnricher(BaseEnricher):
         if matched_indices:
             dataset.update_sources(matched_indices, "KEV")
 
-    def _get_cached_data(self) -> dict[str, dict[str, Any]]:
-        """Get KEV data from cache or load fresh."""
+    async def _get_cached_data_async(self) -> dict[str, dict[str, Any]]:
+        """Get KEV data from cache or load fresh (async)."""
         now = time.time()
         if self._cache is None or now - self._cache_time > self.cache_ttl:
-            self._cache = self._load_kev_csv()
+            self._cache = await self._load_kev_data()
             self._cache_time = now
         return self._cache
 
-    def _load_kev_csv(self) -> dict[str, dict[str, Any]]:
-        """Load KEV catalog from CSV file.
+    async def _load_kev_data(self) -> dict[str, dict[str, Any]]:
+        """Load KEV catalog from file or URL.
 
         Returns:
             Dict mapping CVE ID to KEV entry dict
         """
-        if self.source is None:
-            raise ValueError("KEV source not specified")
+        if isinstance(self.source, Path):
+            return self._load_kev_from_file(self.source)
+        else:
+            return await self._load_kev_from_url(self.source)
 
-        kev_data: dict[str, dict[str, Any]] = {}
+    def _load_kev_from_file(self, path: Path) -> dict[str, dict[str, Any]]:
+        """Load KEV catalog from local file.
+
+        Args:
+            path: Path to CSV or JSON file
+
+        Returns:
+            Dict mapping CVE ID to KEV entry dict
+        """
+        try:
+            content = path.read_bytes()
+            if path.suffix.lower() == ".json":
+                return self._parse_kev_json(content)
+            else:
+                return self._parse_kev_csv(content.decode("utf-8"))
+        except Exception as e:
+            logger.warning("Failed to load KEV data from %s: %s", path, e)
+            return {}
+
+    async def _load_kev_from_url(self, url: str) -> dict[str, dict[str, Any]]:
+        """Load KEV catalog from URL.
+
+        Args:
+            url: HTTP/HTTPS URL to fetch
+
+        Returns:
+            Dict mapping CVE ID to KEV entry dict
+        """
+        if self._http_fetcher is None:
+            self._http_fetcher = HttpFetcher(
+                cache_dir=self.cache_dir / "kev",
+                timeout=self.timeout,
+            )
 
         try:
-            with open(self.source, encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    cve_id = row["cveID"]
+            content, fmt = await self._http_fetcher.fetch(url, self.cache_ttl)
 
-                    # Parse dates
-                    date_added = datetime.strptime(
-                        row["dateAdded"], "%Y-%m-%d"
-                    ).replace(tzinfo=UTC)
-                    due_date = datetime.strptime(row["dueDate"], "%Y-%m-%d").replace(
-                        tzinfo=UTC
-                    )
+            if fmt == "json":
+                return self._parse_kev_json(content)
+            else:
+                # Default to CSV parsing
+                return self._parse_kev_csv(content.decode("utf-8"))
 
-                    kev_data[cve_id] = {
-                        "date_added": date_added,
-                        "due_date": due_date,
-                        "required_action": row.get("requiredAction"),
-                        "vendor": row.get("vendorProject"),
-                        "product": row.get("product"),
-                        "ransomware": row.get("knownRansomwareCampaignUse"),
-                    }
-        except Exception as e:
-            logger.warning("Failed to load KEV data from %s: %s", self.source, e)
+        except httpx.HTTPError as e:
+            logger.warning("Failed to fetch KEV data from %s: %s", url, e)
             return {}
+        except Exception as e:
+            logger.warning("Failed to load KEV data from %s: %s", url, e)
+            return {}
+
+    def _parse_kev_csv(self, content: str) -> dict[str, dict[str, Any]]:
+        """Parse KEV data from CSV content.
+
+        Args:
+            content: CSV content as string
+
+        Returns:
+            Dict mapping CVE ID to KEV entry dict
+        """
+        kev_data: dict[str, dict[str, Any]] = {}
+
+        reader = csv.DictReader(io.StringIO(content))
+        for row in reader:
+            cve_id = row["cveID"]
+
+            # Parse dates
+            date_added = datetime.strptime(row["dateAdded"], "%Y-%m-%d").replace(
+                tzinfo=UTC
+            )
+            due_date = datetime.strptime(row["dueDate"], "%Y-%m-%d").replace(tzinfo=UTC)
+
+            kev_data[cve_id] = {
+                "date_added": date_added,
+                "due_date": due_date,
+                "required_action": row.get("requiredAction"),
+                "vendor": row.get("vendorProject"),
+                "product": row.get("product"),
+                "ransomware": row.get("knownRansomwareCampaignUse"),
+            }
+
+        return kev_data
+
+    def _parse_kev_json(self, content: bytes) -> dict[str, dict[str, Any]]:
+        """Parse KEV data from JSON content.
+
+        Args:
+            content: JSON content as bytes
+
+        Returns:
+            Dict mapping CVE ID to KEV entry dict
+        """
+        kev_data: dict[str, dict[str, Any]] = {}
+
+        data = json.loads(content)
+        vulnerabilities = data.get("vulnerabilities", [])
+
+        for vuln in vulnerabilities:
+            cve_id = vuln.get("cveID")
+            if not cve_id:
+                continue
+
+            # Parse dates
+            date_added_str = vuln.get("dateAdded")
+            due_date_str = vuln.get("dueDate")
+
+            date_added = (
+                datetime.strptime(date_added_str, "%Y-%m-%d").replace(tzinfo=UTC)
+                if date_added_str
+                else None
+            )
+            due_date = (
+                datetime.strptime(due_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
+                if due_date_str
+                else None
+            )
+
+            kev_data[cve_id] = {
+                "date_added": date_added,
+                "due_date": due_date,
+                "required_action": vuln.get("requiredAction"),
+                "vendor": vuln.get("vendorProject"),
+                "product": vuln.get("product"),
+                "ransomware": vuln.get("knownRansomwareCampaignUse"),
+            }
 
         return kev_data
