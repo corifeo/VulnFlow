@@ -236,6 +236,17 @@ class VulnDataset:
         loader = ParquetLoader(path)
         loader.load(self)
 
+    def to_json(self, path: str | Path) -> None:
+        """Export dataset to JSON file.
+
+        Args:
+            path: Output file path
+        """
+        from vulnflow.loaders.files import JSONLoader
+
+        loader = JSONLoader(path)
+        loader.load(self)
+
     @classmethod
     def from_parquet(cls, path: str | Path) -> VulnDataset:
         """Load dataset from Parquet file.
@@ -249,6 +260,54 @@ class VulnDataset:
         from vulnflow.extractors.files import ParquetExtractor
 
         extractor = ParquetExtractor(str(path))
+        return extractor.extract()
+
+    @classmethod
+    def from_json(cls, path: str | Path) -> VulnDataset:
+        """Create dataset from JSON file (schema-aware round-trip).
+
+        Uses Registry schema for accurate type reconstruction (datetime, UUID).
+        For lossless round-trip with full type fidelity, use from_parquet().
+
+        Args:
+            path: Path to JSON file
+
+        Returns:
+            VulnDataset with data from JSON file
+        """
+        from vulnflow.extractors.files import JSONExtractor
+
+        extractor = JSONExtractor(str(path))
+        return extractor.extract()
+
+    @classmethod
+    def from_pandas(cls, dataframe: PandasDataFrame) -> VulnDataset:
+        """Create dataset from pandas DataFrame (in-memory).
+
+        Args:
+            dataframe: Pandas DataFrame with flattened columns
+
+        Returns:
+            VulnDataset with data from DataFrame
+        """
+        from vulnflow.extractors.files import PandasExtractor
+
+        extractor = PandasExtractor(dataframe)
+        return extractor.extract()
+
+    @classmethod
+    def from_polars(cls, dataframe: PolarsDataFrame) -> VulnDataset:
+        """Create dataset from Polars DataFrame (in-memory).
+
+        Args:
+            dataframe: Polars DataFrame with flattened columns
+
+        Returns:
+            VulnDataset with data from DataFrame
+        """
+        from vulnflow.extractors.files import PolarsExtractor
+
+        extractor = PolarsExtractor(dataframe)
         return extractor.extract()
 
     def update_sources(self, indices: list[int], source: str) -> None:

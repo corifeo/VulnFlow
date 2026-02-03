@@ -95,3 +95,144 @@ def test_pandas_polars_consistency():
     # Second record has no CVSS (None)
     assert pandas_scores[1] is None
     assert polars_scores[1] is None
+
+
+# JSON round-trip tests
+
+
+def test_json_roundtrip_preserves_count(tmp_path):
+    """JSON export/import preserves record count."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    output_path = tmp_path / "out.json"
+    dataset.to_json(output_path)
+
+    dataset2 = VulnDataset.from_json(output_path)
+    assert len(dataset) == len(dataset2)
+    assert len(dataset2) == 3
+
+
+def test_json_roundtrip_preserves_cve_ids(tmp_path):
+    """JSON round-trip preserves CVE IDs."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    output_path = tmp_path / "out.json"
+    dataset.to_json(output_path)
+
+    dataset2 = VulnDataset.from_json(output_path)
+
+    # Compare CVE IDs
+    cve_ids_1 = list(dataset._data["cve_id"])
+    cve_ids_2 = list(dataset2._data["cve_id"])
+    assert cve_ids_1 == cve_ids_2
+
+
+def test_json_roundtrip_preserves_columns(tmp_path):
+    """JSON round-trip preserves all columns."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    output_path = tmp_path / "out.json"
+    dataset.to_json(output_path)
+
+    dataset2 = VulnDataset.from_json(output_path)
+
+    # Same columns
+    assert set(dataset.columns) == set(dataset2.columns)
+
+
+def test_json_vs_parquet_fidelity(tmp_path):
+    """Compare JSON vs Parquet round-trip fidelity."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # JSON round-trip
+    json_path = tmp_path / "out.json"
+    dataset.to_json(json_path)
+    dataset_json = VulnDataset.from_json(json_path)
+
+    # Parquet round-trip
+    parquet_path = tmp_path / "out.parquet"
+    dataset.to_parquet(parquet_path)
+    dataset_parquet = VulnDataset.from_parquet(parquet_path)
+
+    # Both preserve structure
+    assert len(dataset_json) == len(dataset_parquet) == len(dataset)
+    assert set(dataset_json.columns) == set(dataset_parquet.columns) == set(dataset.columns)
+
+    # CVE IDs match
+    assert list(dataset_json._data["cve_id"]) == list(dataset_parquet._data["cve_id"])
+
+
+# Pandas round-trip tests
+
+
+def test_pandas_roundtrip_preserves_count():
+    """Pandas export/import preserves record count."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    df = dataset.to_pandas()
+    dataset2 = VulnDataset.from_pandas(df)
+
+    assert len(dataset) == len(dataset2)
+    assert len(dataset2) == 3
+
+
+def test_pandas_roundtrip_preserves_columns():
+    """Pandas round-trip preserves all columns (with include_nested=True)."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    df = dataset.to_pandas(include_nested=True)
+    dataset2 = VulnDataset.from_pandas(df)
+
+    # Same columns
+    assert set(dataset.columns) == set(dataset2.columns)
+
+
+def test_pandas_roundtrip_preserves_cve_ids():
+    """Pandas round-trip preserves CVE IDs."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    df = dataset.to_pandas()
+    dataset2 = VulnDataset.from_pandas(df)
+
+    # Compare CVE IDs
+    cve_ids_1 = list(dataset._data["cve_id"])
+    cve_ids_2 = list(dataset2._data["cve_id"])
+    assert cve_ids_1 == cve_ids_2
+
+
+# Polars round-trip tests
+
+
+def test_polars_roundtrip_preserves_count():
+    """Polars export/import preserves record count."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    df = dataset.to_polars()
+    dataset2 = VulnDataset.from_polars(df)
+
+    assert len(dataset) == len(dataset2)
+    assert len(dataset2) == 3
+
+
+def test_polars_roundtrip_preserves_columns():
+    """Polars round-trip preserves all columns (with include_nested=True)."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    df = dataset.to_polars(include_nested=True)
+    dataset2 = VulnDataset.from_polars(df)
+
+    # Same columns
+    assert set(dataset.columns) == set(dataset2.columns)
+
+
+def test_polars_roundtrip_preserves_cve_ids():
+    """Polars round-trip preserves CVE IDs."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    df = dataset.to_polars()
+    dataset2 = VulnDataset.from_polars(df)
+
+    # Compare CVE IDs
+    cve_ids_1 = list(dataset._data["cve_id"])
+    cve_ids_2 = list(dataset2._data["cve_id"])
+    assert cve_ids_1 == cve_ids_2
