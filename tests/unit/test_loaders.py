@@ -92,3 +92,25 @@ def test_base_loader_rejects_empty_format() -> None:
         LoaderError, match="must define a non-empty 'format' class attribute"
     ):
         EmptyFormatLoader()
+
+
+def test_all_loaders_have_format_attribute() -> None:
+    """All built-in loaders have correct format attribute."""
+    from vulnflow.loaders.dataframe import PandasLoader, PolarsLoader
+    from vulnflow.loaders.files import JSONLoader, ParquetLoader
+
+    # Verify each loader has format attribute with correct value
+    loaders = [
+        (ParquetLoader, "parquet"),
+        (JSONLoader, "json"),
+        (PandasLoader, "pandas"),
+        (PolarsLoader, "polars"),
+    ]
+
+    for loader_class, expected_format in loaders:
+        assert hasattr(
+            loader_class, "format"
+        ), f"{loader_class.__name__} missing format attribute"
+        assert (
+            loader_class.format == expected_format
+        ), f"{loader_class.__name__}.format = {loader_class.format}, expected {expected_format}"

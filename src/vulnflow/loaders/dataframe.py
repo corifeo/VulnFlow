@@ -38,6 +38,8 @@ class PandasLoader:
                        If False (default), only include flattened scalar columns.
     """
 
+    format: str = "pandas"
+
     def __init__(self, include_nested: bool = False) -> None:
         """Initialize loader.
 
@@ -138,6 +140,8 @@ class PolarsLoader:
         include_nested: If True, keep raw JSON columns in addition to flattened columns.
                        If False (default), only include flattened scalar columns.
     """
+
+    format: str = "polars"
 
     def __init__(self, include_nested: bool = False) -> None:
         """Initialize loader.
