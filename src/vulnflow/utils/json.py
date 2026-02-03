@@ -33,7 +33,7 @@ def dumps(
     Returns:
         JSON string.
     """
-    opts = orjson.OPT_NON_STR_KEYS
+    opts = orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_DATACLASS
     if indent:
         opts |= orjson.OPT_INDENT_2
     return orjson.dumps(obj, option=opts, default=default).decode("utf-8")
