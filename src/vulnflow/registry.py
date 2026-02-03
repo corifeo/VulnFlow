@@ -17,7 +17,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 if TYPE_CHECKING:
-    pass
+    from vulnflow.extractors.base import BaseExtractor
+    from vulnflow.loaders.base import BaseLoader
 
 T = TypeVar("T")
 
@@ -44,6 +45,8 @@ class Registry:
 
     _enrichers: dict[str, tuple[type[Any], bool]] = {}  # name -> (class, is_default)
     _transforms: dict[str, tuple[type[Any], bool]] = {}  # name -> (class, is_default)
+    _extractors: dict[str, type[BaseExtractor]] = {}  # name -> class
+    _loaders: dict[str, type[BaseLoader]] = {}  # name -> class
     _schemas: dict[str, list[FieldDefinition]] = {}  # component_name -> fields
 
     @classmethod
@@ -67,6 +70,26 @@ class Registry:
         def decorator(transform_cls: type[T]) -> type[T]:
             cls._transforms[name] = (transform_cls, default)
             return transform_cls
+
+        return decorator
+
+    @classmethod
+    def register_extractor(cls, name: str) -> Callable[[type[T]], type[T]]:
+        """Decorator to register an extractor class."""
+
+        def decorator(extractor_cls: type[T]) -> type[T]:
+            cls._extractors[name] = extractor_cls  # type: ignore[assignment]
+            return extractor_cls
+
+        return decorator
+
+    @classmethod
+    def register_loader(cls, name: str) -> Callable[[type[T]], type[T]]:
+        """Decorator to register a loader class."""
+
+        def decorator(loader_cls: type[T]) -> type[T]:
+            cls._loaders[name] = loader_cls  # type: ignore[assignment]
+            return loader_cls
 
         return decorator
 
@@ -99,6 +122,40 @@ class Registry:
         """Get a transform class by name."""
         entry = cls._transforms.get(name)
         return entry[0] if entry else None
+
+    @classmethod
+    def get_extractor(cls, name: str) -> type[BaseExtractor]:
+        """Get an extractor class by name.
+
+        Args:
+            name: Extractor name
+
+        Returns:
+            Extractor class
+
+        Raises:
+            KeyError: If extractor not found
+        """
+        if name not in cls._extractors:
+            raise KeyError(f"Extractor not found: {name}")
+        return cls._extractors[name]
+
+    @classmethod
+    def get_loader(cls, name: str) -> type[BaseLoader]:
+        """Get a loader class by name.
+
+        Args:
+            name: Loader name
+
+        Returns:
+            Loader class
+
+        Raises:
+            KeyError: If loader not found
+        """
+        if name not in cls._loaders:
+            raise KeyError(f"Loader not found: {name}")
+        return cls._loaders[name]
 
     @classmethod
     def register_schema(cls, component_name: str, fields: list[FieldDefinition]) -> None:
@@ -135,10 +192,30 @@ class Registry:
         return cls._schemas.get(component_name, [])
 
     @classmethod
+    def list_extractors(cls) -> list[str]:
+        """Get list of all registered extractor names.
+
+        Returns:
+            List of extractor names
+        """
+        return list(cls._extractors.keys())
+
+    @classmethod
+    def list_loaders(cls) -> list[str]:
+        """Get list of all registered loader names.
+
+        Returns:
+            List of loader names
+        """
+        return list(cls._loaders.keys())
+
+    @classmethod
     def clear(cls) -> None:
         """Clear all registrations (for testing)."""
         cls._enrichers = {}
         cls._transforms = {}
+        cls._extractors = {}
+        cls._loaders = {}
         cls._schemas = {}
 
 
