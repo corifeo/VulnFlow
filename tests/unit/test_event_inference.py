@@ -102,10 +102,14 @@ def test_event_inference_confidence_threshold():
 
 def test_event_inference_registered():
     """EventInference is registered in transform registry."""
+    import importlib
+
     from vulnflow.registry import get_transforms
 
-    # Import to ensure registration
-    from vulnflow.transforms.inferences.events import EventInference  # noqa: F401
+    # Import and reload to ensure registration (handles registry clears from other tests)
+    from vulnflow.transforms.inferences import events
+
+    importlib.reload(events)
 
     transforms = get_transforms()
     transform_names = [t.__name__ for t in transforms]
