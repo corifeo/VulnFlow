@@ -99,8 +99,8 @@ class VulnPipeline:
         # Stage 3: Load
         loader_outputs: dict[str, Any] = {}
         if self.loaders and dataset is not None:
-            loader_outputs, load_succ, load_fail, load_err = PipelineExecutor.run_loaders(
-                dataset, self.loaders
+            loader_outputs, load_succ, load_fail, load_err = (
+                PipelineExecutor.run_loaders(dataset, self.loaders)
             )
             successful_stages.extend(load_succ)
             failed_stages.extend(load_fail)
@@ -288,13 +288,13 @@ class VulnPipeline:
         for spec in config.get("transformers", []):
             if isinstance(spec, str):
                 # String spec: use default constructor
-                transform_cls = Registry.get_transform_any(spec)
+                transform_cls = Registry.get_transform(spec)
                 transformers.append(transform_cls())
             else:
                 # Dict spec: extract type and params
                 component_type = spec["type"]
                 params = {k: v for k, v in spec.items() if k != "type"}
-                transform_cls = Registry.get_transform_any(component_type)
+                transform_cls = Registry.get_transform(component_type)
                 transformers.append(transform_cls(**params))
 
         # Build loaders

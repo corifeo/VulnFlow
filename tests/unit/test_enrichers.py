@@ -83,16 +83,16 @@ def test_dataset_transform_with_empty_list():
 
 
 def test_kev_enricher_registered():
-    """KEVEnricher is registered in enricher registry."""
-    from vulnflow.registry import get_enrichers
+    """KEVEnricher is registered in transform registry."""
+    from vulnflow.registry import get_transforms
 
     # Import to ensure registration
     from vulnflow.transforms.enrichers.kev import KEVEnricher  # noqa: F401
 
-    enrichers = get_enrichers()
-    enricher_names = [e.__name__ for e in enrichers]
+    transforms = get_transforms()
+    transform_names = [t.__name__ for t in transforms]
 
-    assert "KEVEnricher" in enricher_names
+    assert "KEVEnricher" in transform_names
 
 
 def test_kev_enricher_updates_sources():

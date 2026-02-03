@@ -25,11 +25,12 @@ import numpy as np
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
-from vulnflow.registry import register_transform
+from vulnflow.registry import FieldDefinition, register_transform
+from vulnflow.transforms.base import BaseComputed
 
 
 @register_transform(default=True)
-class CVDStateTransform:
+class CVDStateTransform(BaseComputed):
     """Compute CVD state string from timestamps.
 
     Requires EventInference to run first (provides CVD timestamp columns).
@@ -39,15 +40,37 @@ class CVDStateTransform:
     depends_on: list[str] = ["EventInference"]
 
     SCHEMA_VERSION: str = "1.0.0"
-    OUTPUT_SCHEMA: list[dict[str, str]] = [
-        {"name": "cvd_state", "type": "str", "description": "6-character CVD state (e.g., 'VFdPxa')"},
-        {"name": "pair_mask", "type": "int16", "description": "15-bit mask encoding all pairwise event orderings"},
-        {"name": "fix_lag_days", "type": "float64", "description": "Days from V to F"},
-        {"name": "disclosure_lag_days", "type": "float64", "description": "Days from V to P"},
-        {"name": "deployment_lag_days", "type": "float64", "description": "Days from F to D"},
-        {"name": "exploit_lag_days", "type": "float64", "description": "Days from P to X"},
-        {"name": "attack_lag_days", "type": "float64", "description": "Days from X to A"},
-        {"name": "public_to_attack_days", "type": "float64", "description": "Days from P to A"},
+    OUTPUT_SCHEMA: list[FieldDefinition] = [
+        FieldDefinition(
+            "cvd_state",
+            "str",
+            "6-character CVD state (e.g., 'VFdPxa')",
+            "CVDStateTransform",
+        ),
+        FieldDefinition(
+            "pair_mask",
+            "int16",
+            "15-bit mask encoding all pairwise event orderings",
+            "CVDStateTransform",
+        ),
+        FieldDefinition(
+            "fix_lag_days", "float64", "Days from V to F", "CVDStateTransform"
+        ),
+        FieldDefinition(
+            "disclosure_lag_days", "float64", "Days from V to P", "CVDStateTransform"
+        ),
+        FieldDefinition(
+            "deployment_lag_days", "float64", "Days from F to D", "CVDStateTransform"
+        ),
+        FieldDefinition(
+            "exploit_lag_days", "float64", "Days from P to X", "CVDStateTransform"
+        ),
+        FieldDefinition(
+            "attack_lag_days", "float64", "Days from X to A", "CVDStateTransform"
+        ),
+        FieldDefinition(
+            "public_to_attack_days", "float64", "Days from P to A", "CVDStateTransform"
+        ),
     ]
 
     def transform(self, dataset: VulnDataset) -> None:
@@ -93,40 +116,42 @@ class CVDStateTransform:
 
             # Encode all 15 pairwise comparisons
             if v_val is not None and f_val is not None and v_val < f_val:
-                mask |= (1 << 0)  # V<F
+                mask |= 1 << 0  # V<F
             if v_val is not None and d_val is not None and v_val < d_val:
-                mask |= (1 << 1)  # V<D
+                mask |= 1 << 1  # V<D
             if v_val is not None and p_val is not None and v_val < p_val:
-                mask |= (1 << 2)  # V<P
+                mask |= 1 << 2  # V<P
             if v_val is not None and x_val is not None and v_val < x_val:
-                mask |= (1 << 3)  # V<X
+                mask |= 1 << 3  # V<X
             if v_val is not None and a_val is not None and v_val < a_val:
-                mask |= (1 << 4)  # V<A
+                mask |= 1 << 4  # V<A
             if f_val is not None and d_val is not None and f_val < d_val:
-                mask |= (1 << 5)  # F<D
+                mask |= 1 << 5  # F<D
             if f_val is not None and p_val is not None and f_val < p_val:
-                mask |= (1 << 6)  # F<P
+                mask |= 1 << 6  # F<P
             if f_val is not None and x_val is not None and f_val < x_val:
-                mask |= (1 << 7)  # F<X
+                mask |= 1 << 7  # F<X
             if f_val is not None and a_val is not None and f_val < a_val:
-                mask |= (1 << 8)  # F<A
+                mask |= 1 << 8  # F<A
             if d_val is not None and p_val is not None and d_val < p_val:
-                mask |= (1 << 9)  # D<P
+                mask |= 1 << 9  # D<P
             if d_val is not None and x_val is not None and d_val < x_val:
-                mask |= (1 << 10)  # D<X
+                mask |= 1 << 10  # D<X
             if d_val is not None and a_val is not None and d_val < a_val:
-                mask |= (1 << 11)  # D<A
+                mask |= 1 << 11  # D<A
             if p_val is not None and x_val is not None and p_val < x_val:
-                mask |= (1 << 12)  # P<X
+                mask |= 1 << 12  # P<X
             if p_val is not None and a_val is not None and p_val < a_val:
-                mask |= (1 << 13)  # P<A
+                mask |= 1 << 13  # P<A
             if x_val is not None and a_val is not None and x_val < a_val:
-                mask |= (1 << 14)  # X<A
+                mask |= 1 << 14  # X<A
 
             pair_masks[i] = mask
 
         # Compute time deltas (in days)
-        def compute_delta_days(ts1: np.ndarray | None, ts2: np.ndarray | None) -> np.ndarray:
+        def compute_delta_days(
+            ts1: np.ndarray | None, ts2: np.ndarray | None
+        ) -> np.ndarray:
             """Compute time delta in days between two timestamp arrays."""
             deltas = np.full(n, np.nan, dtype=np.float64)
             if ts1 is not None and ts2 is not None:

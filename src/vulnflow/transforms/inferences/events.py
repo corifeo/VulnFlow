@@ -23,7 +23,8 @@ import numpy as np
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
-from vulnflow.registry import register_transform
+from vulnflow.registry import FieldDefinition, register_transform
+from vulnflow.transforms.base import BaseInference
 
 
 def extract_date_from_url(url: str | None) -> datetime | None:
@@ -64,7 +65,7 @@ def extract_date_from_url(url: str | None) -> datetime | None:
 
 
 @register_transform(default=True)
-class EventInference:
+class EventInference(BaseInference):
     """Infer missing CVD timestamps from references, NVD metadata, KEV.
 
     Creates columns: v_timestamp, f_timestamp, d_timestamp, p_timestamp, x_timestamp, a_timestamp
@@ -79,16 +80,27 @@ class EventInference:
 
     name: str = "EventInference"
     depends_on: list[str] = ["KEVEnricher"]
-    confidence_threshold: float
 
     SCHEMA_VERSION: str = "1.0.0"
-    OUTPUT_SCHEMA: list[dict[str, str]] = [
-        {"name": "v_timestamp", "type": "datetime", "description": "Vendor awareness timestamp"},
-        {"name": "f_timestamp", "type": "datetime", "description": "Fix ready timestamp"},
-        {"name": "d_timestamp", "type": "datetime", "description": "Fix deployed timestamp"},
-        {"name": "p_timestamp", "type": "datetime", "description": "Public awareness timestamp"},
-        {"name": "x_timestamp", "type": "datetime", "description": "Exploit public timestamp"},
-        {"name": "a_timestamp", "type": "datetime", "description": "Attack observed timestamp"},
+    OUTPUT_SCHEMA: list[FieldDefinition] = [
+        FieldDefinition(
+            "v_timestamp", "datetime", "Vendor awareness timestamp", "EventInference"
+        ),
+        FieldDefinition(
+            "f_timestamp", "datetime", "Fix ready timestamp", "EventInference"
+        ),
+        FieldDefinition(
+            "d_timestamp", "datetime", "Fix deployed timestamp", "EventInference"
+        ),
+        FieldDefinition(
+            "p_timestamp", "datetime", "Public awareness timestamp", "EventInference"
+        ),
+        FieldDefinition(
+            "x_timestamp", "datetime", "Exploit public timestamp", "EventInference"
+        ),
+        FieldDefinition(
+            "a_timestamp", "datetime", "Attack observed timestamp", "EventInference"
+        ),
     ]
 
     def __init__(self, confidence_threshold: float = 0.7) -> None:
@@ -97,6 +109,7 @@ class EventInference:
         Args:
             confidence_threshold: Minimum confidence (0.0-1.0) to populate field
         """
+        super().__init__()
         self.confidence_threshold = confidence_threshold
 
     def transform(self, dataset: VulnDataset) -> None:

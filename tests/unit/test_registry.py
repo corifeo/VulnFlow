@@ -61,42 +61,6 @@ def test_clear_registry() -> None:
     assert len(get_transforms()) == 0
 
 
-def test_register_enricher_decorator() -> None:
-    """@register_enricher registers enricher class."""
-    from vulnflow.registry import get_enrichers, register_enricher
-
-    clear_registry()
-
-    @register_enricher
-    class TestEnricher:
-        name = "test"
-
-        async def enrich(self, dataset):  # type: ignore[no-untyped-def]
-            pass
-
-    enrichers = get_enrichers()
-    assert len(enrichers) == 1
-    assert enrichers[0].__name__ == "TestEnricher"
-
-
-def test_get_enrichers_returns_list() -> None:
-    """get_enrichers() returns list of registered enrichers."""
-    from vulnflow.registry import get_enrichers, register_enricher
-
-    clear_registry()
-
-    @register_enricher
-    class Enricher1:
-        name = "e1"
-
-    @register_enricher
-    class Enricher2:
-        name = "e2"
-
-    enrichers = get_enrichers()
-    assert len(enrichers) == 2
-
-
 def test_registry_register_extractor() -> None:
     """Registry.register_extractor() registers extractor class."""
     from vulnflow.registry import Registry
@@ -239,11 +203,10 @@ def test_registry_clear_loaders() -> None:
 
 def test_builtin_extractors_registered() -> None:
     """Built-in extractors are registered on module import."""
+    # Import modules to trigger registration
+    import vulnflow.extractors.files  # noqa: F401
+    import vulnflow.extractors.nvd  # noqa: F401
     from vulnflow.registry import Registry
-
-    # Don't clear registry - modules are already imported elsewhere
-    # and Python's import cache means re-importing won't re-run decorators
-    # Just verify that built-in extractors are present
 
     extractors = Registry.list_extractors()
     assert "nvd_json" in extractors
@@ -259,11 +222,10 @@ def test_builtin_extractors_registered() -> None:
 
 def test_builtin_loaders_registered() -> None:
     """Built-in loaders are registered on module import."""
+    # Import modules to trigger registration
+    import vulnflow.loaders.dataframe  # noqa: F401
+    import vulnflow.loaders.files  # noqa: F401
     from vulnflow.registry import Registry
-
-    # Don't clear registry - modules are already imported elsewhere
-    # and Python's import cache means re-importing won't re-run decorators
-    # Just verify that built-in loaders are present
 
     loaders = Registry.list_loaders()
     assert "parquet" in loaders
@@ -285,71 +247,133 @@ def test_builtin_loaders_registered() -> None:
     assert polars_cls.__name__ == "PolarsLoader"
 
 
-def test_registry_get_transform_any_finds_enricher() -> None:
-    """Registry.get_transform_any() finds enrichers."""
+# ============================================================================
+# Unified registry tests
+# ============================================================================
+
+
+def test_registry_list_transforms() -> None:
+    """Registry.list_transforms() returns all registered transform names."""
     from vulnflow.registry import Registry
 
     clear_registry()
 
-    @Registry.register_enricher("test_enricher")
-    class TestEnricher:
-        name = "test_enricher"
+    @Registry.register_transform("transform1")
+    class Transform1:
+        name = "transform1"
 
-    transform_cls = Registry.get_transform_any("test_enricher")
-    assert transform_cls is not None
-    assert transform_cls.__name__ == "TestEnricher"
+    @Registry.register_transform("transform2")
+    class Transform2:
+        name = "transform2"
+
+    transforms = Registry.list_transforms()
+    assert len(transforms) == 2
+    assert "transform1" in transforms
+    assert "transform2" in transforms
 
 
-def test_registry_get_transform_any_finds_transform() -> None:
-    """Registry.get_transform_any() finds transforms."""
+def test_registry_get_default_extractors() -> None:
+    """Registry.get_default_extractors() returns empty list (no defaults)."""
     from vulnflow.registry import Registry
 
     clear_registry()
 
-    @Registry.register_transform("test_transform")
-    class TestTransform:
-        name = "test_transform"
+    @Registry.register_extractor("test")
+    class TestExtractor:
+        name = "test"
+        format = "test"
 
-    transform_cls = Registry.get_transform_any("test_transform")
-    assert transform_cls is not None
-    assert transform_cls.__name__ == "TestTransform"
+    # No default extractors - returns empty list
+    defaults = Registry.get_default_extractors()
+    assert defaults == []
 
 
-def test_registry_get_transform_any_prefers_enricher() -> None:
-    """Registry.get_transform_any() prefers enricher when both exist."""
+def test_registry_get_default_loaders() -> None:
+    """Registry.get_default_loaders() returns empty list (no defaults)."""
     from vulnflow.registry import Registry
 
     clear_registry()
 
-    @Registry.register_enricher("duplicate")
-    class TestEnricher:
-        name = "duplicate"
+    @Registry.register_loader("test")
+    class TestLoader:
+        name = "test"
+        format = "test"
 
-    @Registry.register_transform("duplicate")
-    class TestTransform:
-        name = "duplicate"
-
-    transform_cls = Registry.get_transform_any("duplicate")
-    assert transform_cls.__name__ == "TestEnricher"
+    # No default loaders - returns empty list
+    defaults = Registry.get_default_loaders()
+    assert defaults == []
 
 
-def test_registry_get_transform_any_not_found() -> None:
-    """Registry.get_transform_any() raises KeyError with helpful message."""
+def test_registry_schema_versioning() -> None:
+    """Registry.register_schema() stores version with fields."""
+    from vulnflow.registry import FieldDefinition, Registry
+
+    clear_registry()
+
+    fields = [FieldDefinition("test_field", "str", "Test field", "TestComponent")]
+    Registry.register_schema("TestComponent", fields, version="1.2.3")
+
+    # Verify version is stored
+    version = Registry.get_component_schema_version("TestComponent")
+    assert version == "1.2.3"
+
+    # Verify fields are still retrievable
+    retrieved_fields = Registry.get_component_columns("TestComponent")
+    assert len(retrieved_fields) == 1
+    assert retrieved_fields[0].name == "test_field"
+
+
+def test_registry_schema_default_version() -> None:
+    """Registry.register_schema() defaults to version 1.0.0."""
+    from vulnflow.registry import FieldDefinition, Registry
+
+    clear_registry()
+
+    fields = [FieldDefinition("test_field", "str", "Test field", "TestComponent")]
+    Registry.register_schema("TestComponent", fields)
+
+    version = Registry.get_component_schema_version("TestComponent")
+    assert version == "1.0.0"
+
+
+def test_registry_get_component_schema_version_not_found() -> None:
+    """Registry.get_component_schema_version() raises KeyError for unknown component."""
     import pytest
 
     from vulnflow.registry import Registry
 
     clear_registry()
 
-    @Registry.register_enricher("enricher1")
-    class TestEnricher:
-        name = "enricher1"
+    with pytest.raises(KeyError, match="unknown"):
+        Registry.get_component_schema_version("unknown")
 
-    @Registry.register_transform("transform1")
-    class TestTransform:
-        name = "transform1"
 
-    with pytest.raises(
-        KeyError, match="Transform not found: unknown.*enricher1, transform1"
-    ):
-        Registry.get_transform_any("unknown")
+def test_registry_get_all_columns_with_versioning() -> None:
+    """Registry.get_all_columns() works with versioned schema storage."""
+    from vulnflow.registry import FieldDefinition, Registry
+
+    clear_registry()
+
+    fields1 = [FieldDefinition("field1", "str", "Field 1", "Component1")]
+    fields2 = [FieldDefinition("field2", "int", "Field 2", "Component2")]
+
+    Registry.register_schema("Component1", fields1, version="1.0.0")
+    Registry.register_schema("Component2", fields2, version="2.0.0")
+
+    all_fields = Registry.get_all_columns()
+    assert len(all_fields) == 2
+    field_names = [f.name for f in all_fields]
+    assert "field1" in field_names
+    assert "field2" in field_names
+
+
+def test_registry_get_transform_raises_keyerror() -> None:
+    """Registry.get_transform() raises KeyError for unknown transform."""
+    import pytest
+
+    from vulnflow.registry import Registry
+
+    clear_registry()
+
+    with pytest.raises(KeyError, match="unknown"):
+        Registry.get_transform("unknown")
