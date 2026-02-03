@@ -176,45 +176,10 @@ class VulnDataset:
 
         # Run async concurrently
         if async_transforms:
-            # Check if we're already in an async context
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                # No event loop running - create one with asyncio.run()
-                # Use a wrapper coroutine to avoid creating gather future before loop exists
-                async def run_all():
-                    return await asyncio.gather(*[t.transform(self) for t in async_transforms])
+            async def run_all():
+                await asyncio.gather(*[t.transform(self) for t in async_transforms])
 
-                asyncio.run(run_all())
-            else:
-                # Event loop is running - run async code in a separate thread
-                # This allows transform() to be called from async test contexts
-                import threading
-
-                exception_container = []
-
-                def run_in_new_loop():
-                    """Run coroutine in a new event loop in this thread."""
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        # Create the gather coroutine in this thread's loop
-                        async def run_all():
-                            return await asyncio.gather(*[t.transform(self) for t in async_transforms])
-
-                        new_loop.run_until_complete(run_all())
-                    except Exception as e:
-                        exception_container.append(e)
-                    finally:
-                        new_loop.close()
-
-                thread = threading.Thread(target=run_in_new_loop)
-                thread.start()
-                thread.join()
-
-                # Re-raise any exception that occurred
-                if exception_container:
-                    raise exception_container[0]
+            asyncio.run(run_all())
 
         # Run sync sequentially
         for t in sync_transforms:
