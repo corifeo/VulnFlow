@@ -3,6 +3,7 @@ Registry - Plugin registration for enrichers and transforms
 
 Provides:
 - Registry: Central registry for enricher and transform plugins
+- FieldDefinition: Schema definition for dataset fields
 
 Layer: Core
 Dependencies: None
@@ -12,6 +13,7 @@ Used by: dataset, transforms, enrichers
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
@@ -20,11 +22,29 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
+@dataclass
+class FieldDefinition:
+    """Schema definition for a single field.
+
+    Attributes:
+        name: Column name (e.g., "kev_date_added")
+        type: Data type (e.g., "datetime", "float", "str")
+        description: Human-readable description
+        source_component: Which component adds this field (e.g., "KEVEnricher")
+    """
+
+    name: str
+    type: str
+    description: str
+    source_component: str | None = None
+
+
 class Registry:
     """Central registry for enricher and transform plugins."""
 
     _enrichers: dict[str, tuple[type[Any], bool]] = {}  # name -> (class, is_default)
     _transforms: dict[str, tuple[type[Any], bool]] = {}  # name -> (class, is_default)
+    _schemas: dict[str, list[FieldDefinition]] = {}  # component_name -> fields
 
     @classmethod
     def register_enricher(
@@ -81,10 +101,45 @@ class Registry:
         return entry[0] if entry else None
 
     @classmethod
+    def register_schema(cls, component_name: str, fields: list[FieldDefinition]) -> None:
+        """Register schema fields for a component.
+
+        Args:
+            component_name: Name of component (e.g., "KEVEnricher")
+            fields: List of FieldDefinition instances
+        """
+        cls._schemas[component_name] = fields
+
+    @classmethod
+    def get_all_columns(cls) -> list[FieldDefinition]:
+        """Get all registered columns from all components.
+
+        Returns:
+            List of all FieldDefinition instances
+        """
+        all_fields = []
+        for component_fields in cls._schemas.values():
+            all_fields.extend(component_fields)
+        return all_fields
+
+    @classmethod
+    def get_component_columns(cls, component_name: str) -> list[FieldDefinition]:
+        """Get columns added by specific component.
+
+        Args:
+            component_name: Name of component
+
+        Returns:
+            List of FieldDefinition instances for that component
+        """
+        return cls._schemas.get(component_name, [])
+
+    @classmethod
     def clear(cls) -> None:
         """Clear all registrations (for testing)."""
         cls._enrichers = {}
         cls._transforms = {}
+        cls._schemas = {}
 
 
 # Module-level convenience functions
