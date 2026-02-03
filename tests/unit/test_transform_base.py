@@ -146,6 +146,11 @@ class TestBaseEnricher:
 class TestBaseInference:
     """Tests for BaseInference (sync with confidence)."""
 
+    def test_base_inference_is_abstract(self) -> None:
+        """BaseInference cannot be instantiated directly."""
+        with pytest.raises(TypeError, match="abstract"):
+            BaseInference()  # type: ignore[abstract]
+
     def test_base_inference_inherits_from_base_transform(self) -> None:
         """BaseInference inherits from BaseTransform."""
         assert issubclass(BaseInference, BaseTransform)
@@ -180,6 +185,11 @@ class TestBaseInference:
 
 class TestBaseComputed:
     """Tests for BaseComputed (sync pure computation)."""
+
+    def test_base_computed_is_abstract(self) -> None:
+        """BaseComputed cannot be instantiated directly."""
+        with pytest.raises(TypeError, match="abstract"):
+            BaseComputed()  # type: ignore[abstract]
 
     def test_base_computed_inherits_from_base_transform(self) -> None:
         """BaseComputed inherits from BaseTransform."""
