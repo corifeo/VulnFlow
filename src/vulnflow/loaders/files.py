@@ -15,13 +15,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from vulnflow.loaders.base import BaseLoader
+
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
 
-class ParquetLoader:
+class ParquetLoader(BaseLoader):
     """Load dataset to Parquet file."""
 
+    format: str = "parquet"
     name: str = "parquet"
 
     def __init__(self, path: str | Path) -> None:
@@ -30,6 +33,7 @@ class ParquetLoader:
         Args:
             path: Output file path
         """
+        super().__init__()
         self.path = Path(path)
 
     def load(self, dataset: VulnDataset) -> dict[str, Any]:
@@ -41,14 +45,22 @@ class ParquetLoader:
         Returns:
             Metadata with path and record count
         """
-        dataset.to_parquet(self.path)
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert to PyArrow table and write
+        table = pa.table(dataset._data)
+        pq.write_table(table, self.path)
 
         return {"path": str(self.path), "record_count": len(dataset)}
 
 
-class JSONLoader:
+class JSONLoader(BaseLoader):
     """Load dataset to JSON file."""
 
+    format: str = "json"
     name: str = "json"
 
     def __init__(self, path: str | Path) -> None:
@@ -57,6 +69,7 @@ class JSONLoader:
         Args:
             path: Output file path
         """
+        super().__init__()
         self.path = Path(path)
 
     def load(self, dataset: VulnDataset) -> dict[str, Any]:
