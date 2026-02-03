@@ -41,10 +41,17 @@ class CVDStateTransform:
     SCHEMA_VERSION: str = "1.0.0"
     OUTPUT_SCHEMA: list[dict[str, str]] = [
         {"name": "cvd_state", "type": "str", "description": "6-character CVD state (e.g., 'VFdPxa')"},
+        {"name": "pair_mask", "type": "int", "description": "15-bit mask encoding all pairwise orderings"},
+        {"name": "fix_lag_days", "type": "float", "description": "Days from V to F"},
+        {"name": "disclosure_lag_days", "type": "float", "description": "Days from V to P"},
+        {"name": "deployment_lag_days", "type": "float", "description": "Days from F to D"},
+        {"name": "exploit_lag_days", "type": "float", "description": "Days from P to X"},
+        {"name": "attack_lag_days", "type": "float", "description": "Days from X to A"},
+        {"name": "public_to_attack_days", "type": "float", "description": "Days from P to A"},
     ]
 
     def transform(self, dataset: VulnDataset) -> None:
-        """Compute CVD state from timestamp columns.
+        """Compute CVD state, pair mask, and time deltas.
 
         Args:
             dataset: VulnDataset with CVD timestamp columns
@@ -59,9 +66,12 @@ class CVDStateTransform:
         x_ts = dataset.get_column_or_none("x_timestamp")
         a_ts = dataset.get_column_or_none("a_timestamp")
 
-        # Compute state strings
+        # Compute state strings and pair masks
         states: list[str] = []
+        pair_masks = np.zeros(n, dtype=np.int32)
+
         for i in range(n):
+            # Build state string
             v = "V" if v_ts is not None and v_ts[i] is not None else "v"
             f = "F" if f_ts is not None and f_ts[i] is not None else "f"
             d = "D" if d_ts is not None and d_ts[i] is not None else "d"
@@ -70,4 +80,103 @@ class CVDStateTransform:
             a = "A" if a_ts is not None and a_ts[i] is not None else "a"
             states.append(f"{v}{f}{d}{p}{x}{a}")
 
+            # Compute 15-bit pair mask
+            mask = 0
+            bit = 0
+
+            # Get timestamps for this record
+            v_val = v_ts[i] if v_ts is not None else None
+            f_val = f_ts[i] if f_ts is not None else None
+            d_val = d_ts[i] if d_ts is not None else None
+            p_val = p_ts[i] if p_ts is not None else None
+            x_val = x_ts[i] if x_ts is not None else None
+            a_val = a_ts[i] if a_ts is not None else None
+
+            # Encode all 15 pairwise comparisons
+            if v_val is not None and f_val is not None and v_val < f_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if v_val is not None and d_val is not None and v_val < d_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if v_val is not None and p_val is not None and v_val < p_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if v_val is not None and x_val is not None and v_val < x_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if v_val is not None and a_val is not None and v_val < a_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if f_val is not None and d_val is not None and f_val < d_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if f_val is not None and p_val is not None and f_val < p_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if f_val is not None and x_val is not None and f_val < x_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if f_val is not None and a_val is not None and f_val < a_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if d_val is not None and p_val is not None and d_val < p_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if d_val is not None and x_val is not None and d_val < x_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if d_val is not None and a_val is not None and d_val < a_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if p_val is not None and x_val is not None and p_val < x_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if p_val is not None and a_val is not None and p_val < a_val:
+                mask |= (1 << bit)
+            bit += 1
+
+            if x_val is not None and a_val is not None and x_val < a_val:
+                mask |= (1 << bit)
+
+            pair_masks[i] = mask
+
+        # Compute time deltas (in days)
+        def compute_delta_days(ts1: np.ndarray | None, ts2: np.ndarray | None) -> np.ndarray:
+            """Compute time delta in days between two timestamp arrays."""
+            deltas = np.full(n, np.nan, dtype=np.float64)
+            if ts1 is not None and ts2 is not None:
+                for i in range(n):
+                    if ts1[i] is not None and ts2[i] is not None:
+                        deltas[i] = (ts2[i] - ts1[i]).total_seconds() / 86400.0
+            return deltas
+
+        fix_lag_days = compute_delta_days(v_ts, f_ts)
+        disclosure_lag_days = compute_delta_days(v_ts, p_ts)
+        deployment_lag_days = compute_delta_days(f_ts, d_ts)
+        exploit_lag_days = compute_delta_days(p_ts, x_ts)
+        attack_lag_days = compute_delta_days(x_ts, a_ts)
+        public_to_attack_days = compute_delta_days(p_ts, a_ts)
+
+        # Set all columns
         dataset.set_column("cvd_state", np.array(states, dtype=object))
+        dataset.set_column("pair_mask", pair_masks)
+        dataset.set_column("fix_lag_days", fix_lag_days)
+        dataset.set_column("disclosure_lag_days", disclosure_lag_days)
+        dataset.set_column("deployment_lag_days", deployment_lag_days)
+        dataset.set_column("exploit_lag_days", exploit_lag_days)
+        dataset.set_column("attack_lag_days", attack_lag_days)
+        dataset.set_column("public_to_attack_days", public_to_attack_days)

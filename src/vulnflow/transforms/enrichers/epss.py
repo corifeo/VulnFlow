@@ -82,18 +82,23 @@ class EPSSEnricher:
         epss_date: np.ndarray = np.array([None] * n, dtype=object)
         epss_model: np.ndarray = np.array([None] * n, dtype=object)
 
-        # Track matched indices for source tracking
-        matched_indices: list[int] = []
+        # Use vectorized operations to find matches
+        # Build lookup array from EPSS data
+        epss_cve_ids = np.array(list(epss_data.keys()), dtype=object)
 
-        # Match by CVE ID
-        for i, cve_id in enumerate(cve_ids):
+        # Find matches using numpy indexing (vectorized)
+        matches_mask = np.isin(cve_ids, epss_cve_ids)
+        matched_indices = np.where(matches_mask)[0].tolist()
+
+        # For matched records, populate using direct indexing
+        for idx in matched_indices:
+            cve_id = cve_ids[idx]
             if cve_id in epss_data:
-                matched_indices.append(i)
                 entry = epss_data[cve_id]
-                epss_probability[i] = entry["probability"]
-                epss_percentile[i] = entry["percentile"]
-                epss_date[i] = entry.get("date")
-                epss_model[i] = entry.get("model", 3)  # Default to model 3
+                epss_probability[idx] = entry["probability"]
+                epss_percentile[idx] = entry["percentile"]
+                epss_date[idx] = entry.get("date")
+                epss_model[idx] = entry.get("model", 3)  # Default to model 3
 
         # Add columns to dataset
         dataset.set_column("epss_probability", epss_probability)
