@@ -18,6 +18,9 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
+    from vulnflow.extractors.base import Extractor
+    from vulnflow.loaders.base import Loader
+    from vulnflow.transforms.base import BaseTransform
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +41,14 @@ class PipelineResult:
 class VulnPipeline:
     """ETL pipeline orchestrator with composition support."""
 
-    extractors: list[Any] = field(default_factory=list)
-    transformers: list[Any] = field(default_factory=list)
-    loaders: list[Any] = field(default_factory=list)
+    if TYPE_CHECKING:
+        extractors: list[Extractor] = field(default_factory=list)
+        transformers: list[BaseTransform] = field(default_factory=list)
+        loaders: list[Loader] = field(default_factory=list)
+    else:
+        extractors: list[Any] = field(default_factory=list)
+        transformers: list[Any] = field(default_factory=list)
+        loaders: list[Any] = field(default_factory=list)
 
     def run(
         self, dataset: VulnDataset | None = None, strict: bool = False
