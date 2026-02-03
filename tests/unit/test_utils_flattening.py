@@ -42,9 +42,7 @@ class TestDecodeJsonColumn:
 
     def test_valid_json(self) -> None:
         """Valid JSON strings decode to Python objects."""
-        col = np.array(
-            ['[{"a": 1}]', '[{"b": 2}, {"c": 3}]', "[]"], dtype=object
-        )
+        col = np.array(['[{"a": 1}]', '[{"b": 2}, {"c": 3}]', "[]"], dtype=object)
         result = decode_json_column(col)
         assert result == [[{"a": 1}], [{"b": 2}, {"c": 3}], []]
 

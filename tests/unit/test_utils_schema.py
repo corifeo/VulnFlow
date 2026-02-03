@@ -1,4 +1,5 @@
 """Tests for schema introspection utilities."""
+
 from vulnflow.utils.schema import get_flattened_columns, get_record_columns
 
 

@@ -105,6 +105,52 @@ class TestBaseTransform:
         transform = TestTransform()
         assert transform.depends_on == ["kev"]
 
+    def test_base_transform_has_default_schema_version(self) -> None:
+        """BaseTransform provides default SCHEMA_VERSION."""
+
+        class TestTransform(BaseTransform):
+            name = "test"
+            OUTPUT_SCHEMA: list[FieldDefinition] = []
+
+            def transform(self, dataset: VulnDataset) -> None:
+                pass
+
+        transform = TestTransform()
+        assert transform.SCHEMA_VERSION == "1.0.0"
+
+    def test_base_transform_allows_schema_version_override(self) -> None:
+        """Subclass can override SCHEMA_VERSION."""
+
+        class TestTransform(BaseTransform):
+            name = "test"
+            OUTPUT_SCHEMA: list[FieldDefinition] = []
+            SCHEMA_VERSION = "2.0.0"
+
+            def transform(self, dataset: VulnDataset) -> None:
+                pass
+
+        transform = TestTransform()
+        assert transform.SCHEMA_VERSION == "2.0.0"
+
+    def test_base_transform_registers_schema_version(self) -> None:
+        """BaseTransform registers schema with version in Registry."""
+        Registry.clear()
+
+        class TestTransform(BaseTransform):
+            name = "VersionedTransform"
+            OUTPUT_SCHEMA = [
+                FieldDefinition("field", "str", "Test field", "VersionedTransform")
+            ]
+            SCHEMA_VERSION = "1.2.3"
+
+            def transform(self, dataset: VulnDataset) -> None:
+                pass
+
+        TestTransform()
+
+        version = Registry.get_component_schema_version("VersionedTransform")
+        assert version == "1.2.3"
+
 
 class TestBaseEnricher:
     """Tests for BaseEnricher (async transforms)."""

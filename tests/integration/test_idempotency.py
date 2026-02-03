@@ -20,10 +20,12 @@ def test_reimport_idempotent(tmp_path):
     """Re-enrichment updates, doesn't duplicate records."""
     # Day 1: Initial load and enrichment
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-    dataset.transform([
-        KEVEnricher(source="tests/fixtures/kev_sample.csv"),
-        EPSSEnricher(source="tests/fixtures/epss_sample.csv"),
-    ])
+    dataset.transform(
+        [
+            KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+            EPSSEnricher(source="tests/fixtures/epss_sample.csv"),
+        ]
+    )
 
     original_count = len(dataset)
     output_path = tmp_path / "day1.parquet"
@@ -31,10 +33,12 @@ def test_reimport_idempotent(tmp_path):
 
     # Day 2: Reload and re-enrich
     dataset2 = VulnDataset.from_parquet(str(output_path))
-    dataset2.transform([
-        KEVEnricher(source="tests/fixtures/kev_sample.csv"),
-        EPSSEnricher(source="tests/fixtures/epss_sample.csv"),
-    ])
+    dataset2.transform(
+        [
+            KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+            EPSSEnricher(source="tests/fixtures/epss_sample.csv"),
+        ]
+    )
 
     # Should update, not duplicate
     assert len(dataset2) == original_count, "Record count should not change"
@@ -92,10 +96,12 @@ def test_timestamp_updates_on_reenrichment(tmp_path):
 def test_parquet_roundtrip_preserves_sources(tmp_path):
     """Parquet round-trip preserves sources metadata."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-    dataset.transform([
-        KEVEnricher(source="tests/fixtures/kev_sample.csv"),
-        EPSSEnricher(source="tests/fixtures/epss_sample.csv"),
-    ])
+    dataset.transform(
+        [
+            KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+            EPSSEnricher(source="tests/fixtures/epss_sample.csv"),
+        ]
+    )
 
     # Save and reload
     output_path = tmp_path / "metadata.parquet"
@@ -107,6 +113,8 @@ def test_parquet_roundtrip_preserves_sources(tmp_path):
     sources = json.loads(sources_col[0])
 
     # Should have nvd from initial load plus enricher sources
-    assert "nvd" in sources or "NVD" in sources.upper() if isinstance(sources, str) else any(
-        s.lower() == "nvd" for s in sources
+    assert (
+        "nvd" in sources or "NVD" in sources.upper()
+        if isinstance(sources, str)
+        else any(s.lower() == "nvd" for s in sources)
     ), "Should have NVD source"

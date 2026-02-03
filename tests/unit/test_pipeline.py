@@ -129,9 +129,7 @@ def test_pipeline_executes_transforms():
         depends_on: list[str] = []
 
         def transform(self, dataset):  # type: ignore[no-untyped-def]
-            dataset.set_column(
-                "mock_column", np.array(["A", "B", "C"], dtype=object)
-            )
+            dataset.set_column("mock_column", np.array(["A", "B", "C"], dtype=object))
 
     pipeline = VulnPipeline(
         extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
@@ -393,7 +391,9 @@ def test_pipeline_lenient_mode_logs_warnings(caplog: pytest.LogCaptureFixture):
 
     # Should have logged a warning about the failure
     assert len(caplog.records) >= 1, "Expected at least one log record"
-    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
     assert any(
         "BrokenEnricher" in msg or "broken" in msg.lower() for msg in warning_messages
     ), f"Expected warning about BrokenEnricher, got: {warning_messages}"
@@ -472,7 +472,9 @@ def test_pipeline_from_config_basic():
     """Build pipeline from dict config."""
     config = {
         "extractors": [{"type": "nvd_json", "path": "tests/fixtures/nvd_sample.json"}],
-        "transformers": [{"type": "KEVEnricher", "source": "tests/fixtures/kev_sample.csv"}],
+        "transformers": [
+            {"type": "KEVEnricher", "source": "tests/fixtures/kev_sample.csv"}
+        ],
         "loaders": [{"type": "json", "path": "out.json"}],
     }
 
