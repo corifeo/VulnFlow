@@ -56,9 +56,10 @@ class TestFlattenCvssScores:
         """None input returns all None fields."""
         result = flatten_cvss_scores(None)
         assert result == {
-            "cvss_version": None,
-            "cvss_vector": None,
             "cvss_base_score": None,
+            "cvss_base_severity": None,
+            "cvss_version": None,
+            "cvss_vector_string": None,
             "cvss_source": None,
         }
 
@@ -66,9 +67,10 @@ class TestFlattenCvssScores:
         """Empty list returns all None fields."""
         result = flatten_cvss_scores([])
         assert result == {
-            "cvss_version": None,
-            "cvss_vector": None,
             "cvss_base_score": None,
+            "cvss_base_severity": None,
+            "cvss_version": None,
+            "cvss_vector_string": None,
             "cvss_source": None,
         }
 
@@ -77,16 +79,18 @@ class TestFlattenCvssScores:
         cvss_list = [
             {
                 "version": "3.1",
-                "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
                 "base_score": 9.8,
+                "base_severity": "CRITICAL",
                 "source": "nvd",
             }
         ]
         result = flatten_cvss_scores(cvss_list)
         assert result == {
-            "cvss_version": "3.1",
-            "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
             "cvss_base_score": 9.8,
+            "cvss_base_severity": "CRITICAL",
+            "cvss_version": "3.1",
+            "cvss_vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
             "cvss_source": "nvd",
         }
 
@@ -95,29 +99,33 @@ class TestFlattenCvssScores:
         cvss_list = [
             {
                 "version": "3.0",
-                "vector": "CVSS:3.0/AV:L/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
+                "vector_string": "CVSS:3.0/AV:L/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
                 "base_score": 6.3,
+                "base_severity": "MEDIUM",
                 "source": "redhat",
             },
             {
                 "version": "3.1",
-                "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
                 "base_score": 9.8,
+                "base_severity": "CRITICAL",
                 "source": "nvd",
             },
             {
                 "version": "3.1",
-                "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
                 "base_score": 8.1,
+                "base_severity": "HIGH",
                 "source": "microsoft",
             },
         ]
         result = flatten_cvss_scores(cvss_list)
         # Should select NVD entry (9.8) not first entry (6.3)
         assert result == {
-            "cvss_version": "3.1",
-            "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
             "cvss_base_score": 9.8,
+            "cvss_base_severity": "CRITICAL",
+            "cvss_version": "3.1",
+            "cvss_vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
             "cvss_source": "nvd",
         }
 
@@ -126,30 +134,82 @@ class TestFlattenCvssScores:
         cvss_list = [
             {
                 "version": "3.1",
-                "vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
+                "vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
                 "base_score": 6.3,
+                "base_severity": "MEDIUM",
                 "source": "unknown_vendor",
             },
             {
                 "version": "3.0",
-                "vector": "CVSS:3.0/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "vector_string": "CVSS:3.0/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
                 "base_score": 8.1,
+                "base_severity": "HIGH",
                 "source": "microsoft",
             },
             {
                 "version": "3.1",
-                "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
                 "base_score": 9.8,
+                "base_severity": "CRITICAL",
                 "source": "redhat",
             },
         ]
         result = flatten_cvss_scores(cvss_list)
         # Should select redhat (priority 1) over microsoft (priority 2)
         assert result == {
-            "cvss_version": "3.1",
-            "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
             "cvss_base_score": 9.8,
+            "cvss_base_severity": "CRITICAL",
+            "cvss_version": "3.1",
+            "cvss_vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
             "cvss_source": "redhat",
+        }
+
+    def test_filters_invalid_scores(self) -> None:
+        """Entries without valid base_score are filtered out."""
+        cvss_list = [
+            {
+                "version": "3.1",
+                "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "base_score": None,
+                "base_severity": None,
+                "source": "nvd",
+            },
+            {
+                "version": "3.0",
+                "vector_string": "CVSS:3.0/AV:L/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
+                "base_score": 6.3,
+                "base_severity": "MEDIUM",
+                "source": "redhat",
+            },
+        ]
+        result = flatten_cvss_scores(cvss_list)
+        # Should select redhat entry (only valid one)
+        assert result == {
+            "cvss_base_score": 6.3,
+            "cvss_base_severity": "MEDIUM",
+            "cvss_version": "3.0",
+            "cvss_vector_string": "CVSS:3.0/AV:L/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
+            "cvss_source": "redhat",
+        }
+
+    def test_all_invalid_scores(self) -> None:
+        """All invalid scores returns all None fields."""
+        cvss_list = [
+            {
+                "version": "3.1",
+                "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "base_score": None,
+                "base_severity": None,
+                "source": "nvd",
+            },
+        ]
+        result = flatten_cvss_scores(cvss_list)
+        assert result == {
+            "cvss_base_score": None,
+            "cvss_base_severity": None,
+            "cvss_version": None,
+            "cvss_vector_string": None,
+            "cvss_source": None,
         }
 
 

@@ -43,43 +43,65 @@ def decode_json_column(col: np.ndarray) -> list[Any]:
 def flatten_cvss_scores(
     cvss_scores: list[dict[str, Any]] | None,
 ) -> dict[str, float | str | None]:
-    """Flatten CVSS scores list to single entry with source priority.
+    """Flatten list[CVSSEntry] to scalar columns.
 
-    Priority order: nvd (0) > redhat (1) > microsoft (2) > others (999)
+    Selection logic (per DATA-STRUCTURES.md):
+    1. Prefer source: nvd > redhat > microsoft > other
+    2. If tie, prefer most recent published_at
+    3. If tie, take first
 
     Args:
-        cvss_scores: List of CVSS dicts with version/vector/base_score/source
+        cvss_scores: List of CVSS score dicts (decoded from JSON)
 
     Returns:
-        Dict with cvss_version, cvss_vector, cvss_base_score, cvss_source
-        (all None if input is None/empty)
+        Dict with flattened scalar columns
 
     Examples:
-        >>> flatten_cvss_scores([{"version": "3.1", "vector": "...", "base_score": 9.8, "source": "nvd"}])
-        {'cvss_version': '3.1', 'cvss_vector': '...', 'cvss_base_score': 9.8, 'cvss_source': 'nvd'}
+        >>> flatten_cvss_scores([{"version": "3.1", "vector_string": "...", "base_score": 9.8, "base_severity": "CRITICAL", "source": "nvd"}])
+        {'cvss_base_score': 9.8, 'cvss_base_severity': 'CRITICAL', 'cvss_version': '3.1', 'cvss_vector_string': '...', 'cvss_source': 'nvd'}
     """
     if not cvss_scores:
         return {
-            "cvss_version": None,
-            "cvss_vector": None,
             "cvss_base_score": None,
+            "cvss_base_severity": None,
+            "cvss_version": None,
+            "cvss_vector_string": None,
             "cvss_source": None,
         }
 
-    # Source priority map
+    # Filter entries with valid base_score
+    valid_scores = [
+        entry for entry in cvss_scores if entry.get("base_score") is not None
+    ]
+
+    if not valid_scores:
+        return {
+            "cvss_base_score": None,
+            "cvss_base_severity": None,
+            "cvss_version": None,
+            "cvss_vector_string": None,
+            "cvss_source": None,
+        }
+
+    # Source preference (NVD domain knowledge)
     source_priority = {"nvd": 0, "redhat": 1, "microsoft": 2}
 
-    # Find entry with highest priority (lowest number)
-    best_entry = min(
-        cvss_scores,
-        key=lambda x: source_priority.get(x.get("source", ""), 999),
-    )
+    def score_key(entry: dict[str, Any]) -> tuple[int, float]:
+        source_rank = source_priority.get(entry.get("source", ""), 999)
+        # Negative timestamp for descending sort (most recent first)
+        time_rank = (
+            -entry.get("published_at", 0) if entry.get("published_at") else 0
+        )
+        return (source_rank, time_rank)
+
+    selected = min(valid_scores, key=score_key)
 
     return {
-        "cvss_version": best_entry.get("version"),
-        "cvss_vector": best_entry.get("vector"),
-        "cvss_base_score": best_entry.get("base_score"),
-        "cvss_source": best_entry.get("source"),
+        "cvss_base_score": selected.get("base_score"),
+        "cvss_base_severity": selected.get("base_severity"),
+        "cvss_version": selected.get("version"),
+        "cvss_vector_string": selected.get("vector_string"),
+        "cvss_source": selected.get("source"),
     }
 
 
