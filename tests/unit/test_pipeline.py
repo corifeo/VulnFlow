@@ -10,6 +10,12 @@ from __future__ import annotations
 
 import pytest
 
+# Import to trigger registration decorators
+import vulnflow.extractors.files  # noqa: F401
+import vulnflow.extractors.nvd  # noqa: F401
+import vulnflow.loaders.dataframe  # noqa: F401
+import vulnflow.loaders.files  # noqa: F401
+import vulnflow.transforms.enrichers.kev  # noqa: F401
 from vulnflow.pipeline import PipelineResult, VulnPipeline
 
 
@@ -637,3 +643,74 @@ def test_pipeline_chain_rejects_wrong_order():
 
     with pytest.raises(ValueError, match="Format mismatch at position 0"):
         p1.chain_with(p2)
+
+
+def test_pipeline_from_config_basic():
+    """Build pipeline from dict config."""
+    config = {
+        "extractors": [{"type": "nvd_json", "path": "tests/fixtures/nvd_sample.json"}],
+        "transformers": [{"type": "KEVEnricher", "source": "tests/fixtures/kev_sample.csv"}],
+        "loaders": [{"type": "json", "path": "out.json"}],
+    }
+
+    pipeline = VulnPipeline.from_config(config)
+
+    assert len(pipeline.extractors) == 1
+    assert len(pipeline.transformers) == 1
+    assert len(pipeline.loaders) == 1
+
+
+def test_pipeline_from_config_string_names():
+    """Accept string names for default constructors."""
+    config = {
+        "extractors": [],
+        "transformers": ["KEVEnricher"],
+        "loaders": [],
+    }
+
+    pipeline = VulnPipeline.from_config(config)
+
+    assert len(pipeline.extractors) == 0
+    assert len(pipeline.transformers) == 1
+    assert len(pipeline.loaders) == 0
+
+
+def test_pipeline_from_config_with_params():
+    """Pass params to constructors."""
+    config = {
+        "extractors": [{"type": "parquet", "path": "data.parquet"}],
+        "transformers": [],
+        "loaders": [{"type": "parquet", "path": "out.parquet"}],
+    }
+
+    pipeline = VulnPipeline.from_config(config)
+
+    assert len(pipeline.extractors) == 1
+    assert len(pipeline.loaders) == 1
+
+
+def test_pipeline_from_config_empty():
+    """Handle empty config."""
+    config = {
+        "extractors": [],
+        "transformers": [],
+        "loaders": [],
+    }
+
+    pipeline = VulnPipeline.from_config(config)
+
+    assert len(pipeline.extractors) == 0
+    assert len(pipeline.transformers) == 0
+    assert len(pipeline.loaders) == 0
+
+
+def test_pipeline_from_config_unknown_extractor():
+    """Raise KeyError for unknown type."""
+    config = {
+        "extractors": [{"type": "unknown_extractor", "path": "data.json"}],
+        "transformers": [],
+        "loaders": [],
+    }
+
+    with pytest.raises(KeyError, match="Extractor not found: unknown_extractor"):
+        VulnPipeline.from_config(config)
