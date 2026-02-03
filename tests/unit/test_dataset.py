@@ -83,7 +83,6 @@ def test_dataset_get_column():
 
 def test_dataset_get_column_missing_raises():
     """VulnDataset.get_column() raises KeyError for missing column."""
-    import pytest
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
@@ -108,7 +107,6 @@ def test_dataset_set_column():
 def test_dataset_set_column_wrong_length_raises():
     """VulnDataset.set_column() raises ValueError for wrong length."""
     import numpy as np
-    import pytest
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
@@ -221,7 +219,6 @@ def test_dataset_columnar_schema_complete():
 
 def test_dataset_transform_sorts_by_dependencies():
     """dataset.transform() sorts transforms by depends_on."""
-    import pytest
 
     execution_order = []
 
@@ -250,7 +247,6 @@ def test_dataset_transform_sorts_by_dependencies():
 
 def test_dataset_transform_detects_circular_dependencies():
     """dataset.transform() raises on circular dependencies."""
-    import pytest
 
     class Transform1:
         name = "t1"
