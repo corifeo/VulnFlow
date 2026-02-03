@@ -11,7 +11,7 @@ from __future__ import annotations
 from vulnflow.registry import clear_registry, get_transforms, register_transform
 
 
-def test_register_transform_decorator():
+def test_register_transform_decorator() -> None:
     """@register_transform registers transform class."""
     clear_registry()
 
@@ -28,7 +28,7 @@ def test_register_transform_decorator():
     assert transforms[0].__name__ == "TestTransform"
 
 
-def test_get_transforms_returns_list():
+def test_get_transforms_returns_list() -> None:
     """get_transforms() returns list of registered transforms."""
     clear_registry()
 
@@ -46,7 +46,7 @@ def test_get_transforms_returns_list():
     assert len(transforms) == 2
 
 
-def test_clear_registry():
+def test_clear_registry() -> None:
     """clear_registry() removes all registrations."""
     clear_registry()
 
@@ -61,7 +61,7 @@ def test_clear_registry():
     assert len(get_transforms()) == 0
 
 
-def test_register_enricher_decorator():
+def test_register_enricher_decorator() -> None:
     """@register_enricher registers enricher class."""
     from vulnflow.registry import get_enrichers, register_enricher
 
@@ -79,7 +79,7 @@ def test_register_enricher_decorator():
     assert enrichers[0].__name__ == "TestEnricher"
 
 
-def test_get_enrichers_returns_list():
+def test_get_enrichers_returns_list() -> None:
     """get_enrichers() returns list of registered enrichers."""
     from vulnflow.registry import get_enrichers, register_enricher
 
@@ -97,7 +97,7 @@ def test_get_enrichers_returns_list():
     assert len(enrichers) == 2
 
 
-def test_registry_register_extractor():
+def test_registry_register_extractor() -> None:
     """Registry.register_extractor() registers extractor class."""
     from vulnflow.registry import Registry
 
@@ -116,7 +116,7 @@ def test_registry_register_extractor():
     assert extractor_cls.__name__ == "TestExtractor"
 
 
-def test_registry_get_extractor_not_found():
+def test_registry_get_extractor_not_found() -> None:
     """Registry.get_extractor() raises KeyError for unknown extractor."""
     import pytest
 
@@ -128,7 +128,7 @@ def test_registry_get_extractor_not_found():
         Registry.get_extractor("unknown")
 
 
-def test_registry_list_extractors():
+def test_registry_list_extractors() -> None:
     """Registry.list_extractors() returns all registered extractor names."""
     from vulnflow.registry import Registry
 
@@ -150,7 +150,7 @@ def test_registry_list_extractors():
     assert "extractor2" in extractors
 
 
-def test_registry_clear_extractors():
+def test_registry_clear_extractors() -> None:
     """Registry.clear() clears extractor registrations."""
     from vulnflow.registry import Registry
 
@@ -167,7 +167,7 @@ def test_registry_clear_extractors():
     assert len(Registry.list_extractors()) == 0
 
 
-def test_registry_register_loader():
+def test_registry_register_loader() -> None:
     """Registry.register_loader() registers loader class."""
     from vulnflow.registry import Registry
 
@@ -186,7 +186,7 @@ def test_registry_register_loader():
     assert loader_cls.__name__ == "TestLoader"
 
 
-def test_registry_get_loader_not_found():
+def test_registry_get_loader_not_found() -> None:
     """Registry.get_loader() raises KeyError for unknown loader."""
     import pytest
 
@@ -198,7 +198,7 @@ def test_registry_get_loader_not_found():
         Registry.get_loader("unknown")
 
 
-def test_registry_list_loaders():
+def test_registry_list_loaders() -> None:
     """Registry.list_loaders() returns all registered loader names."""
     from vulnflow.registry import Registry
 
@@ -220,7 +220,7 @@ def test_registry_list_loaders():
     assert "loader2" in loaders
 
 
-def test_registry_clear_loaders():
+def test_registry_clear_loaders() -> None:
     """Registry.clear() clears loader registrations."""
     from vulnflow.registry import Registry
 
