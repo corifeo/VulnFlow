@@ -45,24 +45,65 @@ class ParquetExtractor(BaseExtractor):
     name: str = "parquet"
     format: str = "parquet"
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str | list[str]) -> None:
+        """Initialize Parquet extractor.
+
+        Args:
+            path: Single file path or list of paths for upsert merge
+        """
         super().__init__()
         self.path = path
 
     def extract(self) -> VulnDataset:
         """Extract from Parquet → VulnDataset directly.
 
+        Supports:
+        - Single file: Direct load
+        - Multiple files: Load all, merge with upsert (later files win)
+
         Returns:
-            VulnDataset with columnar data from Parquet file
+            VulnDataset with columnar data from Parquet file(s)
 
         Raises:
-            FileNotFoundError: If Parquet file doesn't exist
+            FileNotFoundError: If any Parquet file doesn't exist
+            ExtractorError: If multi-file merge attempted without cve_id column
+        """
+        from vulnflow.dataset import VulnDataset
+
+        # Handle empty list
+        if isinstance(self.path, list) and len(self.path) == 0:
+            return VulnDataset()
+
+        # Normalize to list
+        paths = [self.path] if isinstance(self.path, str) else self.path
+
+        # Fast path: single file
+        if len(paths) == 1:
+            return self._load_single(Path(paths[0]))
+
+        # Multi-file: load all then merge with upsert
+        datasets = []
+        for path_str in paths:
+            datasets.append(self._load_single(Path(path_str)))
+
+        return self._merge_upsert(datasets)
+
+    def _load_single(self, path: Path) -> VulnDataset:
+        """Load single Parquet file.
+
+        Args:
+            path: Path to parquet file
+
+        Returns:
+            VulnDataset with file contents
+
+        Raises:
+            FileNotFoundError: If file doesn't exist
         """
         import pyarrow.parquet as pq
 
         from vulnflow.dataset import VulnDataset
 
-        path = Path(self.path)
         if not path.exists():
             raise FileNotFoundError(f"Parquet file not found: {path}")
 
@@ -72,6 +113,73 @@ class ParquetExtractor(BaseExtractor):
         dataset._data = {col: table[col].to_numpy() for col in table.column_names}
 
         return dataset
+
+    def _merge_upsert(self, datasets: list[VulnDataset]) -> VulnDataset:
+        """Merge multiple datasets with upsert semantics (later wins).
+
+        Algorithm:
+        1. Concatenate all columns from all datasets
+        2. Find duplicates by cve_id
+        3. Keep last occurrence (later datasets override earlier)
+
+        Args:
+            datasets: List of datasets to merge
+
+        Returns:
+            Merged dataset with unique cve_ids
+
+        Raises:
+            ExtractorError: If cve_id column missing (required for upsert)
+        """
+        from vulnflow.dataset import VulnDataset
+        from vulnflow.exceptions import ExtractorError
+
+        if not datasets:
+            return VulnDataset()
+
+        # Verify all datasets have cve_id column
+        for ds in datasets:
+            if "cve_id" not in ds.columns:
+                msg = "cve_id column required for multi-file merge"
+                raise ExtractorError(msg)
+
+        # Get union of all columns across datasets
+        all_columns = set()
+        for ds in datasets:
+            all_columns.update(ds.columns)
+
+        # Concatenate all datasets, filling missing columns with None
+        merged_data: dict[str, np.ndarray] = {}
+
+        for col in all_columns:
+            arrays = []
+            for ds in datasets:
+                if col in ds.columns:
+                    arrays.append(ds.get_column(col))
+                else:
+                    # Fill missing column with None
+                    none_array = np.full(len(ds), None, dtype=object)
+                    arrays.append(none_array)
+
+            merged_data[col] = np.concatenate(arrays)
+
+        # Find unique CVE IDs, keeping last occurrence
+        cve_ids = merged_data["cve_id"]
+
+        # Use dict to track last index for each CVE ID
+        last_indices = {}
+        for idx, cve_id in enumerate(cve_ids):
+            last_indices[cve_id] = idx
+
+        # Get indices in original order
+        unique_indices = sorted(last_indices.values())
+
+        # Filter all columns to unique indices
+        result = VulnDataset()
+        for col, array in merged_data.items():
+            result._data[col] = array[unique_indices]
+
+        return result
 
 
 @Registry.register_extractor("json")
