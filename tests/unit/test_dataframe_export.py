@@ -56,8 +56,11 @@ def test_to_polars_has_basic_columns():
 
 
 def test_to_pandas_flattens_cvss():
-    """to_pandas() flattens nested CVSS fields."""
+    """to_pandas() with CVSSFlattenTransform produces flattened CVSS columns."""
+    from vulnflow.transforms.flatten import CVSSFlattenTransform
+
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    CVSSFlattenTransform().transform(dataset)
     df = dataset.to_pandas()
 
     # Flattened CVSS columns exist
@@ -76,8 +79,11 @@ def test_to_pandas_flattens_cvss():
 
 
 def test_to_polars_flattens_cvss():
-    """to_polars() flattens nested CVSS fields."""
+    """to_polars() with CVSSFlattenTransform produces flattened CVSS columns."""
+    from vulnflow.transforms.flatten import CVSSFlattenTransform
+
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    CVSSFlattenTransform().transform(dataset)
     df = dataset.to_polars()
 
     # Flattened CVSS columns exist

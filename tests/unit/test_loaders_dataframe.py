@@ -116,66 +116,74 @@ def test_pandas_loader_load_returns_dataframe():
     assert isinstance(df, pd.DataFrame)
 
 
-def test_pandas_loader_flattens_cvss_scores():
-    """PandasLoader includes both flattened and nested columns by default."""
+def test_pandas_loader_with_flatten_transform():
+    """PandasLoader with CVSSFlattenTransform produces flattened columns."""
     from vulnflow.loaders.dataframe import PandasLoader
+    from vulnflow.transforms.flatten import CVSSFlattenTransform
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    CVSSFlattenTransform().transform(dataset)
     loader = PandasLoader()
 
     df = loader.load(dataset)
 
-    # Should have flattened CVSS columns
+    # Should have flattened CVSS columns after transform
     assert "cvss_base_score" in df.columns
     assert "cvss_base_severity" in df.columns
     assert "cvss_version" in df.columns
     assert "cvss_vector_string" in df.columns
     assert "cvss_source" in df.columns
 
-    # Should ALSO have raw JSON column by default (full fidelity)
+    # Should ALSO have raw JSON column (full fidelity)
     assert "cvss_scores" in df.columns
 
 
 def test_pandas_loader_exclude_nested():
     """PandasLoader with exclude_nested=True removes JSON columns."""
     from vulnflow.loaders.dataframe import PandasLoader
+    from vulnflow.transforms.flatten import CVSSFlattenTransform
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    CVSSFlattenTransform().transform(dataset)
     loader = PandasLoader(exclude_nested=True)
 
     df = loader.load(dataset)
 
-    # Should have flattened columns
+    # Should have flattened columns after transform
     assert "cvss_base_score" in df.columns
     # Should NOT have raw JSON columns
     assert "cvss_scores" not in df.columns
 
 
-def test_pandas_loader_flattens_cwes():
-    """PandasLoader flattens cwes to primary_cwe_* columns."""
+def test_pandas_loader_with_cwe_transform():
+    """PandasLoader with CWEPrimaryTransform produces cwe_* columns."""
     from vulnflow.loaders.dataframe import PandasLoader
+    from vulnflow.transforms.flatten import CWEPrimaryTransform
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    CWEPrimaryTransform().transform(dataset)
     loader = PandasLoader()
 
     df = loader.load(dataset)
 
-    assert "primary_cwe_id" in df.columns
-    assert "primary_cwe_name" in df.columns
+    assert "cwe_id" in df.columns
+    assert "cwe_name" in df.columns
 
 
-def test_pandas_loader_flattens_cpes():
-    """PandasLoader flattens cpes to primary_* columns."""
+def test_pandas_loader_with_cpe_transform():
+    """PandasLoader with CPEPrimaryTransform produces cpe_* columns."""
     from vulnflow.loaders.dataframe import PandasLoader
+    from vulnflow.transforms.flatten import CPEPrimaryTransform
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    CPEPrimaryTransform().transform(dataset)
     loader = PandasLoader()
 
     df = loader.load(dataset)
 
-    assert "primary_vendor" in df.columns
-    assert "primary_product" in df.columns
-    assert "primary_version" in df.columns
+    assert "cpe_vendor" in df.columns
+    assert "cpe_product" in df.columns
+    assert "cpe_version" in df.columns
 
 
 def test_pandas_loader_preserves_scalar_columns():

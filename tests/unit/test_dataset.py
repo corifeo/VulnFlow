@@ -430,35 +430,31 @@ def test_method_chaining_transform_to_pandas():
 
 
 def test_to_pandas_delegates_to_pandas_loader():
-    """dataset.to_pandas() delegates to PandasLoader."""
+    """dataset.to_pandas() returns all dataset columns."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     df = dataset.to_pandas()
 
-    # Should have all columns by default (full fidelity)
-    assert "cvss_base_score" in df.columns
-    assert "primary_cwe_id" in df.columns
-    assert "primary_vendor" in df.columns
-
-    # Should ALSO include nested JSON columns (new default behavior)
+    # Should have nested JSON columns
     assert "references" in df.columns
     assert "cvss_scores" in df.columns
 
+    # Flattened columns require applying transforms first
+    # (cvss_base_score, cwe_id, cpe_vendor etc not present by default)
+
 
 def test_to_polars_delegates_to_polars_loader():
-    """dataset.to_polars() delegates to PolarsLoader."""
+    """dataset.to_polars() returns all dataset columns."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     df = dataset.to_polars()
 
-    # Should have all columns by default (full fidelity)
-    assert "cvss_base_score" in df.columns
-    assert "primary_cwe_id" in df.columns
-    assert "primary_vendor" in df.columns
-
-    # Should ALSO include nested JSON columns (new default behavior)
+    # Should have nested JSON columns
     assert "references" in df.columns
     assert "cvss_scores" in df.columns
+
+    # Flattened columns require applying transforms first
+    # (cvss_base_score, cwe_id, cpe_vendor etc not present by default)
 
 
 def test_merge_empty_list():
