@@ -1,6 +1,6 @@
 """Tests for CVSS utilities."""
 
-from vulnflow.utils.cvss import normalize_source
+from vulnflow.utils.cvss import extract_cvss_metadata, normalize_source
 
 
 def test_normalize_source_nvd():
@@ -38,3 +38,38 @@ def test_normalize_source_no_at_sign():
     assert normalize_source("nvd") == "nvd"
     assert normalize_source("redhat") == "redhat"
     assert normalize_source("unknown_source") == "unknown_source"
+
+
+def test_extract_cvss_metadata_primary():
+    """Extract metadata from Primary CVSS metric."""
+    metric = {
+        "source": "nvd@nist.gov",
+        "type": "Primary",
+        "exploitabilityScore": 3.9,
+        "impactScore": 5.9,
+    }
+
+    result = extract_cvss_metadata(metric)
+
+    assert result["source"] == "nvd"
+    assert result["is_authoritative"] is True
+    assert result["exploitability_score"] == 3.9
+    assert result["impact_score"] == 5.9
+    assert result["source_url"] is None
+    assert result["published_at"] is None
+    assert result["updated_at"] is None
+
+
+def test_extract_cvss_metadata_secondary():
+    """Extract metadata from Secondary CVSS metric."""
+    metric = {
+        "source": "security@redhat.com",
+        "type": "Secondary",
+    }
+
+    result = extract_cvss_metadata(metric)
+
+    assert result["source"] == "redhat"
+    assert result["is_authoritative"] is False
+    assert result["exploitability_score"] is None
+    assert result["impact_score"] is None
