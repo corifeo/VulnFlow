@@ -28,7 +28,7 @@ def download_nvd_sample():
 
     if json_path.exists():
         print(f"[OK] Already exists: {json_path}")
-        with open(json_path) as f:
+        with open(json_path, encoding='utf-8') as f:
             data = json.load(f)
         print(f"  Records: {data.get('totalResults', 'unknown')}")
         return
@@ -47,7 +47,7 @@ def download_nvd_sample():
     gz_path.unlink()
 
     # Report
-    with open(json_path) as f:
+    with open(json_path, encoding='utf-8') as f:
         data = json.load(f)
     print(f"\n[OK] Download complete!")
     print(f"  File: {json_path}")
