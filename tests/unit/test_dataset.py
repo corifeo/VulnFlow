@@ -430,12 +430,12 @@ def test_method_chaining_transform_to_pandas():
 
 
 def test_to_pandas_delegates_to_pandas_loader():
-    """dataset.to_pandas() returns all dataset columns."""
+    """dataset.to_pandas(include_nested=True) returns all dataset columns."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    df = dataset.to_pandas()
+    df = dataset.to_pandas(include_nested=True)  # Full fidelity
 
-    # Should have nested JSON columns
+    # Should have nested JSON columns when include_nested=True
     assert "references" in df.columns
     assert "cvss_scores" in df.columns
 
@@ -444,12 +444,12 @@ def test_to_pandas_delegates_to_pandas_loader():
 
 
 def test_to_polars_delegates_to_polars_loader():
-    """dataset.to_polars() returns all dataset columns."""
+    """dataset.to_polars(include_nested=True) returns all dataset columns."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    df = dataset.to_polars()
+    df = dataset.to_polars(include_nested=True)  # Full fidelity
 
-    # Should have nested JSON columns
+    # Should have nested JSON columns when include_nested=True
     assert "references" in df.columns
     assert "cvss_scores" in df.columns
 

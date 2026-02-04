@@ -39,7 +39,7 @@ def test_parquet_roundtrip_preserves_cve_ids(tmp_path):
 
 
 def test_parquet_roundtrip_preserves_dataframe(tmp_path):
-    """Data survives NVD → Parquet → DataFrame roundtrip."""
+    """Data survives NVD -> Parquet -> DataFrame roundtrip."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     output_path = tmp_path / "roundtrip.parquet"
@@ -47,9 +47,9 @@ def test_parquet_roundtrip_preserves_dataframe(tmp_path):
 
     dataset2 = VulnDataset.from_parquet(output_path)
 
-    # Compare DataFrames - check columns and values match
-    df1 = dataset.to_pandas()
-    df2 = dataset2.to_pandas()
+    # Compare DataFrames with include_nested=True for full fidelity
+    df1 = dataset.to_pandas(include_nested=True)
+    df2 = dataset2.to_pandas(include_nested=True)
 
     # Same columns
     assert set(df1.columns) == set(df2.columns)
@@ -66,9 +66,10 @@ def test_parquet_roundtrip_preserves_dataframe(tmp_path):
 
 
 def test_pandas_polars_consistency():
-    """Pandas and Polars export have same data."""
+    """Pandas and Polars export have same data (both with same include_nested setting)."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
+    # Compare with default settings (exclude nested)
     df_pandas = dataset.to_pandas()
     df_polars = dataset.to_polars()
 
@@ -158,7 +159,7 @@ def test_pandas_roundtrip_preserves_count():
     """Pandas export/import preserves record count."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    df = dataset.to_pandas()
+    df = dataset.to_pandas(include_nested=True)  # Full fidelity for round-trip
     dataset2 = VulnDataset.from_pandas(df)
 
     assert len(dataset) == len(dataset2)
@@ -166,10 +167,10 @@ def test_pandas_roundtrip_preserves_count():
 
 
 def test_pandas_roundtrip_preserves_columns():
-    """Pandas round-trip preserves all columns (default includes nested)."""
+    """Pandas round-trip preserves all columns when include_nested=True."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    df = dataset.to_pandas()  # Default now includes all columns
+    df = dataset.to_pandas(include_nested=True)  # Full fidelity
     dataset2 = VulnDataset.from_pandas(df)
 
     # Same columns
@@ -180,7 +181,7 @@ def test_pandas_roundtrip_preserves_cve_ids():
     """Pandas round-trip preserves CVE IDs."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    df = dataset.to_pandas()
+    df = dataset.to_pandas(include_nested=True)  # Full fidelity for round-trip
     dataset2 = VulnDataset.from_pandas(df)
 
     # Compare CVE IDs
@@ -196,7 +197,7 @@ def test_polars_roundtrip_preserves_count():
     """Polars export/import preserves record count."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    df = dataset.to_polars()
+    df = dataset.to_polars(include_nested=True)  # Full fidelity for round-trip
     dataset2 = VulnDataset.from_polars(df)
 
     assert len(dataset) == len(dataset2)
@@ -204,10 +205,10 @@ def test_polars_roundtrip_preserves_count():
 
 
 def test_polars_roundtrip_preserves_columns():
-    """Polars round-trip preserves all columns (default includes nested)."""
+    """Polars round-trip preserves all columns when include_nested=True."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    df = dataset.to_polars()  # Default now includes all columns
+    df = dataset.to_polars(include_nested=True)  # Full fidelity
     dataset2 = VulnDataset.from_polars(df)
 
     # Same columns
@@ -218,7 +219,7 @@ def test_polars_roundtrip_preserves_cve_ids():
     """Polars round-trip preserves CVE IDs."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    df = dataset.to_polars()
+    df = dataset.to_polars(include_nested=True)  # Full fidelity for round-trip
     dataset2 = VulnDataset.from_polars(df)
 
     # Compare CVE IDs
