@@ -16,7 +16,8 @@ from urllib.request import urlretrieve
 
 def download_nvd_sample():
     """Download NVD Modified feed (smaller, real data)."""
-    data_dir = Path(__file__).parent / "data"
+    # Save to project root data/ directory
+    data_dir = Path(__file__).parent.parent / "data"
     data_dir.mkdir(exist_ok=True)
 
     print("Downloading NVD Modified feed...")

@@ -1,7 +1,0 @@
-# Ignore all NVD data files (too large for git)
-*.json
-*.json.gz
-*.parquet
-
-# But keep this .gitignore
-!.gitignore
