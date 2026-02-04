@@ -16,7 +16,7 @@ uv add jupyter jupyterlab ipywidgets
 uv run python examples/setup_data.py
 ```
 
-This downloads `nvdcve-2.0-Modified.json` (~2-5K recent CVEs, ~5 MB) to `examples/data/`.
+This downloads `nvdcve-2.0-Modified.json` (~2-5K recent CVEs, ~5 MB) to `data/` (project root).
 
 **Note:** Data files are gitignored (too large). The setup script downloads real NVD data.
 
@@ -35,10 +35,10 @@ Load NVD → flatten → pandas. See CVSS scores, CWEs, severity distribution.
 
 **Key pattern:**
 ```python
-ds = VulnDataset.from_nvd("data/nvdcve-2.0-Modified.json").transform([
+ds = VulnDataset.from_nvd("../data/nvdcve-2.0-Modified.json").transform([
     CVSSFlattenTransform(),  # cvss_base_score, cvss_base_severity, ...
-    CWEPrimaryTransform(),   # primary_cwe_id, primary_cwe_name
-    CPEPrimaryTransform(),   # primary_vendor, primary_product
+    CWEPrimaryTransform(),   # cwe_id, cwe_name
+    CPEPrimaryTransform(),   # cpe_vendor, cpe_product, cpe_version
 ])
 df = ds.to_pandas()
 ```
@@ -64,7 +64,7 @@ Add CVD analytics: timelines, zero-day detection, fix lags.
 
 **Key pattern:**
 ```python
-ds = VulnDataset.from_nvd("data/nvdcve-2.0-Modified.json").transform([
+ds = VulnDataset.from_nvd("../data/nvdcve-2.0-Modified.json").transform([
     CVSSFlattenTransform(),
     CWEPrimaryTransform(),
     CPEPrimaryTransform(),
@@ -81,12 +81,13 @@ NVD stores CVSS/CWE/CPE as nested JSON. Without flatten transforms, pandas DataF
 ## Data Files
 
 ```
-examples/data/
-├── .gitignore                      # Ignores all data files
+data/                               # Project root data directory
 ├── nvdcve-2.0-Modified.json        # Downloaded by setup_data.py
 ├── cache.parquet                   # Created by notebooks (gitignored)
 └── delta.parquet                   # Created by notebooks (gitignored)
 ```
+
+All data files are gitignored (see root `.gitignore`).
 
 ## NVD Data Feeds
 
@@ -96,12 +97,14 @@ examples/data/
 
 ## Troubleshooting
 
-### "FileNotFoundError: data/nvdcve-2.0-Modified.json"
+### "FileNotFoundError: ../data/nvdcve-2.0-Modified.json"
 
-Run setup script:
+Run setup script from project root:
 ```bash
 uv run python examples/setup_data.py
 ```
+
+This downloads NVD data to the `data/` directory.
 
 ### "KeyError: 'cvss_base_score'"
 

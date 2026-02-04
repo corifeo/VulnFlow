@@ -4,6 +4,7 @@
 
 # Sample data
 data/
+!examples/data/.gitignore
 
 # Standard Python
 __pycache__/
