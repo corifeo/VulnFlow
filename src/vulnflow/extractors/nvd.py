@@ -613,6 +613,10 @@ class NVDExtractor(BaseExtractor):
                     ):
                         try:
                             cpe = parse_cpe23(cpe_str)
+                            # Extract versionEndExcluding as fix_version
+                            fix_version = cpe_match.get("versionEndExcluding")
+                            if fix_version and isinstance(fix_version, str):
+                                cpe.fix_version = fix_version
                             cpes.append(cpe)
                         except (ValueError, AttributeError):
                             # Skip invalid CPE strings or malformed data
