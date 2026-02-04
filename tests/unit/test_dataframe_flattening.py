@@ -1,46 +1,66 @@
 """
-DataFrame Flattening Tests - Verify CWE/CPE/CVSS flattening
+DataFrame Flattening Tests - Verify CWE/CPE/CVSS flattening via transforms
 
 Layer: Unit (Dataset)
-Dependencies: schema, dataset
+Dependencies: schema, dataset, transforms.flatten
+
+NOTE: Flattening is now done via FlattenTransforms, not automatically during
+DataFrame export. Apply transforms before export to get scalar columns.
 """
 
 from __future__ import annotations
 
 from vulnflow import VulnDataset
+from vulnflow.transforms.flatten import (
+    CPEPrimaryTransform,
+    CVSSFlattenTransform,
+    CWEPrimaryTransform,
+)
 
 
 def test_dataframe_flattens_primary_cwe():
-    """DataFrame export flattens first CWE to primary_cwe_* columns."""
+    """CWEPrimaryTransform flattens first CWE to cwe_* columns."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Apply flatten transform
+    CWEPrimaryTransform().transform(dataset)
+
     df = dataset.to_pandas()
 
     # Check columns exist
-    assert "primary_cwe_id" in df.columns
-    assert "primary_cwe_name" in df.columns
+    assert "cwe_id" in df.columns
+    assert "cwe_name" in df.columns
 
     # First record should have CWE-94
-    assert df["primary_cwe_id"].iloc[0] == "CWE-94"
+    assert df["cwe_id"].iloc[0] == "CWE-94"
 
 
 def test_dataframe_flattens_primary_cpe():
-    """DataFrame export flattens first CPE to primary_* columns."""
+    """CPEPrimaryTransform flattens first CPE to cpe_* columns."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Apply flatten transform
+    CPEPrimaryTransform().transform(dataset)
+
     df = dataset.to_pandas()
 
     # Check columns exist
-    assert "primary_vendor" in df.columns
-    assert "primary_product" in df.columns
-    assert "primary_version" in df.columns
+    assert "cpe_vendor" in df.columns
+    assert "cpe_product" in df.columns
+    assert "cpe_version" in df.columns
 
     # First record should have example/product
-    assert df["primary_vendor"].iloc[0] == "example"
-    assert df["primary_product"].iloc[0] == "product"
+    assert df["cpe_vendor"].iloc[0] == "example"
+    assert df["cpe_product"].iloc[0] == "product"
 
 
 def test_dataframe_flattens_cvss():
-    """DataFrame export flattens CVSS to scalar columns."""
+    """CVSSFlattenTransform flattens CVSS to scalar columns."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Apply flatten transform
+    CVSSFlattenTransform().transform(dataset)
+
     df = dataset.to_pandas()
 
     # Check columns exist
@@ -55,9 +75,9 @@ def test_dataframe_flattens_cvss():
 
 
 def test_dataframe_preserves_full_lists():
-    """DataFrame export preserves full JSON lists alongside flattened columns by default."""
+    """DataFrame export preserves full JSON lists (nested arrays)."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-    df = dataset.to_pandas()  # Default now includes all columns
+    df = dataset.to_pandas()
 
     # Full lists should still exist
     assert "cwes" in df.columns

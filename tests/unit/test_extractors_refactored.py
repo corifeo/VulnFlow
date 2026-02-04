@@ -5,8 +5,7 @@ Verifies:
 - Extractors return VulnDataset (not list[VulnRecord])
 - NVDExtractor owns conversion logic
 - ParquetExtractor implements direct load
-- CVSS flattening happens in extractor
-- Domain logic (CVSS priority) in extractor
+- Flatten transforms produce scalar columns (flattening moved from extractor)
 - BaseExtractor format validation
 
 Layer: Test
@@ -54,12 +53,20 @@ def test_parquet_extractor_returns_dataset() -> None:
         assert len(result) == 3
 
 
-def test_nvd_extractor_flattens_cvss() -> None:
-    """NVDExtractor applies CVSS flattening during extraction."""
+def test_cvss_flatten_transform_produces_columns() -> None:
+    """CVSSFlattenTransform produces flattened CVSS columns from nested array."""
+    from vulnflow.transforms.flatten import CVSSFlattenTransform
+
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
     dataset = extractor.extract()
 
-    # Flattened columns exist
+    # Before transform: no flattened columns
+    assert "cvss_base_score" not in dataset.columns
+
+    # Apply flatten transform
+    CVSSFlattenTransform().transform(dataset)
+
+    # After transform: flattened columns exist
     assert "cvss_base_score" in dataset.columns
     assert "cvss_base_severity" in dataset.columns
     assert "cvss_version" in dataset.columns
@@ -67,33 +74,55 @@ def test_nvd_extractor_flattens_cvss() -> None:
     assert "cvss_source" in dataset.columns
 
 
-def test_nvd_extractor_flattens_cwe() -> None:
-    """NVDExtractor applies CWE flattening during extraction."""
+def test_cwe_flatten_transform_produces_columns() -> None:
+    """CWEPrimaryTransform produces flattened CWE columns from nested array."""
+    from vulnflow.transforms.flatten import CWEPrimaryTransform
+
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
     dataset = extractor.extract()
 
-    # Flattened columns exist
-    assert "primary_cwe_id" in dataset.columns
-    assert "primary_cwe_name" in dataset.columns
+    # Before transform: no flattened columns
+    assert "cwe_id" not in dataset.columns
+
+    # Apply flatten transform
+    CWEPrimaryTransform().transform(dataset)
+
+    # After transform: flattened columns exist
+    assert "cwe_id" in dataset.columns
+    assert "cwe_name" in dataset.columns
 
 
-def test_nvd_extractor_flattens_cpe() -> None:
-    """NVDExtractor applies CPE flattening during extraction."""
+def test_cpe_flatten_transform_produces_columns() -> None:
+    """CPEPrimaryTransform produces flattened CPE columns from nested array."""
+    from vulnflow.transforms.flatten import CPEPrimaryTransform
+
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
     dataset = extractor.extract()
 
-    # Flattened columns exist
-    assert "primary_vendor" in dataset.columns
-    assert "primary_product" in dataset.columns
-    assert "primary_version" in dataset.columns
+    # Before transform: no flattened columns
+    assert "cpe_vendor" not in dataset.columns
+
+    # Apply flatten transform
+    CPEPrimaryTransform().transform(dataset)
+
+    # After transform: flattened columns exist
+    assert "cpe_vendor" in dataset.columns
+    assert "cpe_product" in dataset.columns
+    assert "cpe_version" in dataset.columns
 
 
-def test_nvd_extractor_prefers_nvd_source() -> None:
-    """NVDExtractor applies NVD source priority (nvd > redhat > microsoft)."""
+def test_cvss_flatten_selects_authoritative() -> None:
+    """CVSSFlattenTransform selects is_authoritative=True entries."""
+
+    from vulnflow.transforms.flatten import CVSSFlattenTransform
+
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
     dataset = extractor.extract()
 
-    # Check that CVSS sources are properly set
+    # Apply flatten transform
+    CVSSFlattenTransform().transform(dataset)
+
+    # Check that CVSS sources are properly set (authoritative = nvd)
     cvss_sources = dataset.get_column("cvss_source")
     # All should be "nvd" or None (if no CVSS)
     for source in cvss_sources:

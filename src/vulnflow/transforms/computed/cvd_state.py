@@ -22,7 +22,7 @@ Based on SEI/CMU 2021 paper and vulnstate/constants.py definitions.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -45,9 +45,9 @@ def _safe_compare(ts1: datetime | None, ts2: datetime | None) -> bool | None:
 
     # Normalize to UTC if needed
     if ts1.tzinfo is None:
-        ts1 = ts1.replace(tzinfo=timezone.utc)
+        ts1 = ts1.replace(tzinfo=UTC)
     if ts2.tzinfo is None:
-        ts2 = ts2.replace(tzinfo=timezone.utc)
+        ts2 = ts2.replace(tzinfo=UTC)
 
     return ts1 < ts2
 
@@ -63,9 +63,9 @@ def _safe_delta(ts1: datetime | None, ts2: datetime | None) -> float:
 
     # Normalize to UTC if needed
     if ts1.tzinfo is None:
-        ts1 = ts1.replace(tzinfo=timezone.utc)
+        ts1 = ts1.replace(tzinfo=UTC)
     if ts2.tzinfo is None:
-        ts2 = ts2.replace(tzinfo=timezone.utc)
+        ts2 = ts2.replace(tzinfo=UTC)
 
     return (ts2 - ts1).total_seconds() / 86400.0
 
