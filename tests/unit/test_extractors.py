@@ -50,59 +50,68 @@ def test_nvd_extractor_parses_nvd_timestamps():
 
 
 def test_nvd_extractor_parses_cvss():
-    """NVDExtractor parses CVSS v3 scores and flattens them."""
+    """NVDExtractor parses CVSS v3 scores into cvss_scores array."""
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
     dataset = extractor.extract()
 
-    # First record has CVSS (flattened)
-    cvss_scores = dataset.get_column("cvss_base_score")
-    assert cvss_scores[0] == 9.8
-
-    cvss_severity = dataset.get_column("cvss_base_severity")
-    assert cvss_severity[0] == "CRITICAL"
-
-    cvss_source = dataset.get_column("cvss_source")
-    assert cvss_source[0] == "nvd"
+    # First record has CVSS in nested array
+    cvss_raw = dataset.get_column("cvss_scores")[0]
+    cvss_data = json.loads(cvss_raw)
+    assert len(cvss_data) >= 1
+    assert cvss_data[0]["base_score"] == 9.8
+    assert cvss_data[0]["base_severity"] == "CRITICAL"
+    assert cvss_data[0]["source"] == "nvd"
 
     # Second record (CVE-2024-0002) has no CVSS metrics
-    assert cvss_scores[1] is None
+    cvss_raw_2 = dataset.get_column("cvss_scores")[1]
+    cvss_data_2 = json.loads(cvss_raw_2)
+    assert cvss_data_2 == []
 
 
 def test_nvd_extractor_parses_cwes():
-    """NVDExtractor parses CWE weaknesses and flattens them."""
+    """NVDExtractor parses CWE weaknesses into cwes array."""
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
     dataset = extractor.extract()
 
-    # First record has CWE-94
-    primary_cwe = dataset.get_column("primary_cwe_id")
-    assert primary_cwe[0] == "CWE-94"
+    # First record has CWE-94 in nested array
+    cwes_raw = dataset.get_column("cwes")[0]
+    cwes_data = json.loads(cwes_raw)
+    assert len(cwes_data) >= 1
+    assert cwes_data[0]["id"] == "CWE-94"
 
     # Second record has no CWEs
-    assert primary_cwe[1] is None
+    cwes_raw_2 = dataset.get_column("cwes")[1]
+    cwes_data_2 = json.loads(cwes_raw_2)
+    assert cwes_data_2 == []
 
     # Third record has CWE-79
-    assert primary_cwe[2] == "CWE-79"
+    cwes_raw_3 = dataset.get_column("cwes")[2]
+    cwes_data_3 = json.loads(cwes_raw_3)
+    assert cwes_data_3[0]["id"] == "CWE-79"
 
 
 def test_nvd_extractor_parses_cpes():
-    """NVDExtractor parses CPE configurations and flattens them."""
+    """NVDExtractor parses CPE configurations into cpes array."""
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
     dataset = extractor.extract()
 
-    # First record has CPE for example:product
-    primary_vendor = dataset.get_column("primary_vendor")
-    primary_product = dataset.get_column("primary_product")
-
-    assert primary_vendor[0] == "example"
-    assert primary_product[0] == "product"
+    # First record has CPE for example:product in nested array
+    cpes_raw = dataset.get_column("cpes")[0]
+    cpes_data = json.loads(cpes_raw)
+    assert len(cpes_data) >= 1
+    assert cpes_data[0]["vendor"] == "example"
+    assert cpes_data[0]["product"] == "product"
 
     # Second record has no CPEs
-    assert primary_vendor[1] is None
-    assert primary_product[1] is None
+    cpes_raw_2 = dataset.get_column("cpes")[1]
+    cpes_data_2 = json.loads(cpes_raw_2)
+    assert cpes_data_2 == []
 
     # Third record has vendor:widget_library
-    assert primary_vendor[2] == "vendor"
-    assert primary_product[2] == "widget_library"
+    cpes_raw_3 = dataset.get_column("cpes")[2]
+    cpes_data_3 = json.loads(cpes_raw_3)
+    assert cpes_data_3[0]["vendor"] == "vendor"
+    assert cpes_data_3[0]["product"] == "widget_library"
 
 
 def test_nvd_extractor_parses_references():
@@ -505,3 +514,21 @@ def test_nvd_extractor_extracts_fix_version():
     fix_versions = [c.get("fix_version") for c in cpes if c.get("fix_version")]
     assert len(fix_versions) >= 1
     assert fix_versions[0] == "2.0.0"
+
+
+def test_nvd_extractor_no_flattened_columns():
+    """NVD extractor should not include flattened columns (moved to transforms)."""
+    extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
+    dataset = extractor.extract()
+
+    # These columns should NOT exist (moved to CVSSFlattenTransform)
+    assert "cvss_base_score" not in dataset.columns
+    assert "cvss_version" not in dataset.columns
+
+    # These columns should NOT exist (moved to CWEPrimaryTransform)
+    assert "primary_cwe_id" not in dataset.columns
+    assert "primary_cwe_name" not in dataset.columns
+
+    # These columns should NOT exist (moved to CPEPrimaryTransform)
+    assert "primary_vendor" not in dataset.columns
+    assert "primary_product" not in dataset.columns
