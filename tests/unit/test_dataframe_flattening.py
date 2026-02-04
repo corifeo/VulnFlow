@@ -75,11 +75,11 @@ def test_dataframe_flattens_cvss():
 
 
 def test_dataframe_preserves_full_lists():
-    """DataFrame export preserves full JSON lists (nested arrays)."""
+    """DataFrame export with include_nested=True preserves full JSON lists (nested arrays)."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-    df = dataset.to_pandas()
+    df = dataset.to_pandas(include_nested=True)  # Full fidelity mode
 
-    # Full lists should still exist
+    # Full lists should exist
     assert "cwes" in df.columns
     assert "cpes" in df.columns
     assert "cvss_scores" in df.columns
@@ -90,3 +90,18 @@ def test_dataframe_preserves_full_lists():
     cwes = json.loads(df["cwes"].iloc[0])
     assert isinstance(cwes, list)
     assert len(cwes) > 0
+
+
+def test_dataframe_default_excludes_nested():
+    """DataFrame export by default excludes nested columns (lossy by default)."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    df = dataset.to_pandas()  # Default: include_nested=False
+
+    # Nested JSON columns should be excluded
+    assert "cwes" not in df.columns
+    assert "cpes" not in df.columns
+    assert "cvss_scores" not in df.columns
+
+    # Scalar columns should be present
+    assert "cve_id" in df.columns
+    assert "description" in df.columns

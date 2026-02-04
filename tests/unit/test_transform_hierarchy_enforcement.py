@@ -50,13 +50,13 @@ def test_all_enrichers_register_schema():
     _ = EPSSEnricher(source="tests/fixtures/epss_sample.csv")
 
     kev_cols = Registry.get_component_columns("KEVEnricher")
-    assert len(kev_cols) == 6
+    assert len(kev_cols) == 8  # 8 fields including vulnerability_name and notes
 
     epss_cols = Registry.get_component_columns("EPSSEnricher")
     assert len(epss_cols) == 4
 
     all_cols = Registry.get_all_columns()
-    assert len(all_cols) == 10
+    assert len(all_cols) == 12  # 8 KEV + 4 EPSS
 
 
 def test_enricher_schema_has_source_component():

@@ -195,34 +195,34 @@ class VulnDataset:
 
         return merged
 
-    def to_pandas(self, exclude_nested: bool = False) -> PandasDataFrame:
+    def to_pandas(self, include_nested: bool = False) -> PandasDataFrame:
         """Export dataset to pandas DataFrame.
 
         Args:
-            exclude_nested: If True, exclude nested JSON columns (cvss_scores, etc.)
-                           for a cleaner DataFrame. Default False preserves all data.
+            include_nested: If True, include nested JSON columns (cvss_scores, etc.)
+                           for full data fidelity. Default False excludes nested columns.
 
         Returns:
             Pandas DataFrame
         """
         from vulnflow.loaders.dataframe import PandasLoader
 
-        loader = PandasLoader(exclude_nested=exclude_nested)
+        loader = PandasLoader(include_nested=include_nested)
         return loader.load(self)
 
-    def to_polars(self, exclude_nested: bool = False) -> PolarsDataFrame:
+    def to_polars(self, include_nested: bool = False) -> PolarsDataFrame:
         """Export dataset to polars DataFrame.
 
         Args:
-            exclude_nested: If True, exclude nested JSON columns (cvss_scores, etc.)
-                           for a cleaner DataFrame. Default False preserves all data.
+            include_nested: If True, include nested JSON columns (cvss_scores, etc.)
+                           for full data fidelity. Default False excludes nested columns.
 
         Returns:
             Polars DataFrame
         """
         from vulnflow.loaders.dataframe import PolarsLoader
 
-        loader = PolarsLoader(exclude_nested=exclude_nested)
+        loader = PolarsLoader(include_nested=include_nested)
         return loader.load(self)
 
     def to_parquet(self, path: str | Path) -> None:

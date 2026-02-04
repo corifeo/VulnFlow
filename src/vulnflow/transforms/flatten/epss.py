@@ -9,7 +9,7 @@ Extracts 4 scalar columns from the selected entry.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -63,8 +63,9 @@ class EPSSFlattenTransform(BaseFlatten):
                 continue
 
             # Selection: max(date)
-            def get_date(s: dict) -> str:
-                return s.get("date", "")
+            def get_date(s: dict[str, Any]) -> str:
+                date_val = s.get("date", "")
+                return str(date_val) if date_val else ""
 
             selected = max(scores, key=get_date)
 
