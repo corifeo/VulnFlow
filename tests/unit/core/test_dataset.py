@@ -506,3 +506,212 @@ def test_merge_handles_missing_columns():
     assert len(result) == 2
     assert result.get_column("score")[0] == 7.5
     assert result.get_column("score")[1] is None
+
+
+# =============================================================================
+# from_parquet Tests
+# =============================================================================
+
+
+def test_from_parquet_accepts_list(tmp_path):
+    """VulnDataset.from_parquet() accepts list[str]."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    # Create two parquet files
+    dataset1 = VulnDataset()
+    dataset1._data = {"cve_id": np.array(["CVE-2024-0001"])}
+
+    dataset2 = VulnDataset()
+    dataset2._data = {"cve_id": np.array(["CVE-2024-0002"])}
+
+    file1 = tmp_path / "file1.parquet"
+    file2 = tmp_path / "file2.parquet"
+
+    pq.write_table(pa.table(dataset1._data), file1)
+    pq.write_table(pa.table(dataset2._data), file2)
+
+    # Load using from_parquet with list
+    loaded = VulnDataset.from_parquet([str(file1), str(file2)])
+
+    assert len(loaded) == 2
+    cve_ids = list(loaded.get_column("cve_id"))
+    assert "CVE-2024-0001" in cve_ids
+    assert "CVE-2024-0002" in cve_ids
+
+
+def test_from_parquet_single_file_still_works(tmp_path):
+    """VulnDataset.from_parquet() with single string still works."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    dataset = VulnDataset()
+    dataset._data = {"cve_id": np.array(["CVE-2024-0001"])}
+
+    file_path = tmp_path / "single.parquet"
+    pq.write_table(pa.table(dataset._data), file_path)
+
+    loaded = VulnDataset.from_parquet(str(file_path))
+
+    assert len(loaded) == 1
+    assert loaded.get_column("cve_id")[0] == "CVE-2024-0001"
+
+
+# =============================================================================
+# Metadata Tests
+# =============================================================================
+
+
+def test_update_sources_adds_new_source():
+    """update_sources adds source to list without duplicates."""
+    import json
+
+    records = [VulnRecord(cve_id="CVE-2024-0001", sources=["NVD"])]
+    dataset = dataset_from_records(records)
+
+    dataset.update_sources([0], "KEV")
+
+    sources_col = dataset.get_column("sources")
+    sources = json.loads(sources_col[0])
+    assert "KEV" in sources
+    assert "NVD" in sources
+    assert len(sources) == 2
+
+
+def test_update_sources_no_duplicates():
+    """update_sources doesn't add duplicate sources."""
+    import json
+
+    records = [VulnRecord(cve_id="CVE-2024-0001", sources=["NVD", "KEV"])]
+    dataset = dataset_from_records(records)
+
+    dataset.update_sources([0], "KEV")
+
+    sources_col = dataset.get_column("sources")
+    sources = json.loads(sources_col[0])
+    kev_count = sources.count("KEV")
+    assert kev_count == 1, "KEV should appear only once"
+
+
+def test_update_sources_updates_timestamp():
+    """update_sources updates last_updated_at timestamp."""
+    from datetime import datetime
+
+    records = [VulnRecord(cve_id="CVE-2024-0001", sources=["NVD"])]
+    dataset = dataset_from_records(records)
+
+    before = datetime.now()
+    dataset.update_sources([0], "KEV")
+    after = datetime.now()
+
+    updated_at = dataset.get_column("last_updated_at")
+    assert updated_at[0] is not None
+    assert before <= updated_at[0] <= after
+
+
+# =============================================================================
+# Progress Bar Tests
+# =============================================================================
+
+
+def test_transform_shows_progress_bar():
+    """transform() creates progress bar with correct total."""
+    import os
+    from unittest.mock import MagicMock, patch
+
+    from vulnflow.transforms.computed.cvd_state import CVDStateTransform
+
+    with patch("vulnflow.utils.progress.progress_bar") as mock_pbar:
+        mock_pbar.return_value.__enter__ = MagicMock()
+        mock_pbar.return_value.__exit__ = MagicMock()
+        mock_pbar.return_value.update = MagicMock()
+        mock_pbar.return_value.set_postfix_str = MagicMock()
+
+        dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+        dataset.transform([CVDStateTransform()])
+
+        # Verify progress bar created with correct params
+        mock_pbar.assert_called_once()
+        call_kwargs = mock_pbar.call_args.kwargs
+        assert call_kwargs["total"] == 1
+        assert call_kwargs["desc"] == "Transforming dataset"
+        assert call_kwargs["unit"] == "transforms"
+
+
+def test_transform_updates_progress_per_step():
+    """transform() updates progress bar for each sync transform."""
+    from unittest.mock import MagicMock, patch
+
+    from vulnflow.transforms.computed.cvd_state import CVDStateTransform
+
+    with patch("vulnflow.utils.progress.progress_bar") as mock_pbar:
+        mock_instance = MagicMock()
+        mock_pbar.return_value.__enter__.return_value = mock_instance
+        mock_pbar.return_value.__exit__.return_value = None
+
+        dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+        dataset.transform([CVDStateTransform()])
+
+        # Verify update called once (1 sync transform)
+        assert mock_instance.update.call_count == 1
+        mock_instance.update.assert_called_with(1)
+
+
+def test_transform_sets_current_transform_name():
+    """transform() shows current transform name for sync transforms."""
+    from unittest.mock import MagicMock, patch
+
+    from vulnflow.transforms.computed.cvd_state import CVDStateTransform
+
+    with patch("vulnflow.utils.progress.progress_bar") as mock_pbar:
+        mock_instance = MagicMock()
+        mock_pbar.return_value.__enter__.return_value = mock_instance
+        mock_pbar.return_value.__exit__.return_value = None
+
+        dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+        dataset.transform([CVDStateTransform()])
+
+        # Verify transform name shown (only for sync transforms)
+        mock_instance.set_postfix_str.assert_called_with("[CVDStateTransform]")
+
+
+def test_transform_respects_tqdm_disable_env():
+    """transform() respects TQDM_DISABLE environment variable."""
+    import os
+    from unittest.mock import patch
+
+    from vulnflow.transforms.computed.cvd_state import CVDStateTransform
+
+    with patch.dict(os.environ, {"TQDM_DISABLE": "1"}):
+        # Should not raise even if tqdm is disabled
+        dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+        dataset.transform([CVDStateTransform()])
+
+        # Just verify it completes without error
+        assert True
+
+
+def test_async_transforms_batch_progress_update():
+    """Async transforms update progress in batch after completion."""
+    import asyncio
+    from unittest.mock import MagicMock, patch
+
+    class MockAsyncTransform:
+        name = "MockAsync"
+        depends_on: list[str] = []
+
+        async def transform(self, dataset):
+            await asyncio.sleep(0.01)
+
+    with patch("vulnflow.utils.progress.progress_bar") as mock_pbar:
+        mock_instance = MagicMock()
+        mock_pbar.return_value.__enter__.return_value = mock_instance
+        mock_pbar.return_value.__exit__.return_value = None
+
+        dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+        transforms = [MockAsyncTransform() for _ in range(3)]
+        dataset.transform(transforms)
+
+        # Verify update called ONCE with count of all async transforms
+        assert mock_instance.update.call_count == 1
+        mock_instance.update.assert_called_with(3)
