@@ -123,7 +123,7 @@ def test_pandas_loader_with_flatten_transform():
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
     CVSSFlattenTransform().transform(dataset)
-    loader = PandasLoader()
+    loader = PandasLoader()  # Default: excludes nested
 
     df = loader.load(dataset)
 
@@ -134,25 +134,25 @@ def test_pandas_loader_with_flatten_transform():
     assert "cvss_vector_string" in df.columns
     assert "cvss_source" in df.columns
 
-    # Should ALSO have raw JSON column (full fidelity)
-    assert "cvss_scores" in df.columns
+    # Default is lossy - nested columns excluded
+    assert "cvss_scores" not in df.columns
 
 
-def test_pandas_loader_exclude_nested():
-    """PandasLoader with exclude_nested=True removes JSON columns."""
+def test_pandas_loader_with_flatten_transform_full_fidelity():
+    """PandasLoader with include_nested=True includes raw JSON columns."""
     from vulnflow.loaders.dataframe import PandasLoader
     from vulnflow.transforms.flatten import CVSSFlattenTransform
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
     CVSSFlattenTransform().transform(dataset)
-    loader = PandasLoader(exclude_nested=True)
+    loader = PandasLoader(include_nested=True)  # Full fidelity mode
 
     df = loader.load(dataset)
 
-    # Should have flattened columns after transform
+    # Should have flattened columns
     assert "cvss_base_score" in df.columns
-    # Should NOT have raw JSON columns
-    assert "cvss_scores" not in df.columns
+    # Should ALSO have raw JSON column (full fidelity)
+    assert "cvss_scores" in df.columns
 
 
 def test_pandas_loader_with_cwe_transform():
@@ -191,7 +191,7 @@ def test_pandas_loader_preserves_scalar_columns():
     from vulnflow.loaders.dataframe import PandasLoader
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-    loader = PandasLoader()
+    loader = PandasLoader(include_nested=True)  # Use full fidelity mode
 
     df = loader.load(dataset)
 
@@ -199,3 +199,79 @@ def test_pandas_loader_preserves_scalar_columns():
     assert "cve_id" in df.columns
     assert "description" in df.columns
     assert "nvd_published_at" in df.columns
+
+
+# ============================================================================
+# Task 13: New default API (include_nested=False by default)
+# ============================================================================
+
+
+def test_pandas_loader_excludes_nested_by_default():
+    """PandasLoader excludes nested columns by default (lossy by default)."""
+    from vulnflow.loaders.dataframe import PandasLoader
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    loader = PandasLoader()  # Default: include_nested=False
+    df = loader.load(dataset)
+
+    # Scalar columns should be present
+    assert "cve_id" in df.columns
+    assert "description" in df.columns
+
+    # Nested JSON columns should be EXCLUDED by default
+    assert "cvss_scores" not in df.columns
+    assert "epss_scores" not in df.columns
+    assert "cwes" not in df.columns
+    assert "cpes" not in df.columns
+    assert "references" not in df.columns
+
+
+def test_pandas_loader_includes_nested_when_requested():
+    """PandasLoader includes nested columns when include_nested=True."""
+    from vulnflow.loaders.dataframe import PandasLoader
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    loader = PandasLoader(include_nested=True)
+    df = loader.load(dataset)
+
+    # Should include nested JSON columns
+    assert "cvss_scores" in df.columns
+    assert "cwes" in df.columns
+    assert "cpes" in df.columns
+    assert "references" in df.columns
+
+
+def test_polars_loader_excludes_nested_by_default():
+    """PolarsLoader excludes nested columns by default (lossy by default)."""
+    from vulnflow.loaders.dataframe import PolarsLoader
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    loader = PolarsLoader()  # Default: include_nested=False
+    df = loader.load(dataset)
+
+    # Scalar columns should be present
+    assert "cve_id" in df.columns
+    assert "description" in df.columns
+
+    # Nested JSON columns should be EXCLUDED by default
+    assert "cvss_scores" not in df.columns
+    assert "epss_scores" not in df.columns
+    assert "cwes" not in df.columns
+    assert "cpes" not in df.columns
+
+
+def test_polars_loader_includes_nested_when_requested():
+    """PolarsLoader includes nested columns when include_nested=True."""
+    from vulnflow.loaders.dataframe import PolarsLoader
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    loader = PolarsLoader(include_nested=True)
+    df = loader.load(dataset)
+
+    # Should include nested JSON columns
+    assert "cvss_scores" in df.columns
+    assert "cwes" in df.columns

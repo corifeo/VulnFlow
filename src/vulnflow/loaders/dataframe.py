@@ -40,23 +40,24 @@ NESTED_COLUMNS = frozenset({
 class PandasLoader:
     """Load VulnDataset to pandas DataFrame.
 
-    By default, includes all columns for full data fidelity on round-trip.
-    Set exclude_nested=True for cleaner DataFrames (analysis use case).
+    By default, excludes nested JSON columns for cleaner DataFrames (lossy).
+    Set include_nested=True for full data fidelity on round-trip.
 
     Args:
-        exclude_nested: If True, exclude nested JSON columns (cvss_scores, etc.)
-                       for a cleaner DataFrame. Default False preserves all data.
+        include_nested: If True, include nested JSON columns (cvss_scores, etc.)
+                       for full data fidelity. Default False excludes nested columns.
     """
 
     format: str = "pandas"
 
-    def __init__(self, exclude_nested: bool = False) -> None:
+    def __init__(self, include_nested: bool = False) -> None:
         """Initialize loader.
 
         Args:
-            exclude_nested: If True, exclude nested JSON columns
+            include_nested: If True, include nested JSON columns for full fidelity.
+                           Default False excludes nested columns (lossy by default).
         """
-        self.exclude_nested = exclude_nested
+        self.include_nested = include_nested
 
     def load(self, dataset: VulnDataset) -> pd.DataFrame:
         """Load dataset to pandas DataFrame.
@@ -69,7 +70,7 @@ class PandasLoader:
         """
         import pandas as pd
 
-        if self.exclude_nested:
+        if not self.include_nested:
             data = {k: v for k, v in dataset._data.items() if k not in NESTED_COLUMNS}
             return pd.DataFrame(data)
 
@@ -82,20 +83,24 @@ class PolarsLoader:
 
     Builds directly from numpy arrays for performance (no pandas intermediate).
 
+    By default, excludes nested JSON columns for cleaner DataFrames (lossy).
+    Set include_nested=True for full data fidelity on round-trip.
+
     Args:
-        exclude_nested: If True, exclude nested JSON columns (cvss_scores, etc.)
-                       for a cleaner DataFrame. Default False preserves all data.
+        include_nested: If True, include nested JSON columns (cvss_scores, etc.)
+                       for full data fidelity. Default False excludes nested columns.
     """
 
     format: str = "polars"
 
-    def __init__(self, exclude_nested: bool = False) -> None:
+    def __init__(self, include_nested: bool = False) -> None:
         """Initialize loader.
 
         Args:
-            exclude_nested: If True, exclude nested JSON columns
+            include_nested: If True, include nested JSON columns for full fidelity.
+                           Default False excludes nested columns (lossy by default).
         """
-        self.exclude_nested = exclude_nested
+        self.include_nested = include_nested
 
     def load(self, dataset: VulnDataset) -> pl.DataFrame:
         """Load dataset to polars DataFrame.
@@ -108,7 +113,7 @@ class PolarsLoader:
         """
         import polars as pl
 
-        if self.exclude_nested:
+        if not self.include_nested:
             data = {
                 k: v.tolist()
                 for k, v in dataset._data.items()
