@@ -36,6 +36,7 @@ class CPEEntry:
     product: str  # "log4j"
     version: str | None = None  # "2.14.1"
     raw: str | None = None  # Full CPE 2.3 string
+    fix_version: str | None = None  # From versionEndExcluding
 
 
 @dataclass

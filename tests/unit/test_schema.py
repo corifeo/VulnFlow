@@ -73,3 +73,17 @@ def test_cvss_entry_has_new_fields():
     assert entry.is_authoritative is True
     assert entry.exploitability_score == 3.9
     assert entry.impact_score == 6.0
+
+
+def test_cpe_entry_has_fix_version():
+    """CPEEntry includes fix_version field."""
+    from vulnflow.schema import CPEEntry
+
+    entry = CPEEntry(
+        vendor="apache",
+        product="log4j",
+        version="2.14.1",
+        raw="cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*",
+        fix_version="2.17.0",
+    )
+    assert entry.fix_version == "2.17.0"
