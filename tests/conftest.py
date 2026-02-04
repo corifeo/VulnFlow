@@ -259,6 +259,15 @@ def tmp_dir(tmp_path: Path) -> Path:
     return tmp_path
 
 
+@pytest.fixture
+def nvd_sample_dataset(nvd_sample_path: Path) -> VulnDataset:  # type: ignore[name-defined]
+    """Fixture: VulnDataset from NVD sample file."""
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    extractor = NVDExtractor(str(nvd_sample_path))
+    return extractor.extract()
+
+
 @pytest.fixture(autouse=True)
 def restore_registry():
     """Save and restore registry state for test isolation.
