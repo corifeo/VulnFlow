@@ -56,6 +56,9 @@ tmp/
 *.tmp
 *.bak
 
+# Git worktrees
+.worktrees/
+
 # uv
 uv.lock
 .claude/settings.local.json
