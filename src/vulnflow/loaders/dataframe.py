@@ -25,15 +25,17 @@ if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
 # Columns containing nested JSON (can be excluded for cleaner DataFrames)
-NESTED_COLUMNS = frozenset({
-    "cvss_scores",
-    "cwes",
-    "cpes",
-    "references",
-    "exploits",
-    "epss_scores",
-    "kev",
-})
+NESTED_COLUMNS = frozenset(
+    {
+        "cvss_scores",
+        "cwes",
+        "cpes",
+        "references",
+        "exploits",
+        "epss_scores",
+        "kev",
+    }
+)
 
 
 @Registry.register_loader("pandas")
