@@ -24,6 +24,7 @@ from vulnflow.registry import Registry
 from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, ReferenceEntry, VulnRecord
 from vulnflow.utils import json
 from vulnflow.utils.cpe import parse_cpe23
+from vulnflow.utils.cvss import extract_cvss_metadata
 from vulnflow.utils.http import HttpFetcher, is_url
 from vulnflow.utils.schema import get_record_columns
 
@@ -367,21 +368,21 @@ class NVDExtractor(BaseExtractor):
             return "unknown"
 
     def _parse_cvss(self, metrics: dict[str, list[dict]]) -> list[CVSSEntry]:  # type: ignore[type-arg]
-        """Parse CVSS metrics from NVD format with multi-source support."""
+        """Parse CVSS metrics from NVD format.
+
+        Handles version-specific field locations:
+        - v3.1/v3.0: baseSeverity in cvssData
+        - v2.0: baseSeverity at metric level
+
+        Returns:
+            List of CVSSEntry dataclass instances
+        """
         cvss_scores: list[CVSSEntry] = []
 
-        # CVSS 3.1
+        # CVSS 3.1 - baseSeverity in cvssData
         for metric in metrics.get("cvssMetricV31", []):
             cvss_data = metric.get("cvssData", {})
-            # Parse source from metric (e.g., "nvd@nist.gov", "security@vendor.com")
-            source_raw = metric.get("source", "nvd@nist.gov")
-            # Normalize source to simple identifier (nvd, redhat, microsoft, etc.)
-            source = self._normalize_cvss_source(source_raw)
-            # Check if this is the Primary/authoritative source
-            is_authoritative = metric.get("type") == "Primary"
-            # Extract exploitability and impact scores (outside cvssData)
-            exploitability_score = metric.get("exploitabilityScore")
-            impact_score = metric.get("impactScore")
+            metadata = extract_cvss_metadata(metric)  # Common fields from utility
 
             cvss_scores.append(
                 CVSSEntry(
@@ -389,21 +390,14 @@ class NVDExtractor(BaseExtractor):
                     vector_string=cvss_data.get("vectorString", ""),
                     base_score=cvss_data.get("baseScore", 0.0),
                     base_severity=cvss_data.get("baseSeverity", "NONE"),
-                    source=source,
-                    is_authoritative=is_authoritative,
-                    exploitability_score=exploitability_score,
-                    impact_score=impact_score,
+                    **metadata,  # Unpack: source, is_authoritative, scores
                 )
             )
 
-        # CVSS 3.0 (if present)
+        # CVSS 3.0 - same structure as 3.1
         for metric in metrics.get("cvssMetricV30", []):
             cvss_data = metric.get("cvssData", {})
-            source_raw = metric.get("source", "nvd@nist.gov")
-            source = self._normalize_cvss_source(source_raw)
-            is_authoritative = metric.get("type") == "Primary"
-            exploitability_score = metric.get("exploitabilityScore")
-            impact_score = metric.get("impactScore")
+            metadata = extract_cvss_metadata(metric)
 
             cvss_scores.append(
                 CVSSEntry(
@@ -411,70 +405,26 @@ class NVDExtractor(BaseExtractor):
                     vector_string=cvss_data.get("vectorString", ""),
                     base_score=cvss_data.get("baseScore", 0.0),
                     base_severity=cvss_data.get("baseSeverity", "NONE"),
-                    source=source,
-                    is_authoritative=is_authoritative,
-                    exploitability_score=exploitability_score,
-                    impact_score=impact_score,
+                    **metadata,
                 )
             )
 
-        # CVSS 2.0 (if present)
+        # CVSS 2.0 - baseSeverity at metric level (not in cvssData)
         for metric in metrics.get("cvssMetricV2", []):
             cvss_data = metric.get("cvssData", {})
-            source_raw = metric.get("source", "nvd@nist.gov")
-            source = self._normalize_cvss_source(source_raw)
-            is_authoritative = metric.get("type") == "Primary"
-            exploitability_score = metric.get("exploitabilityScore")
-            impact_score = metric.get("impactScore")
+            metadata = extract_cvss_metadata(metric)
 
             cvss_scores.append(
                 CVSSEntry(
                     version=cvss_data.get("version", "2.0"),
                     vector_string=cvss_data.get("vectorString", ""),
                     base_score=cvss_data.get("baseScore", 0.0),
-                    base_severity=metric.get("baseSeverity", "NONE"),
-                    source=source,
-                    is_authoritative=is_authoritative,
-                    exploitability_score=exploitability_score,
-                    impact_score=impact_score,
+                    base_severity=metric.get("baseSeverity", "NONE"),  # Different location!
+                    **metadata,
                 )
             )
 
         return cvss_scores
-
-    def _normalize_cvss_source(self, source_raw: str) -> str:
-        """Normalize CVSS source from email format to simple identifier.
-
-        Examples:
-            "nvd@nist.gov" -> "nvd"
-            "security@redhat.com" -> "redhat"
-            "security@microsoft.com" -> "microsoft"
-            "cve@mitre.org" -> "mitre"
-
-        Args:
-            source_raw: Raw source string from NVD (usually email format)
-
-        Returns:
-            Normalized source identifier
-        """
-        # Default mapping for known sources
-        if "nvd" in source_raw.lower() or "nist.gov" in source_raw.lower():
-            return "nvd"
-        elif "redhat" in source_raw.lower():
-            return "redhat"
-        elif "microsoft" in source_raw.lower():
-            return "microsoft"
-        elif "mitre" in source_raw.lower():
-            return "mitre"
-        else:
-            # Extract domain or username before @
-            # "security@example.com" -> "example"
-            if "@" in source_raw:
-                parts = source_raw.split("@")
-                if len(parts) > 1:
-                    domain = parts[1].split(".")[0]
-                    return domain.lower()
-            return source_raw.lower()
 
     def _parse_cwes(self, weaknesses: list[dict[str, object]]) -> list[CWEEntry]:
         """Parse CWE weaknesses from NVD format."""
