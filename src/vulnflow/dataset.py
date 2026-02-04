@@ -263,18 +263,38 @@ class VulnDataset:
         loader.load(self)
 
     @classmethod
-    def from_parquet(cls, path: str | Path) -> VulnDataset:
-        """Load dataset from Parquet file.
+    def from_parquet(cls, path: str | list[str]) -> VulnDataset:
+        """Load from Parquet file(s) → VulnDataset.
+
+        Supports:
+        - Single file: `VulnDataset.from_parquet("data.parquet")`
+        - Multiple files with upsert: `VulnDataset.from_parquet(["cache.parquet", "delta.parquet"])`
+
+        Multi-file upsert semantics:
+        - Files loaded in order
+        - Duplicate cve_ids: later files win
+        - Schema mismatch: missing columns filled with None
 
         Args:
-            path: Path to Parquet file
+            path: File path or list of paths
 
         Returns:
-            VulnDataset with data from Parquet file
+            VulnDataset loaded from Parquet
+
+        Raises:
+            FileNotFoundError: If file doesn't exist
+            ExtractorError: If multi-file merge attempted without cve_id
+
+        Example:
+            >>> # Single file
+            >>> dataset = VulnDataset.from_parquet("data.parquet")
+            >>>
+            >>> # Multi-file with delta update
+            >>> dataset = VulnDataset.from_parquet(["cache.parquet", "delta.parquet"])
         """
         from vulnflow.extractors.files import ParquetExtractor
 
-        extractor = ParquetExtractor(str(path))
+        extractor = ParquetExtractor(path)
         return extractor.extract()
 
     @classmethod
