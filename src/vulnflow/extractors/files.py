@@ -36,10 +36,32 @@ logger = logging.getLogger(__name__)
 
 @Registry.register_extractor("parquet")
 class ParquetExtractor(BaseExtractor):
-    """Extract from Parquet files (direct load).
+    """Extract from Parquet files (direct load with optional multi-file merge).
 
     Parquet is already columnar, so we load directly to VulnDataset
     without intermediate VulnRecord conversion.
+
+    Features:
+    - Single file: Fast direct load
+    - Multiple files: Automatic upsert merge (later files win on cve_id conflicts)
+    - Schema union: Missing columns filled with None
+
+    Use cases:
+    - Single file: `ParquetExtractor("data.parquet")`
+    - Incremental: `ParquetExtractor(["cache.parquet", "delta.parquet"])`
+
+    Upsert semantics for multi-file:
+    1. Load files in order
+    2. Concatenate all records
+    3. Deduplicate by cve_id, keeping last occurrence
+    4. Result: Latest version of each CVE
+
+    Example:
+        >>> # Incremental workflow
+        >>> cache = "nvd_cache.parquet"  # 300K CVEs
+        >>> delta = "nvd_delta.parquet"  # 2K modified/new CVEs
+        >>> extractor = ParquetExtractor([cache, delta])
+        >>> dataset = extractor.extract()  # Merged with delta overwrites
     """
 
     name: str = "parquet"

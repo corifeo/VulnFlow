@@ -1,12 +1,29 @@
 """
 Progress bar utilities for Jupyter/terminal display.
 
+Provides centralized tqdm wrapper with VulnFlow defaults.
+Auto-detects Jupyter vs terminal environment.
+
 Provides:
 - progress_bar: Factory function with VulnFlow defaults
 
 Layer: Utils
 Dependencies: tqdm
 Used by: dataset.transform(), extractors
+
+Example (Jupyter notebook):
+    >>> from vulnflow.utils.progress import progress_bar
+    >>>
+    >>> with progress_bar(total=100, desc="Loading CVEs") as pbar:
+    ...     for i in range(100):
+    ...         # Process item
+    ...         pbar.update(1)
+    # Shows: "Loading CVEs... ██████████ 100/100 [00:05<00:00, 20.00 records/s]"
+
+Example (disabling in tests):
+    >>> import os
+    >>> os.environ["TQDM_DISABLE"] = "1"
+    >>> # Progress bars now silent
 """
 
 from __future__ import annotations
