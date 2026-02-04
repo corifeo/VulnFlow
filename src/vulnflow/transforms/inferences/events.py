@@ -138,7 +138,7 @@ def _find_earliest_date_by_tag(refs: list[dict[str, Any]], tag: str) -> datetime
     return min(dates) if dates else None
 
 
-@register_transform(default=True)
+@register_transform(default=False)
 class EventInference(BaseInference):
     """Infer CVD timestamps using tiered confidence rules.
 

@@ -25,7 +25,7 @@ from vulnflow.transforms.base import BaseInference
 from vulnflow.utils import json
 
 
-@register_transform
+@register_transform(default=False)
 class TagInference(BaseInference):
     """Infer tags from vulnerability descriptions and metadata.
 

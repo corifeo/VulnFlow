@@ -148,9 +148,10 @@ class KEVEnricher(BaseEnricher):
         # Find position of each CVE in sorted KEV list
         indices = np.searchsorted(kev_cve_ids_sorted, cve_ids)
 
-        # Mask for valid matches
+        # Mask for valid matches (clip indices to avoid out-of-bounds access)
+        indices_clipped = np.clip(indices, 0, len(kev_cve_ids_sorted) - 1)
         valid = (indices < len(kev_cve_ids_sorted)) & (
-            kev_cve_ids_sorted[indices] == cve_ids
+            kev_cve_ids_sorted[indices_clipped] == cve_ids
         )
 
         # Initialize output arrays
@@ -182,11 +183,6 @@ class KEVEnricher(BaseEnricher):
         dataset.set_column("kev_ransomware", kev_ransomware_out)
         dataset.set_column("kev_vulnerability_name", kev_vulnerability_name)
         dataset.set_column("kev_notes", kev_notes)
-
-        # Update sources
-        matched_indices = np.where(valid)[0].tolist()
-        if matched_indices:
-            dataset.update_sources(matched_indices, "KEV")
 
     async def _get_cached_data_async(self) -> dict[str, dict[str, Any]]:
         """Get KEV data from cache or load fresh (async)."""

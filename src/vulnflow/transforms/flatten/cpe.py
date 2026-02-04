@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from vulnflow.registry import FieldDefinition
+from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.flatten.base import BaseFlatten
 from vulnflow.utils import json
 
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
 
+@register_transform(default=True)
 class CPEPrimaryTransform(BaseFlatten):
     """Extract primary (first) CPE and its components.
 
