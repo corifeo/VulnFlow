@@ -98,6 +98,8 @@ class VulnDataset:
         - Sync transforms (with sync transform() method)
         - Async enrichers (with async transform() method) - run concurrently via asyncio.gather()
 
+        Shows progress bar during execution (auto-detects Jupyter vs terminal).
+
         Args:
             transforms: List of transform/enricher instances. If None, uses registered defaults
                        (both enrichers and transforms).
@@ -107,6 +109,7 @@ class VulnDataset:
         """
         import asyncio
 
+        from vulnflow.utils.progress import progress_bar
         from vulnflow.utils.transforms import partition_transforms
 
         if transforms is None:
@@ -121,19 +124,31 @@ class VulnDataset:
         # Separate async from sync
         async_transforms, sync_transforms = partition_transforms(transforms)
 
-        # Run async concurrently
-        if async_transforms:
+        # All transforms for progress bar
+        all_transforms = async_transforms + sync_transforms
 
-            async def run_all() -> None:
-                await asyncio.gather(
-                    *[t.transform(self) for t in async_transforms]  # type: ignore[attr-defined]
-                )
+        with progress_bar(
+            total=len(all_transforms),
+            desc="Transforming dataset",
+            unit="transforms",
+        ) as pbar:
+            # Run async concurrently (NO individual progress updates)
+            if async_transforms:
 
-            asyncio.run(run_all())
+                async def run_all() -> None:
+                    await asyncio.gather(
+                        *[t.transform(self) for t in async_transforms]  # type: ignore[attr-defined]
+                    )
 
-        # Run sync sequentially
-        for t in sync_transforms:
-            t.transform(self)  # type: ignore[attr-defined]
+                asyncio.run(run_all())
+                # Update progress AFTER all async complete
+                pbar.update(len(async_transforms))
+
+            # Run sync sequentially (WITH individual progress updates)
+            for t in sync_transforms:
+                pbar.set_postfix_str(f"[{t.name}]")  # type: ignore[attr-defined]
+                t.transform(self)  # type: ignore[attr-defined]
+                pbar.update(1)
 
         return self
 
@@ -248,18 +263,38 @@ class VulnDataset:
         loader.load(self)
 
     @classmethod
-    def from_parquet(cls, path: str | Path) -> VulnDataset:
-        """Load dataset from Parquet file.
+    def from_parquet(cls, path: str | list[str]) -> VulnDataset:
+        """Load from Parquet file(s) → VulnDataset.
+
+        Supports:
+        - Single file: `VulnDataset.from_parquet("data.parquet")`
+        - Multiple files with upsert: `VulnDataset.from_parquet(["cache.parquet", "delta.parquet"])`
+
+        Multi-file upsert semantics:
+        - Files loaded in order
+        - Duplicate cve_ids: later files win
+        - Schema mismatch: missing columns filled with None
 
         Args:
-            path: Path to Parquet file
+            path: File path or list of paths
 
         Returns:
-            VulnDataset with data from Parquet file
+            VulnDataset loaded from Parquet
+
+        Raises:
+            FileNotFoundError: If file doesn't exist
+            ExtractorError: If multi-file merge attempted without cve_id
+
+        Example:
+            >>> # Single file
+            >>> dataset = VulnDataset.from_parquet("data.parquet")
+            >>>
+            >>> # Multi-file with delta update
+            >>> dataset = VulnDataset.from_parquet(["cache.parquet", "delta.parquet"])
         """
         from vulnflow.extractors.files import ParquetExtractor
 
-        extractor = ParquetExtractor(str(path))
+        extractor = ParquetExtractor(path)
         return extractor.extract()
 
     @classmethod
