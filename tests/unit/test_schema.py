@@ -56,3 +56,20 @@ def test_vuln_record_with_nvd_timestamps():
     assert record.nvd_published_at is not None
     assert record.nvd_published_at.year == 2024
     assert record.nvd_modified_at is not None
+
+
+def test_cvss_entry_has_new_fields():
+    """CVSSEntry includes is_authoritative, exploitability_score, impact_score."""
+    entry = CVSSEntry(
+        version="3.1",
+        vector_string="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+        base_score=10.0,
+        base_severity="CRITICAL",
+        source="nvd",
+        is_authoritative=True,
+        exploitability_score=3.9,
+        impact_score=6.0,
+    )
+    assert entry.is_authoritative is True
+    assert entry.exploitability_score == 3.9
+    assert entry.impact_score == 6.0
