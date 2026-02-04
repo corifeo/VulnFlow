@@ -23,7 +23,7 @@ Based on SEI/CMU 2021 paper and vulnstate/constants.py definitions.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -34,20 +34,52 @@ from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseComputed
 
 
+def _normalize_timestamp(ts: Any) -> datetime | None:
+    """Normalize timestamp to timezone-aware Python datetime.
+
+    Handles:
+    - Python datetime (with or without timezone)
+    - numpy.datetime64
+    - pandas.Timestamp
+    - None
+
+    Returns Python datetime with UTC timezone, or None.
+    """
+    if ts is None:
+        return None
+
+    # Handle numpy.datetime64
+    if hasattr(ts, "astype"):
+        # Convert numpy.datetime64 to Python datetime
+        import pandas as pd
+
+        ts = pd.Timestamp(ts).to_pydatetime()
+
+    # Handle pandas Timestamp
+    if hasattr(ts, "to_pydatetime"):
+        ts = ts.to_pydatetime()
+
+    # Ensure timezone-aware
+    if isinstance(ts, datetime):
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        return ts
+
+    return None
+
+
 def _safe_compare(ts1: datetime | None, ts2: datetime | None) -> bool | None:
     """Compare two timestamps safely, handling timezone mismatches.
 
     Returns True if ts1 < ts2, False if ts1 >= ts2, None if either is None.
     Normalizes timezone-naive datetimes to UTC for comparison.
+    Handles numpy.datetime64 and pandas.Timestamp objects.
     """
+    ts1 = _normalize_timestamp(ts1)
+    ts2 = _normalize_timestamp(ts2)
+
     if ts1 is None or ts2 is None:
         return None
-
-    # Normalize to UTC if needed
-    if ts1.tzinfo is None:
-        ts1 = ts1.replace(tzinfo=UTC)
-    if ts2.tzinfo is None:
-        ts2 = ts2.replace(tzinfo=UTC)
 
     return ts1 < ts2
 
@@ -57,15 +89,13 @@ def _safe_delta(ts1: datetime | None, ts2: datetime | None) -> float:
 
     Returns NaN if either timestamp is None.
     Normalizes timezone-naive datetimes to UTC.
+    Handles numpy.datetime64 and pandas.Timestamp objects.
     """
+    ts1 = _normalize_timestamp(ts1)
+    ts2 = _normalize_timestamp(ts2)
+
     if ts1 is None or ts2 is None:
         return float("nan")
-
-    # Normalize to UTC if needed
-    if ts1.tzinfo is None:
-        ts1 = ts1.replace(tzinfo=UTC)
-    if ts2.tzinfo is None:
-        ts2 = ts2.replace(tzinfo=UTC)
 
     return (ts2 - ts1).total_seconds() / 86400.0
 
