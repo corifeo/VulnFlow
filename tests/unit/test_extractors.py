@@ -490,3 +490,18 @@ def test_nvd_extractor_extracts_nvd_status():
     assert status[1] == "awaiting"
     # Third record has vulnStatus="Modified"
     assert status[2] == "modified"
+
+
+def test_nvd_extractor_extracts_fix_version():
+    """NVD extractor captures versionEndExcluding as fix_version."""
+    extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
+    dataset = extractor.extract()
+
+    # First record has versionEndExcluding="2.0.0"
+    cpes_raw = dataset.get_column("cpes")[0]
+    cpes = json.loads(cpes_raw)
+
+    # Find CPE entries with fix_version
+    fix_versions = [c.get("fix_version") for c in cpes if c.get("fix_version")]
+    assert len(fix_versions) >= 1
+    assert fix_versions[0] == "2.0.0"
