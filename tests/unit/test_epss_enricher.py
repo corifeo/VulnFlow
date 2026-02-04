@@ -127,3 +127,95 @@ def test_epss_enricher_vectorized_matches_correctly():
     # First record should have EPSS data
     assert epss_probability[0] is not None
     assert 0.0 <= epss_probability[0] <= 1.0
+
+
+# ============================================================================
+# Task 9: EPSSEnricher appends to epss_scores array
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_epss_enricher_appends_to_array():
+    """EPSSEnricher appends to epss_scores array instead of only setting scalar columns."""
+    import numpy as np
+
+    from vulnflow.utils import json
+
+    # Create dataset with existing epss_scores array
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Set up initial epss_scores array with old data
+    n = len(dataset)
+    initial_scores = [
+        json.dumps([{"probability": 0.5, "percentile": 0.8, "date": "2023-01-01", "model": 2}])
+    ] * n
+    dataset.set_column("epss_scores", np.array(initial_scores, dtype=object))
+
+    enricher = EPSSEnricher(source="tests/fixtures/epss_sample.csv")
+    await enricher.transform(dataset)
+
+    # Verify epss_scores array has been updated (should have 2 entries now)
+    epss_scores_raw = dataset.get_column("epss_scores")[0]
+    scores = json.loads(epss_scores_raw)
+
+    # Should have original + new entry
+    assert len(scores) == 2, f"Expected 2 entries in epss_scores array, got {len(scores)}"
+
+    # New entry should have current EPSS data
+    new_entry = scores[-1]  # Most recent should be appended at end
+    assert "probability" in new_entry
+    assert "percentile" in new_entry
+    assert "date" in new_entry
+    assert "model" in new_entry
+
+
+@pytest.mark.asyncio
+async def test_epss_enricher_creates_array_if_missing():
+    """EPSSEnricher creates epss_scores array if it doesn't exist."""
+    from vulnflow.utils import json
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Remove epss_scores if it exists
+    if "epss_scores" in dataset.columns:
+        del dataset._data["epss_scores"]
+
+    enricher = EPSSEnricher(source="tests/fixtures/epss_sample.csv")
+    await enricher.transform(dataset)
+
+    # Should now have epss_scores column
+    assert "epss_scores" in dataset.columns
+
+    # First record should have EPSS data in array
+    epss_scores_raw = dataset.get_column("epss_scores")[0]
+    scores = json.loads(epss_scores_raw)
+    assert len(scores) >= 1
+    assert scores[0]["probability"] == pytest.approx(0.00044, abs=0.00001)
+
+
+@pytest.mark.asyncio
+async def test_epss_enricher_deduplicates_by_date():
+    """EPSSEnricher doesn't add duplicate entries for same date."""
+    import numpy as np
+
+    from vulnflow.utils import json
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Set up initial epss_scores array with SAME date as fixture (2024-01-15)
+    n = len(dataset)
+    initial_scores = [
+        json.dumps([{"probability": 0.1, "percentile": 0.2, "date": "2024-01-15T00:00:00+00:00", "model": 3}])
+    ] * n
+    dataset.set_column("epss_scores", np.array(initial_scores, dtype=object))
+
+    enricher = EPSSEnricher(source="tests/fixtures/epss_sample.csv")
+    await enricher.transform(dataset)
+
+    # Should still have only 1 entry (deduplicated by date)
+    epss_scores_raw = dataset.get_column("epss_scores")[0]
+    scores = json.loads(epss_scores_raw)
+
+    assert len(scores) == 1, f"Expected 1 entry (deduplicated), got {len(scores)}"
+    # The newer value should win
+    assert scores[0]["probability"] == pytest.approx(0.00044, abs=0.00001)

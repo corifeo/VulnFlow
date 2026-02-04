@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseEnricher
+from vulnflow.utils import json
 from vulnflow.utils.http import HttpFetcher, is_url
 
 logger = logging.getLogger(__name__)
@@ -90,61 +91,94 @@ class EPSSEnricher(BaseEnricher):
         self._http_fetcher: HttpFetcher | None = None
 
     async def transform(self, dataset: VulnDataset) -> None:  # type: ignore[override]
-        """Enrich dataset with EPSS data (fully vectorized).
+        """Enrich dataset with EPSS data.
+
+        Appends new EPSS scores to the epss_scores array with date deduplication.
+        Also sets scalar columns for backward compatibility.
 
         Args:
             dataset: VulnDataset to enrich (modifies in place)
         """
         # Load EPSS data with caching
         epss_data = await self._get_cached_data_async()
+        if not epss_data:
+            return
 
         # Get CVE IDs from dataset
         cve_ids = dataset.get_column("cve_id")
         n = len(dataset)
 
-        # Build parallel arrays from EPSS dict
-        epss_cve_ids = np.array(list(epss_data.keys()), dtype=object)
-        epss_probs = np.array(
-            [epss_data[k]["probability"] for k in epss_cve_ids], dtype=np.float64
-        )
-        epss_percs = np.array(
-            [epss_data[k]["percentile"] for k in epss_cve_ids], dtype=np.float64
-        )
-        epss_dates = np.array(
-            [epss_data[k].get("date") for k in epss_cve_ids], dtype=object
-        )
-        epss_models = np.array(
-            [epss_data[k].get("model", 3) for k in epss_cve_ids], dtype=object
-        )
+        # Get or create epss_scores column
+        if "epss_scores" in dataset.columns:
+            epss_scores_raw = dataset.get_column("epss_scores")
+        else:
+            epss_scores_raw = np.array(["[]"] * n, dtype=object)
 
-        # Vectorized matching using np.searchsorted
-        sort_idx = np.argsort(epss_cve_ids)
-        epss_cve_ids_sorted = epss_cve_ids[sort_idx]
-        indices = np.searchsorted(epss_cve_ids_sorted, cve_ids)
-        valid = (indices < len(epss_cve_ids_sorted)) & (
-            epss_cve_ids_sorted[indices] == cve_ids
-        )
+        # Build lookup dict for EPSS data (keyed by CVE ID)
+        epss_lookup: dict[str, dict[str, Any]] = epss_data
 
-        # Initialize output arrays
+        # Initialize scalar output arrays for backward compatibility
         epss_probability = np.full(n, np.nan, dtype=np.float64)
         epss_percentile = np.full(n, np.nan, dtype=np.float64)
-        epss_date = np.full(n, None, dtype=object)
-        epss_model = np.full(n, None, dtype=object)
+        epss_date_arr = np.full(n, None, dtype=object)
+        epss_model_arr = np.full(n, None, dtype=object)
 
-        # Assign using boolean indexing
-        epss_probability[valid] = epss_probs[sort_idx[indices[valid]]]
-        epss_percentile[valid] = epss_percs[sort_idx[indices[valid]]]
-        epss_date[valid] = epss_dates[sort_idx[indices[valid]]]
-        epss_model[valid] = epss_models[sort_idx[indices[valid]]]
+        # Process each record
+        matched_indices: list[int] = []
+        new_epss_scores = np.empty(n, dtype=object)
+
+        for i, cve_id in enumerate(cve_ids):
+            # Parse existing scores
+            existing_raw = epss_scores_raw[i]
+            if existing_raw and existing_raw != "null":
+                existing_scores: list[dict[str, Any]] = json.loads(existing_raw)
+            else:
+                existing_scores = []
+
+            # Check if we have new EPSS data for this CVE
+            if cve_id in epss_lookup:
+                new_data = epss_lookup[cve_id]
+                matched_indices.append(i)
+
+                # Format date for comparison and storage
+                new_date = new_data.get("date")
+                new_date_str = (
+                    new_date.isoformat() if isinstance(new_date, datetime) else new_date
+                )
+
+                # Build new entry
+                new_entry: dict[str, Any] = {
+                    "probability": new_data["probability"],
+                    "percentile": new_data["percentile"],
+                    "date": new_date_str,
+                    "model": new_data.get("model", 3),
+                }
+
+                # Deduplicate by date - remove existing entry with same date
+                existing_scores = [
+                    s for s in existing_scores if s.get("date") != new_date_str
+                ]
+
+                # Append new entry
+                existing_scores.append(new_entry)
+
+                # Set scalar columns for backward compatibility
+                epss_probability[i] = new_data["probability"]
+                epss_percentile[i] = new_data["percentile"]
+                epss_date_arr[i] = new_date
+                epss_model_arr[i] = new_data.get("model", 3)
+
+            # Serialize updated scores
+            new_epss_scores[i] = json.dumps(existing_scores)
 
         # Set columns
+        dataset.set_column("epss_scores", new_epss_scores)
         dataset.set_column("epss_probability", epss_probability)
         dataset.set_column("epss_percentile", epss_percentile)
-        dataset.set_column("epss_date", epss_date)
-        dataset.set_column("epss_model", epss_model)
+        dataset.set_column("epss_date", epss_date_arr)
+        dataset.set_column("epss_model", epss_model_arr)
 
         # Update sources
-        matched_indices = np.where(valid)[0].tolist()
         if matched_indices:
             dataset.update_sources(matched_indices, "EPSS")
 
