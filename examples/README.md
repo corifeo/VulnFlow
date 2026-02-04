@@ -42,8 +42,8 @@ Demonstrates:
 ### Option 1: Jupyter Lab (Recommended)
 
 ```bash
-# Install dependencies
-uv add jupyter jupyterlab
+# Install dependencies (including ipywidgets for progress bars)
+uv add jupyter jupyterlab ipywidgets
 
 # Launch
 uv run jupyter lab
@@ -54,8 +54,8 @@ uv run jupyter lab
 ### Option 2: Jupyter Notebook
 
 ```bash
-# Install dependencies
-uv add jupyter
+# Install dependencies (including ipywidgets for progress bars)
+uv add jupyter ipywidgets
 
 # Launch
 uv run jupyter notebook examples/
@@ -141,10 +141,15 @@ VulnDataset.from_nvd("data.json") \
 uv sync  # Ensure all dependencies installed
 ```
 
-### Progress bars not showing
-Progress bars use `tqdm.auto` which auto-detects Jupyter. If not working:
-- Restart kernel
-- Ensure Jupyter widgets enabled: `uv add ipywidgets`
+### Progress bars not showing or warning about ipywidgets
+Progress bars use `tqdm.auto` which auto-detects Jupyter.
+
+**Warning: "IProgress not found. Please update jupyter and ipywidgets"**
+```bash
+uv add ipywidgets  # Install Jupyter widgets
+```
+
+Then restart your Jupyter kernel (Kernel → Restart Kernel)
 
 ### Slow parquet loading
 First load may be slower due to JIT compilation. Subsequent loads are fast.
