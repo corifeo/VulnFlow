@@ -49,17 +49,17 @@ TIER_THRESHOLDS = {
 
 # Age-based inference spectrum (confidence -> minimum age)
 AGE_SPECTRUM = [
-    (0.30, timedelta(days=5 * 365)),   # 5 years
-    (0.25, timedelta(days=3 * 365)),   # 3 years
-    (0.20, timedelta(days=2 * 365)),   # 2 years
-    (0.15, timedelta(days=365)),       # 1 year
-    (0.10, timedelta(days=90)),        # 3 months
-    (0.05, timedelta(days=30)),        # 1 month
+    (0.30, timedelta(days=5 * 365)),  # 5 years
+    (0.25, timedelta(days=3 * 365)),  # 3 years
+    (0.20, timedelta(days=2 * 365)),  # 2 years
+    (0.15, timedelta(days=365)),  # 1 year
+    (0.10, timedelta(days=90)),  # 3 months
+    (0.05, timedelta(days=30)),  # 1 month
 ]
 
 # Statistical estimates for age-based inference
-AVG_V_BEFORE_P = timedelta(days=90)   # Vendor knows ~90 days before public
-AVG_F_BEFORE_P = timedelta(days=30)   # Fix ready ~30 days before public
+AVG_V_BEFORE_P = timedelta(days=90)  # Vendor knows ~90 days before public
+AVG_F_BEFORE_P = timedelta(days=30)  # Fix ready ~30 days before public
 
 
 def extract_date_from_url(url: str | None) -> datetime | None:
@@ -127,9 +127,7 @@ def _has_exploit_url(refs: list[dict[str, Any]]) -> bool:
     return False
 
 
-def _find_earliest_date_by_tag(
-    refs: list[dict[str, Any]], tag: str
-) -> datetime | None:
+def _find_earliest_date_by_tag(refs: list[dict[str, Any]], tag: str) -> datetime | None:
     """Find earliest date from references with a specific tag."""
     dates: list[datetime] = []
     for ref in refs:
@@ -218,22 +216,40 @@ class EventInference(BaseInference):
         ),
         # Confidence scores
         FieldDefinition(
-            "v_confidence", "float", "Confidence level for V inference", "EventInference"
+            "v_confidence",
+            "float",
+            "Confidence level for V inference",
+            "EventInference",
         ),
         FieldDefinition(
-            "f_confidence", "float", "Confidence level for F inference", "EventInference"
+            "f_confidence",
+            "float",
+            "Confidence level for F inference",
+            "EventInference",
         ),
         FieldDefinition(
-            "d_confidence", "float", "Confidence level for D inference", "EventInference"
+            "d_confidence",
+            "float",
+            "Confidence level for D inference",
+            "EventInference",
         ),
         FieldDefinition(
-            "p_confidence", "float", "Confidence level for P inference", "EventInference"
+            "p_confidence",
+            "float",
+            "Confidence level for P inference",
+            "EventInference",
         ),
         FieldDefinition(
-            "x_confidence", "float", "Confidence level for X inference", "EventInference"
+            "x_confidence",
+            "float",
+            "Confidence level for X inference",
+            "EventInference",
         ),
         FieldDefinition(
-            "a_confidence", "float", "Confidence level for A inference", "EventInference"
+            "a_confidence",
+            "float",
+            "Confidence level for A inference",
+            "EventInference",
         ),
     ]
 
@@ -404,7 +420,9 @@ class EventInference(BaseInference):
             # F from CPE versionEndExcluding (fix version identified)
             if cpes is not None and cpes[i]:
                 try:
-                    cpe_data = json.loads(cpes[i]) if isinstance(cpes[i], str) else cpes[i]
+                    cpe_data = (
+                        json.loads(cpes[i]) if isinstance(cpes[i], str) else cpes[i]
+                    )
                     # If there's version info, a fix likely exists
                     if isinstance(cpe_data, list) and len(cpe_data) > 0:
                         if self._assign(f_ts, f_conf, i, p_ts[i], 0.50):
@@ -568,16 +586,24 @@ class EventInference(BaseInference):
         # Load existing values if not overwriting
         if not self.overwrite:
             for col, arr in [
-                ("v_timestamp", v_ts), ("f_timestamp", f_ts), ("d_timestamp", d_ts),
-                ("p_timestamp", p_ts), ("x_timestamp", x_ts), ("a_timestamp", a_ts),
+                ("v_timestamp", v_ts),
+                ("f_timestamp", f_ts),
+                ("d_timestamp", d_ts),
+                ("p_timestamp", p_ts),
+                ("x_timestamp", x_ts),
+                ("a_timestamp", a_ts),
             ]:
                 existing = dataset.get_column_or_none(col)
                 if existing is not None:
                     arr[:] = existing
 
             for col, arr in [
-                ("v_confidence", v_conf), ("f_confidence", f_conf), ("d_confidence", d_conf),
-                ("p_confidence", p_conf), ("x_confidence", x_conf), ("a_confidence", a_conf),
+                ("v_confidence", v_conf),
+                ("f_confidence", f_conf),
+                ("d_confidence", d_conf),
+                ("p_confidence", p_conf),
+                ("x_confidence", x_conf),
+                ("a_confidence", a_conf),
             ]:
                 existing = dataset.get_column_or_none(col)
                 if existing is not None:
@@ -593,7 +619,9 @@ class EventInference(BaseInference):
 
         # Run tiers
         if self._should_run(1):
-            tier_stats[1] = self._tier1_authoritative(dataset, p_ts, p_conf, a_ts, a_conf)
+            tier_stats[1] = self._tier1_authoritative(
+                dataset, p_ts, p_conf, a_ts, a_conf
+            )
 
         if self._should_run(2):
             tier_stats[2] = self._tier2_url_dates(
@@ -607,7 +635,16 @@ class EventInference(BaseInference):
 
         if self._should_run(4):
             tier_stats[4] = self._tier4_structural(
-                dataset, parsed_refs, p_ts, v_ts, v_conf, f_ts, f_conf, x_ts, x_conf, a_ts
+                dataset,
+                parsed_refs,
+                p_ts,
+                v_ts,
+                v_conf,
+                f_ts,
+                f_conf,
+                x_ts,
+                x_conf,
+                a_ts,
             )
 
         if self._should_run(5):

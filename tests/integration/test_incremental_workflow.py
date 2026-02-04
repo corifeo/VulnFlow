@@ -25,6 +25,7 @@ def test_incremental_workflow_cache_plus_delta(tmp_path: Path) -> None:
     cache_path = tmp_path / "cache.parquet"
     import pyarrow as pa
     import pyarrow.parquet as pq
+
     pq.write_table(pa.table(initial._data), cache_path)
 
     # Step 2: Delta update (modified CVE + new CVE)

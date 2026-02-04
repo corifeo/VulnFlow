@@ -114,7 +114,7 @@ def test_desiderata_with_kev_enrichment():
     # Check that is_attack_before_fix is computed (F doesn't exist, so should be False)
     is_attack_before_fix = dataset.get_column("is_attack_before_fix")
     # Without F timestamp, this should be False (both must exist for True)
-    assert is_attack_before_fix[0] is False or is_attack_before_fix[0] == False
+    assert not is_attack_before_fix[0]
 
 
 def test_cvd_state_transform_registered():

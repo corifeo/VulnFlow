@@ -22,7 +22,7 @@ Based on SEI/CMU 2021 paper and vulnstate/constants.py definitions.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -45,9 +45,9 @@ def _safe_compare(ts1: datetime | None, ts2: datetime | None) -> bool | None:
 
     # Normalize to UTC if needed
     if ts1.tzinfo is None:
-        ts1 = ts1.replace(tzinfo=timezone.utc)
+        ts1 = ts1.replace(tzinfo=UTC)
     if ts2.tzinfo is None:
-        ts2 = ts2.replace(tzinfo=timezone.utc)
+        ts2 = ts2.replace(tzinfo=UTC)
 
     return ts1 < ts2
 
@@ -63,11 +63,12 @@ def _safe_delta(ts1: datetime | None, ts2: datetime | None) -> float:
 
     # Normalize to UTC if needed
     if ts1.tzinfo is None:
-        ts1 = ts1.replace(tzinfo=timezone.utc)
+        ts1 = ts1.replace(tzinfo=UTC)
     if ts2.tzinfo is None:
-        ts2 = ts2.replace(tzinfo=timezone.utc)
+        ts2 = ts2.replace(tzinfo=UTC)
 
     return (ts2 - ts1).total_seconds() / 86400.0
+
 
 # =============================================================================
 # Constants from CVD model (matching vulnstate/constants.py)
@@ -125,14 +126,20 @@ class CVDStateTransform(BaseComputed):
     OUTPUT_SCHEMA: list[FieldDefinition] = [
         # Core (2)
         FieldDefinition(
-            "cvd_state", "str", "6-character CVD state (e.g., 'VFdPxa')", "CVDStateTransform"
+            "cvd_state",
+            "str",
+            "6-character CVD state (e.g., 'VFdPxa')",
+            "CVDStateTransform",
         ),
         FieldDefinition(
             "state_bits", "uint8", "6-bit state encoding (0-63)", "CVDStateTransform"
         ),
         # Dimensions (2)
         FieldDefinition(
-            "fix_path", "uint8", "Fix path: 0=vfd, 1=Vfd, 3=VFd, 7=VFD", "CVDStateTransform"
+            "fix_path",
+            "uint8",
+            "Fix path: 0=vfd, 1=Vfd, 3=VFd, 7=VFD",
+            "CVDStateTransform",
         ),
         FieldDefinition(
             "threat_state",
@@ -142,42 +149,78 @@ class CVDStateTransform(BaseComputed):
         ),
         # Pairwise (1)
         FieldDefinition(
-            "pair_mask", "uint16", "15-bit mask of pairwise orderings", "CVDStateTransform"
+            "pair_mask",
+            "uint16",
+            "15-bit mask of pairwise orderings",
+            "CVDStateTransform",
         ),
         # Desiderata (2)
         FieldDefinition(
-            "desiderata_mask", "uint16", "12-bit mask of satisfied desiderata", "CVDStateTransform"
+            "desiderata_mask",
+            "uint16",
+            "12-bit mask of satisfied desiderata",
+            "CVDStateTransform",
         ),
         FieldDefinition(
-            "desiderata_count", "uint8", "Count of satisfied desiderata (0-12)", "CVDStateTransform"
+            "desiderata_count",
+            "uint8",
+            "Count of satisfied desiderata (0-12)",
+            "CVDStateTransform",
         ),
         # Zero-Day flags (3)
         FieldDefinition(
-            "is_zero_day_exploit", "bool", "X occurred before V (U2)", "CVDStateTransform"
+            "is_zero_day_exploit",
+            "bool",
+            "X occurred before V (U2)",
+            "CVDStateTransform",
         ),
         FieldDefinition(
-            "is_zero_day_attack", "bool", "A occurred before V (U3)", "CVDStateTransform"
+            "is_zero_day_attack",
+            "bool",
+            "A occurred before V (U3)",
+            "CVDStateTransform",
         ),
         FieldDefinition(
             "is_uncoordinated", "bool", "P occurred before V (U1)", "CVDStateTransform"
         ),
         # Exposure flags (3)
         FieldDefinition(
-            "is_premature_disclosure", "bool", "P occurred before F (U4)", "CVDStateTransform"
+            "is_premature_disclosure",
+            "bool",
+            "P occurred before F (U4)",
+            "CVDStateTransform",
         ),
         FieldDefinition(
-            "is_exploit_before_fix", "bool", "X occurred before F (U5)", "CVDStateTransform"
+            "is_exploit_before_fix",
+            "bool",
+            "X occurred before F (U5)",
+            "CVDStateTransform",
         ),
         FieldDefinition(
-            "is_attack_before_fix", "bool", "A occurred before F (U6)", "CVDStateTransform"
+            "is_attack_before_fix",
+            "bool",
+            "A occurred before F (U6)",
+            "CVDStateTransform",
         ),
         # Time deltas (6)
-        FieldDefinition("fix_lag_days", "float32", "Days from V to F", "CVDStateTransform"),
-        FieldDefinition("disclosure_lag_days", "float32", "Days from V to P", "CVDStateTransform"),
-        FieldDefinition("deployment_lag_days", "float32", "Days from F to D", "CVDStateTransform"),
-        FieldDefinition("exploit_lag_days", "float32", "Days from P to X", "CVDStateTransform"),
-        FieldDefinition("attack_lag_days", "float32", "Days from X to A", "CVDStateTransform"),
-        FieldDefinition("public_to_attack_days", "float32", "Days from P to A", "CVDStateTransform"),
+        FieldDefinition(
+            "fix_lag_days", "float32", "Days from V to F", "CVDStateTransform"
+        ),
+        FieldDefinition(
+            "disclosure_lag_days", "float32", "Days from V to P", "CVDStateTransform"
+        ),
+        FieldDefinition(
+            "deployment_lag_days", "float32", "Days from F to D", "CVDStateTransform"
+        ),
+        FieldDefinition(
+            "exploit_lag_days", "float32", "Days from P to X", "CVDStateTransform"
+        ),
+        FieldDefinition(
+            "attack_lag_days", "float32", "Days from X to A", "CVDStateTransform"
+        ),
+        FieldDefinition(
+            "public_to_attack_days", "float32", "Days from P to A", "CVDStateTransform"
+        ),
     ]
 
     def transform(self, dataset: VulnDataset) -> None:

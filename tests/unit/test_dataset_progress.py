@@ -121,4 +121,6 @@ def test_async_transforms_run_concurrently(nvd_sample_dataset):
 
     # Should complete in ~0.1s (concurrent) not ~0.3s (sequential)
     # Allow 0.05s tolerance for overhead
-    assert elapsed < 0.2, f"Async transforms took {elapsed:.2f}s (expected <0.2s for concurrent execution)"
+    assert (
+        elapsed < 0.2
+    ), f"Async transforms took {elapsed:.2f}s (expected <0.2s for concurrent execution)"
