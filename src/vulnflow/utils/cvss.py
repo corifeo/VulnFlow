@@ -12,6 +12,8 @@ Used by: NVDExtractor, future vulnerability extractors
 
 from __future__ import annotations
 
+from typing import Any
+
 # Source normalization map
 CVSS_SOURCE_MAP = {
     "nvd": "nvd",
@@ -52,3 +54,30 @@ def normalize_source(source_raw: str) -> str:
         return domain.lower()
 
     return source_lower
+
+
+def extract_cvss_metadata(metric: dict[str, Any]) -> dict[str, Any]:
+    """Extract fields common to all CVSS versions from NVD metric.
+
+    Handles:
+    - Source normalization
+    - Authority flag (Primary vs Secondary)
+    - Exploitability and impact scores
+
+    Args:
+        metric: NVD CVSS metric dict
+
+    Returns:
+        Dict with common fields ready for CVSSEntry(**metadata) unpacking
+    """
+    source_raw = metric.get("source", "nvd@nist.gov")
+
+    return {
+        "source": normalize_source(source_raw),
+        "is_authoritative": metric.get("type") == "Primary",
+        "exploitability_score": metric.get("exploitabilityScore"),
+        "impact_score": metric.get("impactScore"),
+        "source_url": None,  # Not in NVD data
+        "published_at": None,  # Not in NVD data
+        "updated_at": None,  # Not in NVD data
+    }
