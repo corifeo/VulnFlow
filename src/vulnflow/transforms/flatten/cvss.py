@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from vulnflow.registry import FieldDefinition
+from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.flatten.base import BaseFlatten
 from vulnflow.utils import json
 
@@ -30,6 +30,7 @@ CVSS3_PATTERN = re.compile(
 )
 
 
+@register_transform(default=True)
 class CVSSFlattenTransform(BaseFlatten):
     """Select authoritative CVSS score and extract components.
 

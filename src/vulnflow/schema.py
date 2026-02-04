@@ -122,20 +122,18 @@ class VulnRecord:
     # Identity
     id: UUID = field(default_factory=uuid4)
     cve_id: str | None = None
-    aliases: list[str] = field(default_factory=list)
 
     # Description
-    title: str | None = None
     description: str | None = None
 
     # Metadata
     first_seen_at: datetime = field(default_factory=datetime.now)
     last_updated_at: datetime = field(default_factory=datetime.now)
-    sources: list[str] = field(default_factory=list)
 
     # NVD Temporal (what NVD provides)
     nvd_published_at: datetime | None = None
     nvd_modified_at: datetime | None = None
+    nvd_status: str | None = None  # analyzed, awaiting, modified, rejected, disputed, unknown
 
     # Note: CVD Timeline (v/f/d/p/x/a_timestamp) is NOT part of VulnRecord.
     # EventInference (Phase 11) adds these columns directly to VulnDataset.

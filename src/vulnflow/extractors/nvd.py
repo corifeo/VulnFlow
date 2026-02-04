@@ -128,12 +128,11 @@ class NVDExtractor(BaseExtractor):
                 description=description,
                 nvd_published_at=nvd_published_at,
                 nvd_modified_at=nvd_modified_at,
+                nvd_status=nvd_status or "unknown",
                 cvss_scores=cvss_scores,
                 cwes=cwes,
                 cpes=cpes,
                 references=references,
-                sources=["nvd"],
-                metadata={"nvd_status": nvd_status} if nvd_status else {},
             )
             records.append(record)
 
@@ -289,27 +288,24 @@ class NVDExtractor(BaseExtractor):
 
         # Pre-allocate columnar arrays
         n = len(records)
-        # Get all column names from VulnRecord + nvd_status
+        # Get all column names from VulnRecord
         record_cols = get_record_columns()
-        all_columns = record_cols + ["nvd_status"]
-        arrays = {col: np.empty(n, dtype=object) for col in all_columns}
+        arrays = {col: np.empty(n, dtype=object) for col in record_cols}
 
         # Single pass over records
         for i, r in enumerate(records):
             # Identity
             arrays["id"][i] = str(r.id)
             arrays["cve_id"][i] = r.cve_id
-            arrays["aliases"][i] = json.dumps(r.aliases)
             # Description
-            arrays["title"][i] = r.title
             arrays["description"][i] = r.description
             # Metadata
             arrays["first_seen_at"][i] = r.first_seen_at
             arrays["last_updated_at"][i] = r.last_updated_at
-            arrays["sources"][i] = json.dumps(r.sources)
             # NVD Temporal
             arrays["nvd_published_at"][i] = r.nvd_published_at
             arrays["nvd_modified_at"][i] = r.nvd_modified_at
+            arrays["nvd_status"][i] = r.nvd_status
             # Scoring
             arrays["cvss_scores"][i] = encode_nested(r.cvss_scores)
             arrays["epss_scores"][i] = encode_nested(r.epss_scores)
@@ -324,8 +320,6 @@ class NVDExtractor(BaseExtractor):
             # Extensible
             arrays["tags"][i] = json.dumps(r.tags)
             arrays["metadata"][i] = json.dumps(r.metadata, default=str)
-            # NVD Status (from metadata)
-            arrays["nvd_status"][i] = r.metadata.get("nvd_status")
 
         dataset._data = arrays
 

@@ -139,7 +139,7 @@ DESIDERATA_BITS = [2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14]
 # U6: A<F (bit 8 NOT set) - attack before fix
 
 
-@register_transform(default=True)
+@register_transform(default=False)
 class CVDStateTransform(BaseComputed):
     """Compute all 19 CVD analytics fields from timestamps.
 

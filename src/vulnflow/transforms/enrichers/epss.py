@@ -178,10 +178,6 @@ class EPSSEnricher(BaseEnricher):
         dataset.set_column("epss_date", epss_date_arr)
         dataset.set_column("epss_model", epss_model_arr)
 
-        # Update sources
-        if matched_indices:
-            dataset.update_sources(matched_indices, "EPSS")
-
     async def _get_cached_data_async(self) -> dict[str, dict[str, Any]]:
         """Get EPSS data from cache or load fresh (async)."""
         now = time.time()

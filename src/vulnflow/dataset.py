@@ -140,7 +140,19 @@ class VulnDataset:
                         *[t.transform(self) for t in async_transforms]  # type: ignore[attr-defined]
                     )
 
-                asyncio.run(run_all())
+                # Handle Jupyter/IPython event loops
+                try:
+                    # Check if we're in an existing event loop (Jupyter)
+                    asyncio.get_running_loop()
+                    # We have a running loop, need nest_asyncio for nested run()
+                    import nest_asyncio
+
+                    nest_asyncio.apply()
+                    asyncio.run(run_all())
+                except RuntimeError:
+                    # No loop running, use standard asyncio.run()
+                    asyncio.run(run_all())
+
                 # Update progress AFTER all async complete
                 pbar.update(len(async_transforms))
 
@@ -330,6 +342,23 @@ class VulnDataset:
         extractor = PandasExtractor(dataframe)
         return extractor.extract()
 
+    def get_status_distribution(self) -> dict[str, int]:
+        """Get distribution of nvd_status values.
+
+        Returns:
+            Dictionary mapping status values to counts
+
+        Example:
+            >>> ds = VulnDataset.from_nvd("data.json")
+            >>> ds.get_status_distribution()
+            {'analyzed': 1141, 'awaiting': 1506, 'modified': 89, 'rejected': 28, 'unknown': 3}
+        """
+        import numpy as np
+
+        statuses = self.get_column("nvd_status")
+        unique, counts = np.unique(statuses, return_counts=True)
+        return dict(zip(unique.tolist(), counts.tolist(), strict=True))
+
     @classmethod
     def from_polars(cls, dataframe: PolarsDataFrame) -> VulnDataset:
         """Create dataset from Polars DataFrame (in-memory).
@@ -345,33 +374,3 @@ class VulnDataset:
         extractor = PolarsExtractor(dataframe)
         return extractor.extract()
 
-    def update_sources(self, indices: list[int], source: str) -> None:
-        """Update sources list for specified records.
-
-        Args:
-            indices: List of record indices to update
-            source: Source name to add (e.g., "KEV", "EPSS")
-        """
-        from datetime import datetime
-
-        from vulnflow.utils import json
-
-        # Make writable copies (Parquet load returns read-only arrays)
-        sources_col = self.get_column("sources").copy()
-        updated_at_col = self.get_column("last_updated_at").copy()
-
-        now = datetime.now()
-
-        for idx in indices:
-            # Deserialize, update, reserialize
-            sources_list = json.loads(sources_col[idx])
-            if source not in sources_list:
-                sources_list.append(source)
-            sources_col[idx] = json.dumps(sources_list)
-
-            # Update timestamp
-            updated_at_col[idx] = now
-
-        # Update columns with new arrays
-        self._data["sources"] = sources_col
-        self._data["last_updated_at"] = updated_at_col
