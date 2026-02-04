@@ -27,7 +27,7 @@ def download_nvd_sample():
     json_path = data_dir / "nvdcve-2.0-Modified.json"
 
     if json_path.exists():
-        print(f"✓ Already exists: {json_path}")
+        print(f"[OK] Already exists: {json_path}")
         with open(json_path) as f:
             data = json.load(f)
         print(f"  Records: {data.get('totalResults', 'unknown')}")
@@ -49,7 +49,7 @@ def download_nvd_sample():
     # Report
     with open(json_path) as f:
         data = json.load(f)
-    print(f"\n✓ Download complete!")
+    print(f"\n[OK] Download complete!")
     print(f"  File: {json_path}")
     print(f"  Size: {json_path.stat().st_size / 1024 / 1024:.1f} MB")
     print(f"  Records: {data.get('totalResults', 'unknown')}")
