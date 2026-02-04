@@ -155,7 +155,7 @@ def test_kev_enricher_registers_schema():
     _ = KEVEnricher(source="tests/fixtures/kev_sample.csv")
 
     columns = Registry.get_component_columns("KEVEnricher")
-    assert len(columns) == 6
+    assert len(columns) == 8  # 8 fields including kev_vulnerability_name and kev_notes
     assert all(isinstance(col, FieldDefinition) for col in columns)
 
 
@@ -187,3 +187,56 @@ def test_epss_enricher_registers_schema():
     columns = Registry.get_component_columns("EPSSEnricher")
     assert len(columns) == 4  # 4 fields for EPSS
     assert all(isinstance(col, FieldDefinition) for col in columns)
+
+
+# ============================================================================
+# Task 10: KEVEnricher new fields
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_kev_enricher_includes_vulnerability_name():
+    """KEVEnricher includes kev_vulnerability_name column."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    enricher = KEVEnricher(source="tests/fixtures/kev_sample.csv")
+    await enricher.transform(dataset)
+
+    assert "kev_vulnerability_name" in dataset.columns
+    # CVE-2024-0001 has vulnerabilityName in fixture
+    vuln_name = dataset.get_column("kev_vulnerability_name")[0]
+    assert vuln_name == "Example Product RCE"
+
+
+@pytest.mark.asyncio
+async def test_kev_enricher_includes_notes():
+    """KEVEnricher includes kev_notes column."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    enricher = KEVEnricher(source="tests/fixtures/kev_sample.csv")
+    await enricher.transform(dataset)
+
+    assert "kev_notes" in dataset.columns
+    # CVE-2024-0003 has notes in fixture
+    notes = dataset.get_column("kev_notes")[2]
+    assert notes == "Used in targeted campaigns"
+
+
+def test_kev_enricher_schema_has_8_columns():
+    """KEVEnricher schema now has 8 columns including new fields."""
+    import importlib
+
+    from vulnflow.registry import Registry
+
+    Registry.clear()
+
+    # Re-import to trigger decorator registration after clear
+    import vulnflow.transforms.enrichers.kev
+
+    importlib.reload(vulnflow.transforms.enrichers.kev)
+
+    # Instantiate to trigger schema registration via __init__
+    _ = KEVEnricher(source="tests/fixtures/kev_sample.csv")
+
+    columns = Registry.get_component_columns("KEVEnricher")
+    assert len(columns) == 8  # Now 8 fields including new vulnerability_name and notes

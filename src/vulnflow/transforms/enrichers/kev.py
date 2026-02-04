@@ -63,6 +63,10 @@ class KEVEnricher(BaseEnricher):
         FieldDefinition(
             "kev_ransomware", "str", "Known ransomware campaign use", "KEVEnricher"
         ),
+        FieldDefinition(
+            "kev_vulnerability_name", "str", "Vulnerability name from KEV", "KEVEnricher"
+        ),
+        FieldDefinition("kev_notes", "str", "Additional notes from KEV", "KEVEnricher"),
     ]
 
     def __init__(
@@ -130,6 +134,12 @@ class KEVEnricher(BaseEnricher):
         kev_ransomware = np.array(
             [kev_data[k]["ransomware"] for k in kev_cve_ids], dtype=object
         )
+        kev_vuln_names = np.array(
+            [kev_data[k].get("vulnerability_name") for k in kev_cve_ids], dtype=object
+        )
+        kev_notes_arr = np.array(
+            [kev_data[k].get("notes") for k in kev_cve_ids], dtype=object
+        )
 
         # Vectorized matching using np.searchsorted (requires sorted keys)
         sort_idx = np.argsort(kev_cve_ids)
@@ -150,6 +160,8 @@ class KEVEnricher(BaseEnricher):
         kev_vendor = np.full(n, None, dtype=object)
         kev_product = np.full(n, None, dtype=object)
         kev_ransomware_out = np.full(n, None, dtype=object)
+        kev_vulnerability_name = np.full(n, None, dtype=object)
+        kev_notes = np.full(n, None, dtype=object)
 
         # Assign using boolean indexing (fully vectorized)
         kev_date_added[valid] = kev_dates_added[sort_idx[indices[valid]]]
@@ -158,6 +170,8 @@ class KEVEnricher(BaseEnricher):
         kev_vendor[valid] = kev_vendors[sort_idx[indices[valid]]]
         kev_product[valid] = kev_products[sort_idx[indices[valid]]]
         kev_ransomware_out[valid] = kev_ransomware[sort_idx[indices[valid]]]
+        kev_vulnerability_name[valid] = kev_vuln_names[sort_idx[indices[valid]]]
+        kev_notes[valid] = kev_notes_arr[sort_idx[indices[valid]]]
 
         # Set columns
         dataset.set_column("kev_date_added", kev_date_added)
@@ -166,6 +180,8 @@ class KEVEnricher(BaseEnricher):
         dataset.set_column("kev_vendor", kev_vendor)
         dataset.set_column("kev_product", kev_product)
         dataset.set_column("kev_ransomware", kev_ransomware_out)
+        dataset.set_column("kev_vulnerability_name", kev_vulnerability_name)
+        dataset.set_column("kev_notes", kev_notes)
 
         # Update sources
         matched_indices = np.where(valid)[0].tolist()
@@ -269,6 +285,8 @@ class KEVEnricher(BaseEnricher):
                 "vendor": row.get("vendorProject"),
                 "product": row.get("product"),
                 "ransomware": row.get("knownRansomwareCampaignUse"),
+                "vulnerability_name": row.get("vulnerabilityName"),
+                "notes": row.get("notes"),
             }
 
         return kev_data
@@ -314,6 +332,8 @@ class KEVEnricher(BaseEnricher):
                 "vendor": vuln.get("vendorProject"),
                 "product": vuln.get("product"),
                 "ransomware": vuln.get("knownRansomwareCampaignUse"),
+                "vulnerability_name": vuln.get("vulnerabilityName"),
+                "notes": vuln.get("notes"),
             }
 
         return kev_data
