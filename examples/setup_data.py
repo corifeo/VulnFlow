@@ -1,60 +1,26 @@
 """
-Download sample NVD data for notebook examples.
+Quick setup script for downloading NVD Modified feed.
 
-Downloads a subset of real NVD data to examples/data/ directory.
-This data is NOT committed to git (too large), but needed for realistic demos.
+For more control, use vulnflow_data library functions directly:
+    from vulnflow_data import download_year_range, build_cache
 
 Usage:
     uv run python examples/setup_data.py
 """
 
-import gzip
-import json
-from pathlib import Path
-from urllib.request import urlretrieve
-
-
-def download_nvd_sample():
-    """Download NVD Modified feed (smaller, real data)."""
-    # Save to project root data/ directory
-    data_dir = Path(__file__).parent.parent / "data"
-    data_dir.mkdir(exist_ok=True)
-
-    print("Downloading NVD Modified feed...")
-    print("(This contains CVEs modified in the last 8 days - ~2-5K records)")
-
-    url = "https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-Modified.json.gz"
-    gz_path = data_dir / "nvdcve-2.0-Modified.json.gz"
-    json_path = data_dir / "nvdcve-2.0-Modified.json"
-
-    if json_path.exists():
-        print(f"[OK] Already exists: {json_path}")
-        with open(json_path, encoding='utf-8') as f:
-            data = json.load(f)
-        print(f"  Records: {data.get('totalResults', 'unknown')}")
-        return
-
-    # Download
-    print(f"  Downloading to: {gz_path}")
-    urlretrieve(url, gz_path)
-
-    # Extract
-    print(f"  Extracting to: {json_path}")
-    with gzip.open(gz_path, "rb") as f_in:
-        with open(json_path, "wb") as f_out:
-            f_out.write(f_in.read())
-
-    # Cleanup
-    gz_path.unlink()
-
-    # Report
-    with open(json_path, encoding='utf-8') as f:
-        data = json.load(f)
-    print(f"\n[OK] Download complete!")
-    print(f"  File: {json_path}")
-    print(f"  Size: {json_path.stat().st_size / 1024 / 1024:.1f} MB")
-    print(f"  Records: {data.get('totalResults', 'unknown')}")
-
+from vulnflow_data import download_modified
 
 if __name__ == "__main__":
-    download_nvd_sample()
+    print("Downloading NVD Modified feed...")
+    print("(Last 8 days of CVE changes, ~2-5K records)")
+    print()
+
+    path = download_modified()
+
+    print()
+    print("[OK] Setup complete!")
+    print(f"     File: {path}")
+    print()
+    print("Next steps:")
+    print("  cd examples")
+    print("  uv run jupyter lab")
