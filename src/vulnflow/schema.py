@@ -56,6 +56,9 @@ class CVSSEntry:
     base_score: float
     base_severity: str  # "CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"
     source: str  # "nvd", "redhat", "microsoft"
+    is_authoritative: bool = False  # True if type="Primary" in NVD
+    exploitability_score: float | None = None
+    impact_score: float | None = None
     source_url: str | None = None
     published_at: datetime | None = None
     updated_at: datetime | None = None
