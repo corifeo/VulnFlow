@@ -119,6 +119,9 @@ class NVDExtractor(BaseExtractor):
             # Parse references
             references = self._parse_references(cve_data.get("references", []))
 
+            # Parse NVD status
+            nvd_status = self._extract_nvd_status(cve_data)
+
             record = VulnRecord(
                 id=uuid4(),
                 cve_id=cve_id,
@@ -130,6 +133,7 @@ class NVDExtractor(BaseExtractor):
                 cpes=cpes,
                 references=references,
                 sources=["nvd"],
+                metadata={"nvd_status": nvd_status} if nvd_status else {},
             )
             records.append(record)
 
@@ -349,10 +353,10 @@ class NVDExtractor(BaseExtractor):
 
         # Pre-allocate columnar arrays
         n = len(records)
-        # Get all column names from VulnRecord + flattened columns
+        # Get all column names from VulnRecord + flattened columns + nvd_status
         record_cols = get_record_columns()
         flattened_cols = get_flattened_columns()
-        all_columns = record_cols + flattened_cols
+        all_columns = record_cols + flattened_cols + ["nvd_status"]
         arrays = {col: np.empty(n, dtype=object) for col in all_columns}
 
         # Single pass over records
@@ -400,6 +404,8 @@ class NVDExtractor(BaseExtractor):
             # Extensible
             arrays["tags"][i] = json.dumps(r.tags)
             arrays["metadata"][i] = json.dumps(r.metadata, default=str)
+            # NVD Status (from metadata)
+            arrays["nvd_status"][i] = r.metadata.get("nvd_status")
 
         dataset._data = arrays
 
@@ -413,6 +419,39 @@ class NVDExtractor(BaseExtractor):
         ts = ts.replace("Z", "+00:00")
         return datetime.fromisoformat(ts)
 
+    def _extract_nvd_status(self, cve_data: dict[str, Any]) -> str | None:
+        """Extract and normalize NVD status from vulnStatus field.
+
+        Args:
+            cve_data: The CVE data dict
+
+        Returns:
+            Normalized status: analyzed, awaiting, modified, rejected, disputed, unknown
+        """
+        vuln_status = cve_data.get("vulnStatus", "")
+        if not vuln_status:
+            return None
+
+        status_lower = vuln_status.lower()
+
+        # Map NVD status values to normalized form
+        if "analyzed" in status_lower:
+            return "analyzed"
+        elif "awaiting" in status_lower:
+            return "awaiting"
+        elif "modified" in status_lower:
+            return "modified"
+        elif "rejected" in status_lower:
+            return "rejected"
+        elif "disputed" in status_lower:
+            return "disputed"
+        elif "received" in status_lower:
+            return "awaiting"  # Treat "Received" as awaiting analysis
+        elif "undergoing" in status_lower:
+            return "awaiting"  # Treat "Undergoing Analysis" as awaiting
+        else:
+            return "unknown"
+
     def _parse_cvss(self, metrics: dict[str, list[dict]]) -> list[CVSSEntry]:  # type: ignore[type-arg]
         """Parse CVSS metrics from NVD format with multi-source support."""
         cvss_scores: list[CVSSEntry] = []
@@ -424,6 +463,11 @@ class NVDExtractor(BaseExtractor):
             source_raw = metric.get("source", "nvd@nist.gov")
             # Normalize source to simple identifier (nvd, redhat, microsoft, etc.)
             source = self._normalize_cvss_source(source_raw)
+            # Check if this is the Primary/authoritative source
+            is_authoritative = metric.get("type") == "Primary"
+            # Extract exploitability and impact scores (outside cvssData)
+            exploitability_score = metric.get("exploitabilityScore")
+            impact_score = metric.get("impactScore")
 
             cvss_scores.append(
                 CVSSEntry(
@@ -432,6 +476,9 @@ class NVDExtractor(BaseExtractor):
                     base_score=cvss_data.get("baseScore", 0.0),
                     base_severity=cvss_data.get("baseSeverity", "NONE"),
                     source=source,
+                    is_authoritative=is_authoritative,
+                    exploitability_score=exploitability_score,
+                    impact_score=impact_score,
                 )
             )
 
@@ -440,6 +487,9 @@ class NVDExtractor(BaseExtractor):
             cvss_data = metric.get("cvssData", {})
             source_raw = metric.get("source", "nvd@nist.gov")
             source = self._normalize_cvss_source(source_raw)
+            is_authoritative = metric.get("type") == "Primary"
+            exploitability_score = metric.get("exploitabilityScore")
+            impact_score = metric.get("impactScore")
 
             cvss_scores.append(
                 CVSSEntry(
@@ -448,6 +498,9 @@ class NVDExtractor(BaseExtractor):
                     base_score=cvss_data.get("baseScore", 0.0),
                     base_severity=cvss_data.get("baseSeverity", "NONE"),
                     source=source,
+                    is_authoritative=is_authoritative,
+                    exploitability_score=exploitability_score,
+                    impact_score=impact_score,
                 )
             )
 
@@ -456,6 +509,9 @@ class NVDExtractor(BaseExtractor):
             cvss_data = metric.get("cvssData", {})
             source_raw = metric.get("source", "nvd@nist.gov")
             source = self._normalize_cvss_source(source_raw)
+            is_authoritative = metric.get("type") == "Primary"
+            exploitability_score = metric.get("exploitabilityScore")
+            impact_score = metric.get("impactScore")
 
             cvss_scores.append(
                 CVSSEntry(
@@ -464,6 +520,9 @@ class NVDExtractor(BaseExtractor):
                     base_score=cvss_data.get("baseScore", 0.0),
                     base_severity=metric.get("baseSeverity", "NONE"),
                     source=source,
+                    is_authoritative=is_authoritative,
+                    exploitability_score=exploitability_score,
+                    impact_score=impact_score,
                 )
             )
 

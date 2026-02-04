@@ -443,3 +443,50 @@ def test_polars_extractor_delegates_to_pandas():
 
     assert len(dataset) == 1
     assert dataset.get_column("cve_id")[0] == "CVE-2024-0001"
+
+
+# Task 5 tests: New CVSS fields and nvd_status
+
+
+def test_nvd_extractor_sets_is_authoritative():
+    """NVD extractor sets is_authoritative based on type=Primary."""
+    extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
+    dataset = extractor.extract()
+
+    cvss_raw = dataset.get_column("cvss_scores")[0]
+    cvss_scores = json.loads(cvss_raw)
+
+    # First record has Primary type, so should have is_authoritative=True
+    auth_scores = [s for s in cvss_scores if s.get("is_authoritative")]
+    assert len(auth_scores) >= 1
+    assert auth_scores[0]["is_authoritative"] is True
+
+
+def test_nvd_extractor_extracts_exploitability_and_impact_scores():
+    """NVD extractor extracts exploitability_score and impact_score from CVSS."""
+    extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
+    dataset = extractor.extract()
+
+    cvss_raw = dataset.get_column("cvss_scores")[0]
+    cvss_scores = json.loads(cvss_raw)
+
+    # First record should have exploitabilityScore=3.9 and impactScore=5.9
+    assert len(cvss_scores) >= 1
+    assert cvss_scores[0].get("exploitability_score") == 3.9
+    assert cvss_scores[0].get("impact_score") == 5.9
+
+
+def test_nvd_extractor_extracts_nvd_status():
+    """NVD extractor adds nvd_status column."""
+    extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
+    dataset = extractor.extract()
+
+    assert "nvd_status" in dataset.columns
+    status = dataset.get_column("nvd_status")
+
+    # First record has vulnStatus="Analyzed"
+    assert status[0] == "analyzed"
+    # Second record has vulnStatus="Awaiting Analysis"
+    assert status[1] == "awaiting"
+    # Third record has vulnStatus="Modified"
+    assert status[2] == "modified"
