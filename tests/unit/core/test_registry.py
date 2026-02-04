@@ -377,3 +377,232 @@ def test_registry_get_transform_raises_keyerror() -> None:
 
     with pytest.raises(KeyError, match="unknown"):
         Registry.get_transform("unknown")
+
+
+# =============================================================================
+# FieldDefinition and Schema Registration Tests
+# =============================================================================
+
+
+def test_field_definition_creation() -> None:
+    """FieldDefinition dataclass can be created."""
+    from vulnflow.registry import FieldDefinition
+
+    field = FieldDefinition(
+        name="kev_date_added",
+        type="datetime",
+        description="Date added to KEV catalog",
+        source_component="KEVEnricher",
+    )
+
+    assert field.name == "kev_date_added"
+    assert field.type == "datetime"
+    assert field.description == "Date added to KEV catalog"
+    assert field.source_component == "KEVEnricher"
+
+
+def test_register_schema() -> None:
+    """Registry.register_schema() stores schema."""
+    from vulnflow.registry import FieldDefinition, Registry
+
+    Registry.clear()
+
+    fields = [
+        FieldDefinition("kev_date_added", "datetime", "KEV date added", "KEVEnricher")
+    ]
+
+    Registry.register_schema("KEVEnricher", fields)
+
+    # Should be retrievable
+    result = Registry.get_component_columns("KEVEnricher")
+    assert len(result) == 1
+    assert result[0].name == "kev_date_added"
+
+
+def test_get_all_columns() -> None:
+    """Registry.get_all_columns() returns all registered fields."""
+    from vulnflow.registry import FieldDefinition, Registry
+
+    Registry.clear()
+
+    kev_fields = [
+        FieldDefinition("kev_date_added", "datetime", "KEV date", "KEVEnricher")
+    ]
+    epss_fields = [
+        FieldDefinition("epss_probability", "float", "EPSS probability", "EPSSEnricher")
+    ]
+
+    Registry.register_schema("KEVEnricher", kev_fields)
+    Registry.register_schema("EPSSEnricher", epss_fields)
+
+    all_fields = Registry.get_all_columns()
+
+    assert len(all_fields) == 2
+    field_names = {f.name for f in all_fields}
+    assert "kev_date_added" in field_names
+    assert "epss_probability" in field_names
+
+
+def test_get_component_columns_nonexistent() -> None:
+    """Registry.get_component_columns() returns empty list for unknown component."""
+    from vulnflow.registry import Registry
+
+    Registry.clear()
+
+    result = Registry.get_component_columns("NonExistent")
+
+    assert result == []
+
+
+# =============================================================================
+# Transform Schema Registration Tests
+# =============================================================================
+
+
+def test_kev_enricher_has_output_schema() -> None:
+    """KEVEnricher defines OUTPUT_SCHEMA with FieldDefinitions."""
+    from vulnflow.registry import FieldDefinition
+    from vulnflow.transforms.enrichers.kev import KEVEnricher
+
+    assert hasattr(KEVEnricher, "OUTPUT_SCHEMA")
+    assert isinstance(KEVEnricher.OUTPUT_SCHEMA, list)
+    assert len(KEVEnricher.OUTPUT_SCHEMA) > 0
+
+    # Verify schema structure (new FieldDefinition format)
+    for field in KEVEnricher.OUTPUT_SCHEMA:
+        assert isinstance(field, FieldDefinition)
+        assert field.name
+        assert field.type
+
+
+def test_epss_enricher_has_output_schema() -> None:
+    """EPSSEnricher defines OUTPUT_SCHEMA with FieldDefinitions."""
+    from vulnflow.registry import FieldDefinition
+    from vulnflow.transforms.enrichers.epss import EPSSEnricher
+
+    assert hasattr(EPSSEnricher, "OUTPUT_SCHEMA")
+    assert isinstance(EPSSEnricher.OUTPUT_SCHEMA, list)
+    assert len(EPSSEnricher.OUTPUT_SCHEMA) >= 4  # probability, percentile, date, model
+
+    # Verify schema structure (new FieldDefinition format)
+    for field in EPSSEnricher.OUTPUT_SCHEMA:
+        assert isinstance(field, FieldDefinition)
+        assert field.name
+        assert field.type
+
+
+def test_event_inference_has_schema() -> None:
+    """EventInference defines SCHEMA_VERSION and OUTPUT_SCHEMA."""
+    from vulnflow.transforms.inferences.events import EventInference
+
+    assert hasattr(EventInference, "SCHEMA_VERSION")
+    assert hasattr(EventInference, "OUTPUT_SCHEMA")
+    assert len(EventInference.OUTPUT_SCHEMA) >= 6  # 6 CVD timestamp columns
+
+
+def test_tag_inference_has_schema() -> None:
+    """TagInference defines SCHEMA_VERSION and OUTPUT_SCHEMA."""
+    from vulnflow.transforms.inferences.tags import TagInference
+
+    assert hasattr(TagInference, "SCHEMA_VERSION")
+    assert hasattr(TagInference, "OUTPUT_SCHEMA")
+
+
+def test_cvd_state_transform_has_schema() -> None:
+    """CVDStateTransform defines SCHEMA_VERSION and OUTPUT_SCHEMA with all 19 fields."""
+    from vulnflow.transforms.computed.cvd_state import CVDStateTransform
+
+    assert hasattr(CVDStateTransform, "SCHEMA_VERSION")
+    assert hasattr(CVDStateTransform, "OUTPUT_SCHEMA")
+    # CVDStateTransform now computes all 19 CVD fields (including desiderata)
+    assert len(CVDStateTransform.OUTPUT_SCHEMA) == 19
+
+
+def test_cvd_state_transform_includes_desiderata_fields() -> None:
+    """CVDStateTransform OUTPUT_SCHEMA includes desiderata_mask and desiderata_count."""
+    from vulnflow.transforms.computed.cvd_state import CVDStateTransform
+
+    field_names = [f.name for f in CVDStateTransform.OUTPUT_SCHEMA]
+
+    # Core fields
+    assert "cvd_state" in field_names
+    assert "state_bits" in field_names
+
+    # Desiderata fields (consolidated from old CVDDesiderataTransform)
+    assert "desiderata_mask" in field_names
+    assert "desiderata_count" in field_names
+
+    # Zero-day flags
+    assert "is_zero_day_exploit" in field_names
+    assert "is_zero_day_attack" in field_names
+
+
+# =============================================================================
+# Schema Introspection Utilities Tests
+# =============================================================================
+
+
+def test_get_record_columns_returns_list() -> None:
+    """get_record_columns() returns list of field names."""
+    from vulnflow.utils.schema import get_record_columns
+
+    columns = get_record_columns()
+
+    assert isinstance(columns, list)
+    assert len(columns) > 0
+
+
+def test_get_record_columns_contains_id() -> None:
+    """get_record_columns() includes VulnRecord fields."""
+    from vulnflow.utils.schema import get_record_columns
+
+    columns = get_record_columns()
+
+    assert "id" in columns
+    assert "cve_id" in columns
+    assert "description" in columns
+    assert "cvss_scores" in columns
+
+
+def test_get_flattened_columns_returns_list() -> None:
+    """get_flattened_columns() returns list of flattened column names."""
+    from vulnflow.utils.schema import get_flattened_columns
+
+    columns = get_flattened_columns()
+
+    assert isinstance(columns, list)
+    assert len(columns) > 0
+
+
+def test_get_flattened_columns_contains_cvss() -> None:
+    """get_flattened_columns() includes CVSS flattened columns."""
+    from vulnflow.utils.schema import get_flattened_columns
+
+    columns = get_flattened_columns()
+
+    assert "cvss_base_score" in columns
+    assert "cvss_base_severity" in columns
+    assert "cvss_version" in columns
+    assert "cvss_vector_string" in columns
+    assert "cvss_source" in columns
+
+
+def test_get_flattened_columns_contains_cwe() -> None:
+    """get_flattened_columns() includes CWE flattened columns."""
+    from vulnflow.utils.schema import get_flattened_columns
+
+    columns = get_flattened_columns()
+
+    assert "primary_cwe_id" in columns
+    assert "primary_cwe_name" in columns
+
+
+def test_get_flattened_columns_contains_cpe() -> None:
+    """get_flattened_columns() includes CPE flattened columns."""
+    from vulnflow.utils.schema import get_flattened_columns
+
+    columns = get_flattened_columns()
+
+    assert "primary_vendor" in columns
+    assert "primary_product" in columns
+    assert "primary_version" in columns
