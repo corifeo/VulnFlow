@@ -1,6 +1,6 @@
 """
 Default Registry - Integration tests
-Tests: KEV, EPSS, CVDState, Desiderata, EventInference registered as defaults
+Tests: KEV, EPSS, CVDState, EventInference registered as defaults
 
 Layer: Integration
 Dependencies: All transforms
@@ -16,11 +16,12 @@ from vulnflow.registry import Registry
 
 
 def test_default_transforms_registered():
-    """All default transforms registered (KEV, EPSS, EventInference, CVDState, Desiderata)."""
+    """All default transforms registered (KEV, EPSS, EventInference, CVDState)."""
     defaults = Registry.get_default_transforms()
 
-    # Should have at least 5 default transforms
-    assert len(defaults) >= 5, f"Expected at least 5 defaults, got {len(defaults)}"
+    # Should have at least 4 default transforms
+    # (CVDDesiderataTransform was consolidated into CVDStateTransform)
+    assert len(defaults) >= 4, f"Expected at least 4 defaults, got {len(defaults)}"
 
     transform_names = [t.__class__.__name__ for t in defaults]
 
@@ -32,8 +33,8 @@ def test_default_transforms_registered():
     assert "EventInference" in transform_names
 
     # Computed (sync pure computation)
+    # CVDStateTransform now computes all 19 CVD fields (including desiderata)
     assert "CVDStateTransform" in transform_names
-    assert "CVDDesiderataTransform" in transform_names
 
 
 def test_default_transforms_instantiable():
