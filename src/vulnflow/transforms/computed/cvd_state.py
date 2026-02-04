@@ -22,6 +22,7 @@ Based on SEI/CMU 2021 paper and vulnstate/constants.py definitions.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -31,6 +32,42 @@ if TYPE_CHECKING:
 
 from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseComputed
+
+
+def _safe_compare(ts1: datetime | None, ts2: datetime | None) -> bool | None:
+    """Compare two timestamps safely, handling timezone mismatches.
+
+    Returns True if ts1 < ts2, False if ts1 >= ts2, None if either is None.
+    Normalizes timezone-naive datetimes to UTC for comparison.
+    """
+    if ts1 is None or ts2 is None:
+        return None
+
+    # Normalize to UTC if needed
+    if ts1.tzinfo is None:
+        ts1 = ts1.replace(tzinfo=timezone.utc)
+    if ts2.tzinfo is None:
+        ts2 = ts2.replace(tzinfo=timezone.utc)
+
+    return ts1 < ts2
+
+
+def _safe_delta(ts1: datetime | None, ts2: datetime | None) -> float:
+    """Compute time delta in days between two timestamps.
+
+    Returns NaN if either timestamp is None.
+    Normalizes timezone-naive datetimes to UTC.
+    """
+    if ts1 is None or ts2 is None:
+        return float("nan")
+
+    # Normalize to UTC if needed
+    if ts1.tzinfo is None:
+        ts1 = ts1.replace(tzinfo=timezone.utc)
+    if ts2.tzinfo is None:
+        ts2 = ts2.replace(tzinfo=timezone.utc)
+
+    return (ts2 - ts1).total_seconds() / 86400.0
 
 # =============================================================================
 # Constants from CVD model (matching vulnstate/constants.py)
@@ -231,35 +268,35 @@ class CVDStateTransform(BaseComputed):
 
             # === Pairwise: pair_mask (15 bits) ===
             mask = 0
-            if v_occurred and f_occurred and v < f:
+            if _safe_compare(v, f) is True:
                 mask |= 1 << 0  # V<F
-            if v_occurred and d_occurred and v < d:
+            if _safe_compare(v, d) is True:
                 mask |= 1 << 1  # V<D
-            if v_occurred and p_occurred and v < p:
+            if _safe_compare(v, p) is True:
                 mask |= 1 << 2  # V<P
-            if v_occurred and x_occurred and v < x:
+            if _safe_compare(v, x) is True:
                 mask |= 1 << 3  # V<X
-            if v_occurred and a_occurred and v < a:
+            if _safe_compare(v, a) is True:
                 mask |= 1 << 4  # V<A
-            if f_occurred and d_occurred and f < d:
+            if _safe_compare(f, d) is True:
                 mask |= 1 << 5  # F<D
-            if f_occurred and p_occurred and f < p:
+            if _safe_compare(f, p) is True:
                 mask |= 1 << 6  # F<P
-            if f_occurred and x_occurred and f < x:
+            if _safe_compare(f, x) is True:
                 mask |= 1 << 7  # F<X
-            if f_occurred and a_occurred and f < a:
+            if _safe_compare(f, a) is True:
                 mask |= 1 << 8  # F<A
-            if d_occurred and p_occurred and d < p:
+            if _safe_compare(d, p) is True:
                 mask |= 1 << 9  # D<P
-            if d_occurred and x_occurred and d < x:
+            if _safe_compare(d, x) is True:
                 mask |= 1 << 10  # D<X
-            if d_occurred and a_occurred and d < a:
+            if _safe_compare(d, a) is True:
                 mask |= 1 << 11  # D<A
-            if p_occurred and x_occurred and p < x:
+            if _safe_compare(p, x) is True:
                 mask |= 1 << 12  # P<X
-            if p_occurred and a_occurred and p < a:
+            if _safe_compare(p, a) is True:
                 mask |= 1 << 13  # P<A
-            if x_occurred and a_occurred and x < a:
+            if _safe_compare(x, a) is True:
                 mask |= 1 << 14  # X<A
             pair_masks[i] = mask
 
@@ -274,34 +311,28 @@ class CVDStateTransform(BaseComputed):
 
             # === Zero-Day flags (anti-desiderata U1-U3) ===
             # These are TRUE when the bad ordering occurred
-            if v_occurred and p_occurred:
-                is_uncoordinated[i] = p < v  # U1: P before V
-            if v_occurred and x_occurred:
-                is_zero_day_exploit[i] = x < v  # U2: X before V
-            if v_occurred and a_occurred:
-                is_zero_day_attack[i] = a < v  # U3: A before V
+            if _safe_compare(p, v) is True:
+                is_uncoordinated[i] = True  # U1: P before V
+            if _safe_compare(x, v) is True:
+                is_zero_day_exploit[i] = True  # U2: X before V
+            if _safe_compare(a, v) is True:
+                is_zero_day_attack[i] = True  # U3: A before V
 
             # === Exposure flags (anti-desiderata U4-U6) ===
-            if f_occurred and p_occurred:
-                is_premature_disclosure[i] = p < f  # U4: P before F
-            if f_occurred and x_occurred:
-                is_exploit_before_fix[i] = x < f  # U5: X before F
-            if f_occurred and a_occurred:
-                is_attack_before_fix[i] = a < f  # U6: A before F
+            if _safe_compare(p, f) is True:
+                is_premature_disclosure[i] = True  # U4: P before F
+            if _safe_compare(x, f) is True:
+                is_exploit_before_fix[i] = True  # U5: X before F
+            if _safe_compare(a, f) is True:
+                is_attack_before_fix[i] = True  # U6: A before F
 
             # === Time deltas ===
-            if v_occurred and f_occurred:
-                fix_lag_days[i] = (f - v).total_seconds() / 86400.0
-            if v_occurred and p_occurred:
-                disclosure_lag_days[i] = (p - v).total_seconds() / 86400.0
-            if f_occurred and d_occurred:
-                deployment_lag_days[i] = (d - f).total_seconds() / 86400.0
-            if p_occurred and x_occurred:
-                exploit_lag_days[i] = (x - p).total_seconds() / 86400.0
-            if x_occurred and a_occurred:
-                attack_lag_days[i] = (a - x).total_seconds() / 86400.0
-            if p_occurred and a_occurred:
-                public_to_attack_days[i] = (a - p).total_seconds() / 86400.0
+            fix_lag_days[i] = _safe_delta(v, f)
+            disclosure_lag_days[i] = _safe_delta(v, p)
+            deployment_lag_days[i] = _safe_delta(f, d)
+            exploit_lag_days[i] = _safe_delta(p, x)
+            attack_lag_days[i] = _safe_delta(x, a)
+            public_to_attack_days[i] = _safe_delta(p, a)
 
         # Set all columns
         dataset.set_column("cvd_state", np.array(states, dtype=object))
