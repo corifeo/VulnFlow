@@ -25,7 +25,7 @@ from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, ReferenceEntry, VulnR
 from vulnflow.utils import json
 from vulnflow.utils.cpe import parse_cpe23
 from vulnflow.utils.http import HttpFetcher, is_url
-from vulnflow.utils.schema import get_flattened_columns, get_record_columns
+from vulnflow.utils.schema import get_record_columns
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -260,8 +260,9 @@ class NVDExtractor(BaseExtractor):
 
         This method owns the NVD-specific conversion logic including:
         - JSON encoding of complex fields
-        - Flattening CVSS/CWE/CPE to scalar columns
-        - NVD source priority for CVSS selection
+
+        Note: Flattening (CVSS/CWE/CPE to scalar columns) is now done via
+        FlattenTransforms (CVSSFlattenTransform, CWEPrimaryTransform, CPEPrimaryTransform).
 
         Args:
             records: List of parsed VulnRecord instances
@@ -282,81 +283,15 @@ class NVDExtractor(BaseExtractor):
                 return "[]"
             return json.dumps(value, default=str)
 
-        def flatten_cvss(
-            cvss_scores: list[CVSSEntry],
-        ) -> dict[str, float | str | None]:
-            """Flatten list[CVSSEntry] to scalar columns.
-
-            Selection logic (NVD-specific):
-            1. Prefer source: nvd > redhat > microsoft > other
-            2. If tie, take first in list
-            """
-            if not cvss_scores:
-                return {
-                    "cvss_base_score": None,
-                    "cvss_base_severity": None,
-                    "cvss_version": None,
-                    "cvss_vector_string": None,
-                    "cvss_source": None,
-                }
-
-            # Source preference order (NVD domain knowledge)
-            source_priority = {"nvd": 0, "redhat": 1, "microsoft": 2}
-
-            def score_key(entry: CVSSEntry) -> int:
-                return source_priority.get(entry.source, 999)
-
-            # Select preferred entry
-            selected = min(cvss_scores, key=score_key)
-
-            return {
-                "cvss_base_score": selected.base_score,
-                "cvss_base_severity": selected.base_severity,
-                "cvss_version": selected.version,
-                "cvss_vector_string": selected.vector_string,
-                "cvss_source": selected.source,
-            }
-
-        def flatten_cwe(cwes: list[CWEEntry]) -> dict[str, str | None]:
-            """Flatten list[CWEEntry] to scalar columns (first entry)."""
-            if not cwes:
-                return {
-                    "primary_cwe_id": None,
-                    "primary_cwe_name": None,
-                }
-            # Take first CWE
-            first = cwes[0]
-            return {
-                "primary_cwe_id": first.id,
-                "primary_cwe_name": first.name,
-            }
-
-        def flatten_cpe(cpes: list[CPEEntry]) -> dict[str, str | None]:
-            """Flatten list[CPEEntry] to scalar columns (first entry)."""
-            if not cpes:
-                return {
-                    "primary_vendor": None,
-                    "primary_product": None,
-                    "primary_version": None,
-                }
-            # Take first CPE
-            first = cpes[0]
-            return {
-                "primary_vendor": first.vendor,
-                "primary_product": first.product,
-                "primary_version": first.version,
-            }
-
         dataset = VulnDataset()
         if not records:
             return dataset
 
         # Pre-allocate columnar arrays
         n = len(records)
-        # Get all column names from VulnRecord + flattened columns + nvd_status
+        # Get all column names from VulnRecord + nvd_status
         record_cols = get_record_columns()
-        flattened_cols = get_flattened_columns()
-        all_columns = record_cols + flattened_cols + ["nvd_status"]
+        all_columns = record_cols + ["nvd_status"]
         arrays = {col: np.empty(n, dtype=object) for col in all_columns}
 
         # Single pass over records
@@ -378,27 +313,12 @@ class NVDExtractor(BaseExtractor):
             # Scoring
             arrays["cvss_scores"][i] = encode_nested(r.cvss_scores)
             arrays["epss_scores"][i] = encode_nested(r.epss_scores)
-            # Flattened CVSS
-            flattened = flatten_cvss(r.cvss_scores)
-            arrays["cvss_base_score"][i] = flattened["cvss_base_score"]
-            arrays["cvss_base_severity"][i] = flattened["cvss_base_severity"]
-            arrays["cvss_version"][i] = flattened["cvss_version"]
-            arrays["cvss_vector_string"][i] = flattened["cvss_vector_string"]
-            arrays["cvss_source"][i] = flattened["cvss_source"]
             # Exploitation
             arrays["kev"][i] = encode_nested(r.kev)
             arrays["exploits"][i] = encode_nested(r.exploits)
             # Classification
             arrays["cwes"][i] = encode_nested(r.cwes)
             arrays["cpes"][i] = encode_nested(r.cpes)
-            # Flattened CWE/CPE
-            cwe_flat = flatten_cwe(r.cwes)
-            arrays["primary_cwe_id"][i] = cwe_flat["primary_cwe_id"]
-            arrays["primary_cwe_name"][i] = cwe_flat["primary_cwe_name"]
-            cpe_flat = flatten_cpe(r.cpes)
-            arrays["primary_vendor"][i] = cpe_flat["primary_vendor"]
-            arrays["primary_product"][i] = cpe_flat["primary_product"]
-            arrays["primary_version"][i] = cpe_flat["primary_version"]
             # References
             arrays["references"][i] = encode_nested(r.references)
             # Extensible
