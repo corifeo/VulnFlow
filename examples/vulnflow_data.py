@@ -269,6 +269,22 @@ def build_cache(
 
     if verbose:
         print(f"  Merged dataset: {len(merged_ds)} CVEs")
+
+    # Convert numpy datetime64 to Python datetime for transform compatibility
+    # Parquet loads timestamps as numpy.datetime64, but transforms expect datetime
+    import pandas as pd
+    from datetime import timezone
+
+    for col in merged_ds._data:
+        if merged_ds._data[col].dtype.kind == "M":  # datetime64 type
+            # Convert to pandas Series for easier handling, then to Python datetime
+            series = pd.Series(merged_ds._data[col])
+            # Convert to Python datetime with UTC timezone
+            merged_ds._data[col] = series.apply(
+                lambda x: x.to_pydatetime().replace(tzinfo=timezone.utc) if pd.notna(x) else None
+            ).values
+
+    if verbose:
         print(f"\n  Applying {len(transforms)} transforms...")
 
     # Apply transforms
