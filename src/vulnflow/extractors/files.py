@@ -74,8 +74,13 @@ class ParquetExtractor(BaseExtractor):
         if isinstance(self.path, list) and len(self.path) == 0:
             return VulnDataset()
 
-        # Normalize to list
-        paths = [self.path] if isinstance(self.path, str) else self.path
+        # Normalize to list (handle str, Path, or list)
+        if isinstance(self.path, str):
+            paths = [self.path]
+        elif isinstance(self.path, Path):
+            paths = [str(self.path)]
+        else:
+            paths = self.path
 
         # Fast path: single file
         if len(paths) == 1:
