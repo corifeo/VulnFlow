@@ -32,7 +32,7 @@ def test_transform_with_no_args_uses_enricher_defaults():
 
 def test_transform_with_no_args_uses_transform_defaults():
     """dataset.transform() with no args uses registry transform defaults."""
-    from vulnflow.transforms.computed import CVDDesiderataTransform, CVDStateTransform
+    from vulnflow.transforms.computed import CVDStateTransform
     from vulnflow.transforms.enrichers import EPSSEnricher, KEVEnricher
     from vulnflow.transforms.inferences import EventInference
 
@@ -46,8 +46,9 @@ def test_transform_with_no_args_uses_transform_defaults():
         ]
     )
 
-    # Then run computed transforms explicitly (since defaults include enrichers too)
-    dataset.transform([EventInference(), CVDStateTransform(), CVDDesiderataTransform()])
+    # Then run computed transforms explicitly
+    # CVDStateTransform now computes all 19 CVD fields (including desiderata)
+    dataset.transform([EventInference(), CVDStateTransform()])
 
     # Should have EventInference columns (CVD timestamps)
     expected_columns = [
@@ -66,7 +67,7 @@ def test_transform_with_no_args_uses_transform_defaults():
 
 def test_full_pipeline_with_defaults():
     """Full ETL pipeline works with registered defaults."""
-    from vulnflow.transforms.computed import CVDDesiderataTransform, CVDStateTransform
+    from vulnflow.transforms.computed import CVDStateTransform
     from vulnflow.transforms.enrichers import EPSSEnricher, KEVEnricher
     from vulnflow.transforms.inferences import EventInference
 
@@ -81,7 +82,8 @@ def test_full_pipeline_with_defaults():
     )
 
     # Run computed transforms
-    dataset.transform([EventInference(), CVDStateTransform(), CVDDesiderataTransform()])
+    # CVDStateTransform now computes all 19 CVD fields
+    dataset.transform([EventInference(), CVDStateTransform()])
 
     # Verify expected columns exist
     assert len(dataset.columns) > 20, "Expected multiple columns from full pipeline"
@@ -107,7 +109,7 @@ def test_explicit_transform_list_overrides_defaults():
     # Transform with explicit list - should only run CVDStateTransform
     dataset.transform([CVDStateTransform()])
 
-    # Should have CVDState column but not Desiderata columns
+    # Should have CVDState column (now includes all 19 fields)
     assert "cvd_state" in dataset.columns
-    # Desiderata should not run (not in explicit list)
-    # Note: We can't easily test absence since defaults might have already run
+    assert "desiderata_mask" in dataset.columns
+    assert "desiderata_count" in dataset.columns

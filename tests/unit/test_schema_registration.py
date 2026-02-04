@@ -59,16 +59,29 @@ def test_tag_inference_has_schema():
 
 
 def test_cvd_state_transform_has_schema():
-    """CVDStateTransform defines SCHEMA_VERSION and OUTPUT_SCHEMA."""
+    """CVDStateTransform defines SCHEMA_VERSION and OUTPUT_SCHEMA with all 19 fields."""
     from vulnflow.transforms.computed.cvd_state import CVDStateTransform
 
     assert hasattr(CVDStateTransform, "SCHEMA_VERSION")
     assert hasattr(CVDStateTransform, "OUTPUT_SCHEMA")
+    # CVDStateTransform now computes all 19 CVD fields (including desiderata)
+    assert len(CVDStateTransform.OUTPUT_SCHEMA) == 19
 
 
-def test_desiderata_transform_has_schema():
-    """CVDDesiderataTransform defines SCHEMA_VERSION and OUTPUT_SCHEMA."""
-    from vulnflow.transforms.computed.desiderata import CVDDesiderataTransform
+def test_cvd_state_transform_includes_desiderata_fields():
+    """CVDStateTransform OUTPUT_SCHEMA includes desiderata_mask and desiderata_count."""
+    from vulnflow.transforms.computed.cvd_state import CVDStateTransform
 
-    assert hasattr(CVDDesiderataTransform, "SCHEMA_VERSION")
-    assert hasattr(CVDDesiderataTransform, "OUTPUT_SCHEMA")
+    field_names = [f.name for f in CVDStateTransform.OUTPUT_SCHEMA]
+
+    # Core fields
+    assert "cvd_state" in field_names
+    assert "state_bits" in field_names
+
+    # Desiderata fields (consolidated from old CVDDesiderataTransform)
+    assert "desiderata_mask" in field_names
+    assert "desiderata_count" in field_names
+
+    # Zero-day flags
+    assert "is_zero_day_exploit" in field_names
+    assert "is_zero_day_attack" in field_names
