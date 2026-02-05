@@ -264,6 +264,8 @@ class PipelineExecutor:
         """Run parallel mini-pipelines: extractor[i] → loader[i].
 
         Pattern 1: Each worker runs one Extract→Load pair independently.
+        When workers <= 1, runs sequentially in-process (avoids
+        ProcessPoolExecutor overhead and Jupyter pickling issues).
 
         Args:
             extractors: List of extractor instances (one per source)
@@ -276,10 +278,9 @@ class PipelineExecutor:
         Raises:
             PipelineError: If any worker fails
         """
-        from concurrent.futures import ProcessPoolExecutor, as_completed
-
         from vulnflow.exceptions import PipelineError
         from vulnflow.pipeline import PipelineResult
+        from vulnflow.utils.progress import progress_bar
 
         start_time = time.time()
         tasks = list(zip(extractors, loaders, strict=True))
@@ -303,24 +304,56 @@ class PipelineExecutor:
             else:
                 output_keys.append(n)
 
-        with ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = {
-                pool.submit(_run_mini_pipeline, ext, loader): idx
-                for idx, (ext, loader) in enumerate(tasks)
-            }
+        if workers <= 1:
+            # Sequential: run in-process (Jupyter-safe, no pickling needed)
+            with progress_bar(
+                total=len(tasks),
+                desc="Extracting feeds",
+                unit="feeds",
+            ) as pbar:
+                for idx, (ext, loader) in enumerate(tasks):
+                    ext_name = get_stage_name(ext)
+                    loader_key = output_keys[idx]
+                    pbar.set_postfix_str(f"[{ext_name}]")
+                    try:
+                        result = _run_mini_pipeline(ext, loader)
+                        loader_outputs[loader_key] = result
+                        successful.extend([ext_name, loader_key])
+                    except Exception as exc:
+                        logger.warning("Worker %d failed: %s", idx, exc)
+                        failed.extend([ext_name, loader_key])
+                        errors.append(exc)
+                    finally:
+                        pbar.update(1)
+        else:
+            # Parallel: use ProcessPoolExecutor
+            from concurrent.futures import ProcessPoolExecutor, as_completed
 
-            for future in as_completed(futures):
-                idx = futures[future]
-                ext_name = get_stage_name(extractors[idx])
-                loader_key = output_keys[idx]
-                try:
-                    result = future.result()
-                    loader_outputs[loader_key] = result
-                    successful.extend([ext_name, loader_key])
-                except Exception as exc:
-                    logger.warning("Parallel worker %d failed: %s", idx, exc)
-                    failed.extend([ext_name, loader_key])
-                    errors.append(exc)
+            with progress_bar(
+                total=len(tasks),
+                desc="Extracting feeds",
+                unit="feeds",
+            ) as pbar:
+                with ProcessPoolExecutor(max_workers=workers) as pool:
+                    futures = {
+                        pool.submit(_run_mini_pipeline, ext, loader): idx
+                        for idx, (ext, loader) in enumerate(tasks)
+                    }
+
+                    for future in as_completed(futures):
+                        idx = futures[future]
+                        ext_name = get_stage_name(extractors[idx])
+                        loader_key = output_keys[idx]
+                        try:
+                            result = future.result()
+                            loader_outputs[loader_key] = result
+                            successful.extend([ext_name, loader_key])
+                        except Exception as exc:
+                            logger.warning("Parallel worker %d failed: %s", idx, exc)
+                            failed.extend([ext_name, loader_key])
+                            errors.append(exc)
+                        finally:
+                            pbar.update(1)
 
         duration = time.time() - start_time
 
