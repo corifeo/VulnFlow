@@ -15,10 +15,8 @@ Used by: dataset.from_parquet(), from_json(), from_pandas(), from_polars()
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-from uuid import UUID
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -239,6 +237,7 @@ class JSONExtractor(BaseExtractor):
             ValueError: If JSON is not a list
         """
         from vulnflow.dataset import VulnDataset
+        from vulnflow.utils.schema import build_type_map, deserialize_value
 
         path = Path(self.path)
         self._ensure_file_exists(path)
@@ -251,8 +250,8 @@ class JSONExtractor(BaseExtractor):
         if not data:
             return VulnDataset()
 
-        # Build type map from Registry
-        type_map = self._build_type_map()
+        # Build type map once from Registry
+        type_map = build_type_map()
 
         # Extract all column names
         all_columns: set[str] = set()
@@ -267,7 +266,7 @@ class JSONExtractor(BaseExtractor):
             values = []
             for record in data:
                 value = record.get(col)
-                converted = self._convert_value(value, col, type_map)
+                converted = deserialize_value(value, col, type_map)
                 values.append(converted)
 
             # Create numpy array with object dtype to handle heterogeneous types
@@ -283,75 +282,6 @@ class JSONExtractor(BaseExtractor):
             logger.warning("JSON dataset missing 'description' column")
 
         return dataset
-
-    def _build_type_map(self) -> dict[str, str]:
-        """Build mapping of column name → type from Registry.
-
-        Returns:
-            Dictionary mapping column names to their expected types
-        """
-        type_map = {}
-        for field_def in Registry.get_all_columns():
-            type_map[field_def.name] = field_def.type
-        return type_map
-
-    def _convert_value(self, value: Any, column: str, type_map: dict[str, str]) -> Any:
-        """Convert value using schema type information.
-
-        Args:
-            value: Value to convert
-            column: Column name (for schema lookup)
-            type_map: Mapping of column names to types
-
-        Returns:
-            Converted value with appropriate type
-        """
-        if value is None or value == "None":
-            return None
-
-        # Get expected type from schema
-        expected_type = type_map.get(column)
-
-        if expected_type == "datetime":
-            return datetime.fromisoformat(value)
-        elif expected_type == "uuid":
-            return UUID(value)
-        elif expected_type == "int":
-            return int(value)
-        elif expected_type == "float":
-            return float(value)
-        elif expected_type == "bool":
-            return value == "True"
-        elif expected_type == "str":
-            return value
-        else:
-            # Fallback: basic inference for unregistered fields
-            return self._infer_type(value)
-
-    def _infer_type(self, value: Any) -> Any:
-        """Fallback type inference for unregistered fields.
-
-        Args:
-            value: Value to infer type for
-
-        Returns:
-            Value converted to inferred type
-        """
-        if isinstance(value, str):
-            # Try int
-            if value.isdigit() or (value.startswith("-") and value[1:].isdigit()):
-                return int(value)
-            # Try float
-            try:
-                return float(value)
-            except ValueError:
-                pass
-            # Try bool
-            if value in ("True", "False"):
-                return value == "True"
-
-        # Keep as-is
-        return value
 
 
 @Registry.register_extractor("pandas")
