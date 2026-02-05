@@ -4,6 +4,7 @@ Provides:
 - BaseFlatten: Abstract base for flatten transforms
 - CVSSFlattenTransform: Select authoritative CVSS score
 - EPSSFlattenTransform: Select most recent EPSS score
+- KEVFlattenTransform: Extract KEV fields
 - CPEFlattenTransform: Select primary CPE
 - CWEFlattenTransform: Select primary CWE
 """
@@ -13,6 +14,7 @@ from vulnflow.transforms.flatten.cpe import CPEFlattenTransform
 from vulnflow.transforms.flatten.cvss import CVSSFlattenTransform
 from vulnflow.transforms.flatten.cwe import CWEFlattenTransform
 from vulnflow.transforms.flatten.epss import EPSSFlattenTransform
+from vulnflow.transforms.flatten.kev import KEVFlattenTransform
 
 __all__ = [
     "BaseFlatten",
@@ -20,4 +22,5 @@ __all__ = [
     "CVSSFlattenTransform",
     "CWEFlattenTransform",
     "EPSSFlattenTransform",
+    "KEVFlattenTransform",
 ]
