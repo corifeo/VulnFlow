@@ -9,7 +9,7 @@ Provides:
 - Registry: Plugin registration for enrichers and transforms
 - Extractor, BaseExtractor: Protocol and base class for extractors
 - Loader, BaseLoader: Protocol and base class for loaders
-- Exceptions: VulnFlowError, ExtractorError, EnricherError, TransformError, LoaderError
+- Exceptions: VulnFlowError, ExtractorError, EnricherError, TransformError, LoaderError, PipelineError
 
 Layer: Public API
 Dependencies: dataset, schema, registry, pipeline, exceptions, extractors, loaders
@@ -25,6 +25,7 @@ from vulnflow.exceptions import (
     EnricherError,
     ExtractorError,
     LoaderError,
+    PipelineError,
     TransformError,
     VulnFlowError,
 )
@@ -50,5 +51,6 @@ __all__ = [
     "EnricherError",
     "TransformError",
     "LoaderError",
+    "PipelineError",
 ]
 __version__ = "0.1.0"
