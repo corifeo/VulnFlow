@@ -87,6 +87,5 @@ class CWEFlattenTransform(BaseFlatten):
             out["cwe_category_name"][i] = selected.get("category_name")
             out["cwe_abstraction_level"][i] = selected.get("abstraction_level")
 
-        # Set all columns
-        for name, arr in out.items():
-            dataset.set_column(name, arr)
+        # Insert columns right after input_column (cwes)
+        dataset.insert_columns_after(self.input_column, out)
