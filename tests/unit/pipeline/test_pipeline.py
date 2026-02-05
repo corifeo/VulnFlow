@@ -494,7 +494,10 @@ def test_run_parallel_requires_equal_extractors_and_loaders(nvd_sample_path):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         pipeline = VulnPipeline(
-            extractors=[NVDExtractor(str(nvd_sample_path)), NVDExtractor(str(nvd_sample_path))],
+            extractors=[
+                NVDExtractor(str(nvd_sample_path)),
+                NVDExtractor(str(nvd_sample_path)),
+            ],
             loaders=[ParquetLoader(Path(tmpdir) / "out.parquet")],
         )
 
