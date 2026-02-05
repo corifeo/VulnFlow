@@ -30,6 +30,7 @@ class BaseFlatten(BaseComputed):
 
     # Subclass must define the input column containing the array
     input_column: str
+    depends_on: list[str] = []  # Default: no dependencies (can override)
 
     def __init__(self) -> None:
         """Initialize flatten transform."""
