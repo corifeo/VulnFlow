@@ -482,13 +482,17 @@ def test_epss_enricher_has_output_schema() -> None:
 
     assert hasattr(EPSSEnricher, "OUTPUT_SCHEMA")
     assert isinstance(EPSSEnricher.OUTPUT_SCHEMA, list)
-    assert len(EPSSEnricher.OUTPUT_SCHEMA) >= 4  # probability, percentile, date, model
+    assert len(EPSSEnricher.OUTPUT_SCHEMA) == 1  # epss_scores JSON column
 
     # Verify schema structure (new FieldDefinition format)
     for field in EPSSEnricher.OUTPUT_SCHEMA:
         assert isinstance(field, FieldDefinition)
         assert field.name
         assert field.type
+
+    # Verify the single field is epss_scores
+    assert EPSSEnricher.OUTPUT_SCHEMA[0].name == "epss_scores"
+    assert EPSSEnricher.OUTPUT_SCHEMA[0].type == "str"
 
 
 def test_event_inference_has_schema() -> None:

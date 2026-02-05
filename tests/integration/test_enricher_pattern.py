@@ -10,10 +10,8 @@ import pytest
 
 from vulnflow.dataset import VulnDataset
 from vulnflow.transforms.enrichers.cwe import CWEEnricher
-from vulnflow.transforms.enrichers.epss import EPSSEnricher
 from vulnflow.transforms.enrichers.kev import KEVEnricher
 from vulnflow.transforms.flatten.cwe import CWEFlattenTransform
-from vulnflow.transforms.flatten.epss import EPSSFlattenTransform
 from vulnflow.transforms.flatten.kev import KEVFlattenTransform
 
 

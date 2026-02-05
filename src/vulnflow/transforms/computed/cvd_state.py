@@ -23,7 +23,7 @@ Based on SEI/CMU 2021 paper and vulnstate/constants.py definitions.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -57,12 +57,12 @@ def _normalize_timestamp(ts: Any) -> datetime | None:
 
     # Handle pandas Timestamp
     if hasattr(ts, "to_pydatetime"):
-        ts = ts.to_pydatetime()
+        ts = cast(Any, ts).to_pydatetime()
 
     # Ensure timezone-aware
     if isinstance(ts, datetime):
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=UTC)
+            return ts.replace(tzinfo=UTC)
         return ts
 
     return None
