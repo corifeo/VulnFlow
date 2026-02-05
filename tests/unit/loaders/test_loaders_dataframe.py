@@ -170,12 +170,12 @@ def test_pandas_loader_with_cwe_transform():
 
 
 def test_pandas_loader_with_cpe_transform():
-    """PandasLoader with CPEPrimaryTransform produces cpe_* columns."""
+    """PandasLoader with CPEFlattenTransform produces cpe_* columns."""
     from vulnflow.loaders.dataframe import PandasLoader
-    from vulnflow.transforms.flatten import CPEPrimaryTransform
+    from vulnflow.transforms.flatten import CPEFlattenTransform
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-    CPEPrimaryTransform().transform(dataset)
+    CPEFlattenTransform().transform(dataset)
     loader = PandasLoader()
 
     df = loader.load(dataset)

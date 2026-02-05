@@ -18,7 +18,7 @@ from urllib.request import urlopen, urlretrieve
 from vulnflow import VulnDataset
 from vulnflow.transforms.computed import CVDStateTransform
 from vulnflow.transforms.flatten import (
-    CPEPrimaryTransform,
+    CPEFlattenTransform,
     CVSSFlattenTransform,
     CWEPrimaryTransform,
 )
@@ -34,7 +34,7 @@ NVD_BASE_URL = "https://nvd.nist.gov/feeds/json/cve/2.0"
 DEFAULT_TRANSFORMS = [
     CVSSFlattenTransform(),
     CWEPrimaryTransform(),
-    CPEPrimaryTransform(),
+    CPEFlattenTransform(),
     EventInference(),
     CVDStateTransform(),
     TagInference(),
