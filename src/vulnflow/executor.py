@@ -14,12 +14,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING, Any, cast
+
+from vulnflow.extractors.base import BaseExtractor
+from vulnflow.loaders.base import BaseLoader
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
-    from vulnflow.extractors.base import BaseExtractor
-    from vulnflow.loaders.base import BaseLoader
+    from vulnflow.pipeline import PipelineResult
 
 __all__ = ["PipelineExecutor", "get_stage_name"]
 
@@ -29,6 +32,25 @@ logger = logging.getLogger(__name__)
 def get_stage_name(obj: Any) -> str:
     """Get stage name from object (prefer name attribute, fallback to class name)."""
     return cast(str, getattr(obj, "name", obj.__class__.__name__))
+
+
+def _run_mini_pipeline(
+    extractor: BaseExtractor,
+    loader: BaseLoader,
+) -> dict[str, Any]:
+    """Worker function: Extract → Load.
+
+    Must be module-level (not a method) for pickling with ProcessPoolExecutor.
+
+    Args:
+        extractor: Extractor instance to run
+        loader: Loader instance to run
+
+    Returns:
+        Loader output metadata dict
+    """
+    dataset = extractor.extract()
+    return loader.load(dataset)
 
 
 class PipelineExecutor:
@@ -232,3 +254,87 @@ class PipelineExecutor:
                     pbar.update(1)
 
         return loader_outputs, successful, failed, errors
+
+    @staticmethod
+    def run_parallel(
+        extractors: list[BaseExtractor],
+        loaders: list[BaseLoader],
+        workers: int = 4,
+    ) -> PipelineResult:
+        """Run parallel mini-pipelines: extractor[i] → loader[i].
+
+        Pattern 1: Each worker runs one Extract→Load pair independently.
+
+        Args:
+            extractors: List of extractor instances (one per source)
+            loaders: List of loader instances (must match extractor count)
+            workers: Number of parallel worker processes
+
+        Returns:
+            PipelineResult with loader_outputs, no dataset (dataset=None)
+
+        Raises:
+            PipelineError: If any worker fails
+        """
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        from vulnflow.exceptions import PipelineError
+        from vulnflow.pipeline import PipelineResult
+
+        start_time = time.time()
+        tasks = list(zip(extractors, loaders, strict=True))
+        loader_outputs: dict[str, Any] = {}
+        successful: list[str] = []
+        failed: list[str] = []
+        errors: list[Exception] = []
+
+        # Build unique output keys: disambiguate duplicate loader names
+        raw_names = [get_stage_name(loader) for loader in loaders]
+        name_counts: dict[str, int] = {}
+        for n in raw_names:
+            name_counts[n] = name_counts.get(n, 0) + 1
+        name_counters: dict[str, int] = {}
+        output_keys: list[str] = []
+        for n in raw_names:
+            if name_counts[n] > 1:
+                counter = name_counters.get(n, 0)
+                output_keys.append(f"{n}_{counter}")
+                name_counters[n] = counter + 1
+            else:
+                output_keys.append(n)
+
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(_run_mini_pipeline, ext, loader): idx
+                for idx, (ext, loader) in enumerate(tasks)
+            }
+
+            for future in as_completed(futures):
+                idx = futures[future]
+                ext_name = get_stage_name(extractors[idx])
+                loader_key = output_keys[idx]
+                try:
+                    result = future.result()
+                    loader_outputs[loader_key] = result
+                    successful.extend([ext_name, loader_key])
+                except Exception as exc:
+                    logger.warning("Parallel worker %d failed: %s", idx, exc)
+                    failed.extend([ext_name, loader_key])
+                    errors.append(exc)
+
+        duration = time.time() - start_time
+
+        if errors:
+            raise PipelineError(
+                f"Parallel execution failed: "
+                f"{len(errors)} of {len(tasks)} workers failed"
+            ) from errors[0]
+
+        return PipelineResult(
+            dataset=None,
+            loader_outputs=loader_outputs,
+            errors=errors,
+            successful_stages=successful,
+            failed_stages=failed,
+            duration=duration,
+        )
