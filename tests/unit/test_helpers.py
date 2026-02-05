@@ -5,6 +5,7 @@ Tests: URL resolution, mode validation, feed_url classmethod
 Layer: Helpers (user-facing)
 Dependencies: None for URL tests, pipeline for integration tests
 """
+
 from __future__ import annotations
 
 import tempfile
@@ -119,14 +120,18 @@ class TestCacheBuilderFeedURL:
         from vulnflow.helpers import CacheBuilder
 
         url = CacheBuilder.feed_url("modified")
-        assert url == "https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-Modified.json.gz"
+        assert (
+            url == "https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-Modified.json.gz"
+        )
 
     def test_feed_url_recent_returns_correct_url(self):
         """feed_url('recent') returns Recent feed URL."""
         from vulnflow.helpers import CacheBuilder
 
         url = CacheBuilder.feed_url("recent")
-        assert url == "https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-Recent.json.gz"
+        assert (
+            url == "https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-Recent.json.gz"
+        )
 
 
 class TestCacheBuilderBuild:

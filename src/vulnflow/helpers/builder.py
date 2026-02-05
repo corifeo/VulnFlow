@@ -9,6 +9,7 @@ Layer: User-facing helpers
 Dependencies: pipeline, extractors.nvd, loaders.files
 Used by: Notebooks, user scripts
 """
+
 from __future__ import annotations
 
 import logging
@@ -16,7 +17,10 @@ import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from vulnflow.dataset import VulnDataset
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +57,18 @@ class CacheBuilder:
         modified_only: bool = False,
         recent_only: bool = False,
     ) -> None:
+        """Initialize CacheBuilder with feed selection parameters.
+
+        Args:
+            years: Specific years to include (default: all 2002-current).
+            exclude_years: Years to exclude from full range.
+            include_modified: Add Modified feed to year-based modes.
+            modified_only: Build from Modified feed only (quick update).
+            recent_only: Build from Recent feed only.
+
+        Raises:
+            ValueError: If mutually exclusive parameters are combined.
+        """
         self._validate_params(
             years, exclude_years, include_modified, modified_only, recent_only
         )
@@ -70,9 +86,7 @@ class CacheBuilder:
     ) -> None:
         """Validate parameter combinations."""
         if years is not None and exclude_years is not None:
-            raise ValueError(
-                "years and exclude_years are mutually exclusive"
-            )
+            raise ValueError("years and exclude_years are mutually exclusive")
         if modified_only and (years is not None or exclude_years is not None):
             raise ValueError(
                 "modified_only and years/exclude_years are mutually exclusive"
@@ -82,9 +96,7 @@ class CacheBuilder:
                 "recent_only and years/exclude_years are mutually exclusive"
             )
         if modified_only and recent_only:
-            raise ValueError(
-                "modified_only and recent_only are mutually exclusive"
-            )
+            raise ValueError("modified_only and recent_only are mutually exclusive")
 
     @classmethod
     def _resolve_urls(
@@ -123,7 +135,7 @@ class CacheBuilder:
         workers: int = 4,
         retries: int = 3,
         timeout: float = 120.0,
-    ) -> Any:
+    ) -> VulnDataset:
         """Build vulnerability dataset with parallel extraction.
 
         Args:
@@ -153,9 +165,7 @@ class CacheBuilder:
             ]
 
             pipeline = VulnPipeline(
-                extractors=[
-                    NVDExtractor(url, timeout=timeout) for url in self._urls
-                ],
+                extractors=[NVDExtractor(url, timeout=timeout) for url in self._urls],
                 loaders=[ParquetLoader(p) for p in temp_paths],
             )
 
@@ -163,9 +173,7 @@ class CacheBuilder:
 
             # Merge temp parquets
             logger.info("Merging %d parquet files", len(temp_paths))
-            merged = VulnDataset.from_parquet(
-                [str(p) for p in temp_paths]
-            )
+            merged = VulnDataset.from_parquet([str(p) for p in temp_paths])
 
             logger.info("Library built: %d records", len(merged))
             return merged
