@@ -48,24 +48,7 @@ class KEVEnricher(BaseEnricher):
     depends_on: list[str] = []
 
     OUTPUT_SCHEMA: list[FieldDefinition] = [
-        FieldDefinition(
-            "kev_date_added", "datetime", "Date added to KEV catalog", "KEVEnricher"
-        ),
-        FieldDefinition(
-            "kev_due_date", "datetime", "Remediation due date", "KEVEnricher"
-        ),
-        FieldDefinition(
-            "kev_required_action", "str", "Required remediation action", "KEVEnricher"
-        ),
-        FieldDefinition("kev_vendor", "str", "Vendor name from KEV", "KEVEnricher"),
-        FieldDefinition("kev_product", "str", "Product name from KEV", "KEVEnricher"),
-        FieldDefinition(
-            "kev_ransomware", "str", "Known ransomware campaign use", "KEVEnricher"
-        ),
-        FieldDefinition(
-            "kev_vulnerability_name", "str", "Vulnerability name from KEV", "KEVEnricher"
-        ),
-        FieldDefinition("kev_notes", "str", "Additional notes from KEV", "KEVEnricher"),
+        FieldDefinition("kev", "str", "KEV entry (JSON object)", "KEVEnricher"),
     ]
 
     def __init__(
@@ -101,11 +84,13 @@ class KEVEnricher(BaseEnricher):
         self._http_fetcher: HttpFetcher | None = None
 
     async def transform(self, dataset: VulnDataset) -> None:  # type: ignore[override]
-        """Enrich dataset with KEV data (fully vectorized).
+        """Enrich dataset with KEV data.
 
         Args:
             dataset: VulnDataset to enrich (modifies in place)
         """
+        from vulnflow.schema import KEVEntry
+
         # Load KEV catalog with caching
         kev_data = await self._get_cached_data_async()
 
@@ -113,75 +98,40 @@ class KEVEnricher(BaseEnricher):
         cve_ids = dataset.get_column("cve_id")
         n = len(dataset)
 
-        # Build parallel arrays from KEV dict
-        kev_cve_ids = np.array(list(kev_data.keys()), dtype=object)
-        kev_dates_added = np.array(
-            [kev_data[k]["date_added"] for k in kev_cve_ids], dtype=object
-        )
-        kev_due_dates = np.array(
-            [kev_data[k]["due_date"] for k in kev_cve_ids], dtype=object
-        )
-        kev_actions = np.array(
-            [kev_data[k]["required_action"] for k in kev_cve_ids], dtype=object
-        )
-        kev_vendors = np.array(
-            [kev_data[k]["vendor"] for k in kev_cve_ids], dtype=object
-        )
-        kev_products = np.array(
-            [kev_data[k]["product"] for k in kev_cve_ids], dtype=object
-        )
-        kev_ransomware = np.array(
-            [kev_data[k]["ransomware"] for k in kev_cve_ids], dtype=object
-        )
-        kev_vuln_names = np.array(
-            [kev_data[k].get("vulnerability_name") for k in kev_cve_ids], dtype=object
-        )
-        kev_notes_arr = np.array(
-            [kev_data[k].get("notes") for k in kev_cve_ids], dtype=object
-        )
+        # Initialize output
+        kev_objects = np.full(n, None, dtype=object)
 
-        # Vectorized matching using np.searchsorted (requires sorted keys)
-        sort_idx = np.argsort(kev_cve_ids)
-        kev_cve_ids_sorted = kev_cve_ids[sort_idx]
+        # Populate KEV entries
+        for i, cve_id in enumerate(cve_ids):
+            if cve_id in kev_data:
+                data = kev_data[cve_id]
+                kev_entry = KEVEntry(
+                    date_added=data["date_added"],
+                    due_date=data["due_date"],
+                    vendor=data["vendor"],
+                    product=data["product"],
+                    vulnerability_name=data.get("vulnerability_name", ""),
+                    required_action=data["required_action"],
+                    known_ransomware_use=data["ransomware"] == "Known",
+                )
+                # Convert to dict with ISO datetime format
+                kev_dict = {
+                    "date_added": kev_entry.date_added.isoformat(),
+                    "due_date": kev_entry.due_date.isoformat()
+                    if kev_entry.due_date
+                    else None,
+                    "vendor": kev_entry.vendor,
+                    "product": kev_entry.product,
+                    "vulnerability_name": kev_entry.vulnerability_name,
+                    "required_action": kev_entry.required_action,
+                    "known_ransomware_use": kev_entry.known_ransomware_use,
+                }
+                kev_objects[i] = json.dumps(kev_dict)
+            else:
+                kev_objects[i] = "null"
 
-        # Find position of each CVE in sorted KEV list
-        indices = np.searchsorted(kev_cve_ids_sorted, cve_ids)
-
-        # Mask for valid matches (clip indices to avoid out-of-bounds access)
-        indices_clipped = np.clip(indices, 0, len(kev_cve_ids_sorted) - 1)
-        valid = (indices < len(kev_cve_ids_sorted)) & (
-            kev_cve_ids_sorted[indices_clipped] == cve_ids
-        )
-
-        # Initialize output arrays
-        kev_date_added = np.full(n, None, dtype=object)
-        kev_due_date = np.full(n, None, dtype=object)
-        kev_required_action = np.full(n, None, dtype=object)
-        kev_vendor = np.full(n, None, dtype=object)
-        kev_product = np.full(n, None, dtype=object)
-        kev_ransomware_out = np.full(n, None, dtype=object)
-        kev_vulnerability_name = np.full(n, None, dtype=object)
-        kev_notes = np.full(n, None, dtype=object)
-
-        # Assign using boolean indexing (fully vectorized)
-        kev_date_added[valid] = kev_dates_added[sort_idx[indices[valid]]]
-        kev_due_date[valid] = kev_due_dates[sort_idx[indices[valid]]]
-        kev_required_action[valid] = kev_actions[sort_idx[indices[valid]]]
-        kev_vendor[valid] = kev_vendors[sort_idx[indices[valid]]]
-        kev_product[valid] = kev_products[sort_idx[indices[valid]]]
-        kev_ransomware_out[valid] = kev_ransomware[sort_idx[indices[valid]]]
-        kev_vulnerability_name[valid] = kev_vuln_names[sort_idx[indices[valid]]]
-        kev_notes[valid] = kev_notes_arr[sort_idx[indices[valid]]]
-
-        # Set columns
-        dataset.set_column("kev_date_added", kev_date_added)
-        dataset.set_column("kev_due_date", kev_due_date)
-        dataset.set_column("kev_required_action", kev_required_action)
-        dataset.set_column("kev_vendor", kev_vendor)
-        dataset.set_column("kev_product", kev_product)
-        dataset.set_column("kev_ransomware", kev_ransomware_out)
-        dataset.set_column("kev_vulnerability_name", kev_vulnerability_name)
-        dataset.set_column("kev_notes", kev_notes)
+        # Set JSON column
+        dataset.set_column("kev", kev_objects)
 
     async def _get_cached_data_async(self) -> dict[str, dict[str, Any]]:
         """Get KEV data from cache or load fresh (async)."""
