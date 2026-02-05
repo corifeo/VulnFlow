@@ -42,6 +42,7 @@ def test_base_flatten_requires_input_column():
         name = "test"
         input_column = "test_scores"
         OUTPUT_SCHEMA: list = []
+        depends_on: list[str] = []
 
         def transform(self, dataset):  # type: ignore[override]
             pass

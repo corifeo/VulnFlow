@@ -68,6 +68,7 @@ class TestBaseTransform:
             OUTPUT_SCHEMA = [
                 FieldDefinition("test_field", "str", "Test", "TestTransform")
             ]
+            depends_on: list[str] = []
 
             def transform(self, dataset: VulnDataset) -> None:
                 pass
@@ -130,6 +131,7 @@ class TestBaseTransform:
         class TestTransform(BaseTransform):
             name = "test"
             OUTPUT_SCHEMA: list[FieldDefinition] = []
+            depends_on: list[str] = []
 
             def transform(self, dataset: VulnDataset) -> None:
                 pass
@@ -143,6 +145,7 @@ class TestBaseTransform:
         class TestTransform(BaseTransform):
             name = "test"
             OUTPUT_SCHEMA: list[FieldDefinition] = []
+            depends_on: list[str] = []
             SCHEMA_VERSION = "2.0.0"
 
             def transform(self, dataset: VulnDataset) -> None:
@@ -160,6 +163,7 @@ class TestBaseTransform:
             OUTPUT_SCHEMA = [
                 FieldDefinition("field", "str", "Test field", "VersionedTransform")
             ]
+            depends_on: list[str] = []
             SCHEMA_VERSION = "1.2.3"
 
             def transform(self, dataset: VulnDataset) -> None:
@@ -200,6 +204,7 @@ class TestBaseEnricher:
         class TestEnricher(BaseEnricher):
             name = "test"
             OUTPUT_SCHEMA: list[FieldDefinition] = []
+            depends_on: list[str] = []
 
             async def transform(self, dataset: VulnDataset) -> None:
                 pass
@@ -226,6 +231,7 @@ class TestBaseInference:
         class TestInference(BaseInference):
             name = "test"
             OUTPUT_SCHEMA: list[FieldDefinition] = []
+            depends_on: list[str] = []
 
             def transform(self, dataset: VulnDataset) -> None:
                 pass
@@ -239,6 +245,7 @@ class TestBaseInference:
         class TestInference(BaseInference):
             name = "test"
             OUTPUT_SCHEMA: list[FieldDefinition] = []
+            depends_on: list[str] = []
             confidence_threshold = 0.9
 
             def transform(self, dataset: VulnDataset) -> None:
@@ -266,6 +273,7 @@ class TestBaseComputed:
         class TestComputed(BaseComputed):
             name = "test"
             OUTPUT_SCHEMA: list[FieldDefinition] = []
+            depends_on: list[str] = []
 
             def transform(self, dataset: VulnDataset) -> None:
                 pass

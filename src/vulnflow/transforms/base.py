@@ -63,6 +63,7 @@ class BaseTransform(ABC):
         Validates:
         - name is defined
         - OUTPUT_SCHEMA is defined and is list[FieldDefinition]
+        - depends_on is explicitly declared and is a list
 
         Side effects:
         - Registers schema with Registry
@@ -88,6 +89,20 @@ class BaseTransform(ABC):
                     f"{self.__class__.__name__}.OUTPUT_SCHEMA must contain FieldDefinition instances, "
                     f"got {type(item).__name__}"
                 )
+
+        # Validate depends_on is explicitly declared
+        if "depends_on" not in self.__class__.__dict__:
+            raise AttributeError(
+                f"{self.__class__.__name__} must explicitly declare 'depends_on' class attribute. "
+                f"Use 'depends_on: list[str] = []' if no dependencies."
+            )
+
+        # Validate depends_on type
+        if not isinstance(self.depends_on, list):
+            raise TypeError(
+                f"{self.__class__.__name__}.depends_on must be a list, "
+                f"got {type(self.depends_on).__name__}"
+            )
 
         # Automatically register schema with version
         version = getattr(self.__class__, "SCHEMA_VERSION", "1.0.0")
