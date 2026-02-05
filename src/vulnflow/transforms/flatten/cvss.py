@@ -46,6 +46,10 @@ class CVSSFlattenTransform(BaseFlatten):
     input_column: str = "cvss_scores"
     depends_on: list[str] = []
 
+    def __init__(self) -> None:
+        """Initialize CVSS flatten transform."""
+        super().__init__()  # MUST call first per CLAUDE.md
+
     OUTPUT_SCHEMA: list[FieldDefinition] = [
         FieldDefinition("cvss_version", "str", "CVSS version", "CVSSFlattenTransform"),
         FieldDefinition(
@@ -114,6 +118,7 @@ class CVSSFlattenTransform(BaseFlatten):
         }
 
         for i, raw in enumerate(cvss_json):
+            # Check for empty/null JSON (stored as strings in columnar format)
             if not raw or raw == "[]" or raw == "null":
                 continue
             scores = json.loads(str(raw))
