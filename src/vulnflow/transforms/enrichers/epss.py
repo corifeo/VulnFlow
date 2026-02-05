@@ -20,7 +20,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import httpx
 import numpy as np
 
 if TYPE_CHECKING:
@@ -29,7 +28,7 @@ if TYPE_CHECKING:
 from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseEnricher
 from vulnflow.utils import json
-from vulnflow.utils.http import HttpFetcher, is_url
+from vulnflow.utils.http import HttpError, HttpFetcher, is_url
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +232,7 @@ class EPSSEnricher(BaseEnricher):
             content, _ = await self._http_fetcher.fetch(url, self.cache_ttl)
             return self._parse_epss_csv(content.decode("utf-8"))
 
-        except httpx.HTTPError as e:
+        except HttpError as e:
             logger.warning("Failed to fetch EPSS data from %s: %s", url, e)
             return {}
         except Exception as e:

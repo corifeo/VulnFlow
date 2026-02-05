@@ -10,6 +10,7 @@ Provides:
 - partition_transforms: Separate async from sync transforms
 - is_url: Check if source is HTTP/HTTPS URL
 - detect_format: Detect content format from URL, headers, or content
+- HttpError: HTTP exception wrapper (prevents httpx leakage)
 - HttpFetcher: Async HTTP client with disk caching and gzip support
 - progress_bar: Factory function for progress bars with VulnFlow defaults
 - normalize_source: Normalize CVSS source strings to canonical form
@@ -24,7 +25,13 @@ from vulnflow.utils.cpe import parse_cpe23
 from vulnflow.utils.cvss import normalize_source
 from vulnflow.utils.cwe import CWEDatabase
 from vulnflow.utils.graph import topological_sort
-from vulnflow.utils.http import ContentFormat, HttpFetcher, detect_format, is_url
+from vulnflow.utils.http import (
+    ContentFormat,
+    HttpError,
+    HttpFetcher,
+    detect_format,
+    is_url,
+)
 from vulnflow.utils.progress import progress_bar
 from vulnflow.utils.schema import get_flattened_columns, get_record_columns
 from vulnflow.utils.transforms import is_async_transform, partition_transforms
@@ -40,6 +47,7 @@ __all__ = [
     "partition_transforms",
     "is_url",
     "detect_format",
+    "HttpError",
     "HttpFetcher",
     "ContentFormat",
     "progress_bar",
