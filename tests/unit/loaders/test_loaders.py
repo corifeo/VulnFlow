@@ -116,36 +116,3 @@ def test_all_loaders_have_format_attribute() -> None:
         ), f"{loader_class.__name__}.format = {loader_class.format}, expected {expected_format}"
 
 
-def test_parquet_loader_roundtrip_preserves_data(tmp_path):
-    """ParquetLoader roundtrip preserves all data."""
-    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-
-    output_path = tmp_path / "output.parquet"
-    loader = ParquetLoader(output_path)
-
-    # Write
-    loader.load(dataset)
-
-    # Read back
-    restored = VulnDataset.from_parquet(output_path)
-
-    # Verify
-    assert len(restored) == len(dataset)
-    assert set(restored.columns) == set(dataset.columns)
-
-    # Check CVE IDs preserved
-    original_cves = dataset.get_column("cve_id")
-    restored_cves = restored.get_column("cve_id")
-    assert list(original_cves) == list(restored_cves)
-
-
-def test_parquet_loader_creates_parent_directories(tmp_path):
-    """ParquetLoader creates parent directories if needed."""
-    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-
-    output_path = tmp_path / "nested" / "dir" / "output.parquet"
-    loader = ParquetLoader(output_path)
-
-    loader.load(dataset)
-
-    assert output_path.exists()

@@ -13,6 +13,7 @@ Storage: Columnar (dict[str, np.ndarray]) for vectorized operations at scale
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,8 @@ from pandas import DataFrame as PandasDataFrame
 from polars import DataFrame as PolarsDataFrame
 
 from vulnflow.utils.graph import topological_sort
+from vulnflow.utils.progress import progress_bar
+from vulnflow.utils.transforms import partition_transforms
 
 
 class VulnDataset:
@@ -107,10 +110,6 @@ class VulnDataset:
         Returns:
             Self for method chaining
         """
-        import asyncio
-
-        from vulnflow.utils.progress import progress_bar
-        from vulnflow.utils.transforms import partition_transforms
 
         if transforms is None:
             from vulnflow.registry import Registry
@@ -373,4 +372,3 @@ class VulnDataset:
 
         extractor = PolarsExtractor(dataframe)
         return extractor.extract()
-

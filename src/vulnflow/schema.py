@@ -16,8 +16,6 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-# Nested dataclasses (all defined from Phase 1)
-
 
 @dataclass
 class CWEEntry:
