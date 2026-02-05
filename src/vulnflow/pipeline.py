@@ -161,8 +161,9 @@ class VulnPipeline:
                 "Apply transforms after merging: dataset.transform([...])"
             )
 
-        # TODO: delegate to PipelineExecutor.run_parallel() in Task 3
-        raise NotImplementedError("Parallel execution not yet implemented")
+        return PipelineExecutor.run_parallel(
+            self.extractors, self.loaders, workers=workers
+        )
 
     def merge(self, other: VulnPipeline) -> VulnPipeline:
         """Merge pipeline stages horizontally by type (immutable).
