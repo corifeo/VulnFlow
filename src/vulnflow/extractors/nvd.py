@@ -21,7 +21,7 @@ import numpy as np
 
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.registry import Registry
-from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, ReferenceEntry, VulnRecord
+from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, ReferenceEntry
 from vulnflow.utils import json
 from vulnflow.utils.cpe import parse_cpe23
 from vulnflow.utils.cvss import extract_cvss_metadata
@@ -44,13 +44,13 @@ class NVDExtractor(BaseExtractor):
     - .jsonl/.ndjson: Newline-delimited JSON (one CVE per line)
 
     Conversion logic:
-    - Parse JSON → intermediate VulnRecord structures
-    - Build columnar storage (dict[str, np.ndarray])
-    - Flatten CVSS/CWE/CPE to scalar columns
-    - Apply NVD-specific CVSS source priority (nvd > redhat > microsoft)
-    - Encode complex fields (lists) as JSON strings
+    - Single-pass: JSON → dataclasses → columnar storage
+    - Uses dataclasses.asdict() for type-safe serialization
+    - Pre-allocates arrays for efficiency
+    - Encodes complex fields (lists) as JSON strings
 
     Does NOT populate CVD timestamps (v/f/d/p/x/a) - those come from EventInference.
+    Does NOT flatten CVSS/CWE/CPE - use FlattenTransforms for that.
     """
 
     name: str = "nvd"
@@ -78,7 +78,10 @@ class NVDExtractor(BaseExtractor):
         self.timeout = timeout
 
     def extract(self) -> VulnDataset:
-        """Extract from NVD JSON/JSONL file or URL → VulnDataset.
+        """Extract from NVD JSON/JSONL → VulnDataset.
+
+        Single-pass conversion: JSON → dataclasses → columnar storage.
+        Uses dataclasses.asdict() for type-safe serialization.
 
         Returns:
             VulnDataset with columnar storage populated
@@ -87,58 +90,85 @@ class NVDExtractor(BaseExtractor):
             FileNotFoundError: If NVD JSON file doesn't exist
             httpx.HTTPError: On network or HTTP errors for URLs
         """
+        from dataclasses import asdict
+
+        from vulnflow.dataset import VulnDataset
+
         content = self._load_content()
         vulnerabilities = self._parse_content(content)
 
-        # First pass: Parse to VulnRecord structures
-        records: list[VulnRecord] = []
+        # Empty dataset
+        n = len(vulnerabilities)
+        if n == 0:
+            return VulnDataset()
 
-        for vuln in vulnerabilities:
+        # Pre-allocate columnar arrays
+        record_cols = get_record_columns()
+        arrays = {col: np.empty(n, dtype=object) for col in record_cols}
+
+        # Single-pass: Parse JSON → dataclasses → serialize inline
+        for i, vuln in enumerate(vulnerabilities):
             cve_data = vuln.get("cve", {})
-            cve_id = cve_data.get("id")
 
-            # Get English description
+            # Identity
+            arrays["id"][i] = str(uuid4())
+            arrays["cve_id"][i] = cve_data.get("id")
+
+            # Description (extract English)
             description = None
             for desc in cve_data.get("descriptions", []):
                 if desc.get("lang") == "en":
                     description = desc.get("value")
                     break
+            arrays["description"][i] = description
 
-            # Parse NVD timestamps
-            nvd_published_at = self._parse_timestamp(cve_data.get("published"))
-            nvd_modified_at = self._parse_timestamp(cve_data.get("lastModified"))
+            # Metadata
+            arrays["first_seen_at"][i] = None
+            arrays["last_updated_at"][i] = None
 
-            # Parse CVSS scores
-            cvss_scores = self._parse_cvss(cve_data.get("metrics", {}))
-
-            # Parse CWE weaknesses
-            cwes = self._parse_cwes(cve_data.get("weaknesses", []))
-
-            # Parse CPE configurations
-            cpes = self._parse_cpes(cve_data.get("configurations", []))
-
-            # Parse references
-            references = self._parse_references(cve_data.get("references", []))
-
-            # Parse NVD status
-            nvd_status = self._extract_nvd_status(cve_data)
-
-            record = VulnRecord(
-                id=uuid4(),
-                cve_id=cve_id,
-                description=description,
-                nvd_published_at=nvd_published_at,
-                nvd_modified_at=nvd_modified_at,
-                nvd_status=nvd_status or "unknown",
-                cvss_scores=cvss_scores,
-                cwes=cwes,
-                cpes=cpes,
-                references=references,
+            # NVD Temporal
+            arrays["nvd_published_at"][i] = self._parse_timestamp(
+                cve_data.get("published")
             )
-            records.append(record)
+            arrays["nvd_modified_at"][i] = self._parse_timestamp(
+                cve_data.get("lastModified")
+            )
+            arrays["nvd_status"][i] = self._extract_nvd_status(cve_data) or "unknown"
 
-        # Second pass: Convert to columnar storage
-        return self._records_to_dataset(records)
+            # Complex fields: Parse to dataclasses → asdict() → JSON
+            # Type-safe but still efficient (single pass)
+
+            # CVSS scores
+            cvss_entries = self._parse_cvss(cve_data.get("metrics", {}))
+            cvss_dicts = [asdict(entry) for entry in cvss_entries]
+            arrays["cvss_scores"][i] = json.dumps(cvss_dicts) if cvss_dicts else "[]"
+
+            # CWEs
+            cwe_entries = self._parse_cwes(cve_data.get("weaknesses", []))
+            cwe_dicts = [asdict(entry) for entry in cwe_entries]
+            arrays["cwes"][i] = json.dumps(cwe_dicts) if cwe_dicts else "[]"
+
+            # CPEs
+            cpe_entries = self._parse_cpes(cve_data.get("configurations", []))
+            cpe_dicts = [asdict(entry) for entry in cpe_entries]
+            arrays["cpes"][i] = json.dumps(cpe_dicts) if cpe_dicts else "[]"
+
+            # References
+            ref_entries = self._parse_references(cve_data.get("references", []))
+            ref_dicts = [asdict(entry) for entry in ref_entries]
+            arrays["references"][i] = json.dumps(ref_dicts) if ref_dicts else "[]"
+
+            # Empty fields (not in NVD)
+            arrays["epss_scores"][i] = "[]"
+            arrays["kev"][i] = "null"
+            arrays["exploits"][i] = "[]"
+            arrays["tags"][i] = "{}"
+            arrays["metadata"][i] = "{}"
+
+        # Build dataset
+        dataset = VulnDataset()
+        dataset._data = arrays
+        return dataset
 
     def _load_content(self) -> bytes:
         """Load content from file or URL.
@@ -255,76 +285,6 @@ class NVDExtractor(BaseExtractor):
                 vulnerabilities.append(obj)
         return vulnerabilities
 
-    def _records_to_dataset(self, records: list[VulnRecord]) -> VulnDataset:
-        """Convert list of VulnRecord to VulnDataset (columnar storage).
-
-        This method owns the NVD-specific conversion logic including:
-        - JSON encoding of complex fields
-
-        Note: Flattening (CVSS/CWE/CPE to scalar columns) is now done via
-        FlattenTransforms (CVSSFlattenTransform, CWEPrimaryTransform, CPEPrimaryTransform).
-
-        Args:
-            records: List of parsed VulnRecord instances
-
-        Returns:
-            VulnDataset with columnar storage
-        """
-        from vulnflow.dataset import VulnDataset
-
-        def encode_nested(value: Any) -> str:
-            """Encode nested structure as JSON string.
-
-            orjson handles dataclass serialization natively via OPT_SERIALIZE_DATACLASS.
-            """
-            if value is None:
-                return "null"
-            if isinstance(value, list) and not value:
-                return "[]"
-            return json.dumps(value, default=str)
-
-        dataset = VulnDataset()
-        if not records:
-            return dataset
-
-        # Pre-allocate columnar arrays
-        n = len(records)
-        # Get all column names from VulnRecord
-        record_cols = get_record_columns()
-        arrays = {col: np.empty(n, dtype=object) for col in record_cols}
-
-        # Single pass over records
-        for i, r in enumerate(records):
-            # Identity
-            arrays["id"][i] = str(r.id)
-            arrays["cve_id"][i] = r.cve_id
-            # Description
-            arrays["description"][i] = r.description
-            # Metadata
-            arrays["first_seen_at"][i] = r.first_seen_at
-            arrays["last_updated_at"][i] = r.last_updated_at
-            # NVD Temporal
-            arrays["nvd_published_at"][i] = r.nvd_published_at
-            arrays["nvd_modified_at"][i] = r.nvd_modified_at
-            arrays["nvd_status"][i] = r.nvd_status
-            # Scoring
-            arrays["cvss_scores"][i] = encode_nested(r.cvss_scores)
-            arrays["epss_scores"][i] = encode_nested(r.epss_scores)
-            # Exploitation
-            arrays["kev"][i] = encode_nested(r.kev)
-            arrays["exploits"][i] = encode_nested(r.exploits)
-            # Classification
-            arrays["cwes"][i] = encode_nested(r.cwes)
-            arrays["cpes"][i] = encode_nested(r.cpes)
-            # References
-            arrays["references"][i] = encode_nested(r.references)
-            # Extensible
-            arrays["tags"][i] = json.dumps(r.tags)
-            arrays["metadata"][i] = json.dumps(r.metadata, default=str)
-
-        dataset._data = arrays
-
-        return dataset
 
     def _parse_timestamp(self, ts: str | None) -> datetime | None:
         """Parse ISO timestamp string to datetime."""
