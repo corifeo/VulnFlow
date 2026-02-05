@@ -17,7 +17,7 @@ from vulnflow import VulnDataset
 from vulnflow.transforms.flatten import (
     CPEFlattenTransform,
     CVSSFlattenTransform,
-    CWEPrimaryTransform,
+    CWEFlattenTransform,
 )
 from vulnflow.utils import json as vulnflow_json
 
@@ -179,13 +179,13 @@ def test_cvss_flatten_handles_empty_array():
 
 
 # =============================================================================
-# CWEPrimaryTransform Tests
+# CWEFlattenTransform Tests
 # =============================================================================
 
 
 def test_cwe_primary_extracts_first():
-    """CWEPrimaryTransform extracts first CWE ID."""
-    from vulnflow.transforms.flatten.cwe import CWEPrimaryTransform
+    """CWEFlattenTransform extracts first CWE ID."""
+    from vulnflow.transforms.flatten.cwe import CWEFlattenTransform
 
     ds = VulnDataset()
     ds._data = {
@@ -202,14 +202,14 @@ def test_cwe_primary_extracts_first():
         ),
     }
 
-    CWEPrimaryTransform().transform(ds)
+    CWEFlattenTransform().transform(ds)
 
     assert ds.get_column("cwe_id")[0] == "CWE-502"
 
 
 def test_cwe_primary_handles_empty_array():
-    """CWEPrimaryTransform handles empty cwes gracefully."""
-    from vulnflow.transforms.flatten.cwe import CWEPrimaryTransform
+    """CWEFlattenTransform handles empty cwes gracefully."""
+    from vulnflow.transforms.flatten.cwe import CWEFlattenTransform
 
     ds = VulnDataset()
     ds._data = {
@@ -217,7 +217,7 @@ def test_cwe_primary_handles_empty_array():
         "cwes": np.array(["[]"]),
     }
 
-    CWEPrimaryTransform().transform(ds)
+    CWEFlattenTransform().transform(ds)
 
     assert ds.get_column("cwe_id")[0] is None
 
@@ -394,11 +394,11 @@ def test_epss_flatten_extracts_all_columns():
 
 
 def test_dataframe_flattens_primary_cwe():
-    """CWEPrimaryTransform flattens first CWE to cwe_id column."""
+    """CWEFlattenTransform flattens first CWE to cwe_id column."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     # Apply flatten transform
-    CWEPrimaryTransform().transform(dataset)
+    CWEFlattenTransform().transform(dataset)
 
     df = dataset.to_pandas()
 

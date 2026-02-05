@@ -20,7 +20,7 @@ from vulnflow.transforms.computed import CVDStateTransform
 from vulnflow.transforms.flatten import (
     CPEFlattenTransform,
     CVSSFlattenTransform,
-    CWEPrimaryTransform,
+    CWEFlattenTransform,
 )
 from vulnflow.transforms.inferences import EventInference, TagInference
 
@@ -33,7 +33,7 @@ NVD_BASE_URL = "https://nvd.nist.gov/feeds/json/cve/2.0"
 # Default transforms for building cache
 DEFAULT_TRANSFORMS = [
     CVSSFlattenTransform(),
-    CWEPrimaryTransform(),
+    CWEFlattenTransform(),
     CPEFlattenTransform(),
     EventInference(),
     CVDStateTransform(),

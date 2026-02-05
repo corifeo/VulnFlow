@@ -1,4 +1,4 @@
-"""CWEPrimaryTransform - Extract primary CWE from cwes array.
+"""CWEFlattenTransform - Extract primary CWE from cwes array.
 
 Layer: Transform/Flatten
 Dependencies: transforms.flatten.base
@@ -22,19 +22,25 @@ if TYPE_CHECKING:
 
 
 @register_transform(default=True)
-class CWEPrimaryTransform(BaseFlatten):
-    """Extract primary (first) CWE and its components.
+class CWEFlattenTransform(BaseFlatten):
+    """Select primary CWE (first entry) and extract identifier.
+
+    Selection: First CWE from cwes array
 
     Output columns (1):
     - cwe_id
     """
 
-    name: str = "CWEPrimaryTransform"
+    name: str = "CWEFlattenTransform"
     input_column: str = "cwes"
     depends_on: list[str] = []
 
+    def __init__(self) -> None:
+        """Initialize CWE flatten transform."""
+        super().__init__()  # MUST call first per CLAUDE.md
+
     OUTPUT_SCHEMA: list[FieldDefinition] = [
-        FieldDefinition("cwe_id", "str", "CWE identifier", "CWEPrimaryTransform"),
+        FieldDefinition("cwe_id", "str", "CWE identifier", "CWEFlattenTransform"),
     ]
 
     def transform(self, dataset: VulnDataset) -> None:
@@ -48,6 +54,7 @@ class CWEPrimaryTransform(BaseFlatten):
         }
 
         for i, raw in enumerate(cwes_json):
+            # Check for empty/null JSON (stored as strings in columnar format)
             if not raw or raw == "[]" or raw == "null":
                 continue
             cwes = json.loads(str(raw))
