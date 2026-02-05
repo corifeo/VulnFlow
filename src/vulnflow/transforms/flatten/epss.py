@@ -31,7 +31,7 @@ class EPSSFlattenTransform(BaseFlatten):
 
     name: str = "EPSSFlattenTransform"
     input_column: str = "epss_scores"
-    depends_on: list[str] = []
+    depends_on: list[str] = ["EPSSEnricher"]
 
     def __init__(self) -> None:
         """Initialize EPSS flatten transform."""
