@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
     from vulnflow.pipeline import PipelineResult
 
-__all__ = ["PipelineExecutor", "get_stage_name", "_run_mini_pipeline"]
+__all__ = ["PipelineExecutor", "get_stage_name"]
 
 logger = logging.getLogger(__name__)
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
-import time
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +21,19 @@ from vulnflow.exceptions import ExtractorError, PipelineError
 from vulnflow.executor import PipelineExecutor, get_stage_name
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.loaders.base import BaseLoader
+
+
+class _PicklableFailingExtractor(BaseExtractor):
+    """Module-level extractor that always fails (picklable for ProcessPoolExecutor)."""
+
+    format = "failing"
+    name = "failing"
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def extract(self) -> VulnDataset:
+        raise ExtractorError("deliberate failure")
 
 
 # =============================================================================
@@ -315,12 +327,12 @@ def test_run_loaders_raises_on_failure():
         name = "FailingLoader"
 
         def load(self, dataset: VulnDataset) -> Any:
-            raise IOError("Loader failed")
+            raise OSError("Loader failed")
 
     dataset = VulnDataset()
     loaders = [FailingLoader()]
 
-    with pytest.raises(IOError, match="Loader failed"):
+    with pytest.raises(OSError, match="Loader failed"):
         PipelineExecutor.run_loaders(dataset, loaders)
 
 
@@ -473,24 +485,16 @@ def test_run_parallel_worker_failure_raises_pipeline_error():
     from vulnflow.loaders.files import ParquetLoader
     from vulnflow.pipeline import VulnPipeline
 
-    class FailingExtractor(BaseExtractor):
-        format = "failing"
-        name = "failing"
-
-        def __init__(self) -> None:
-            super().__init__()
-
-        def extract(self) -> VulnDataset:
-            raise ExtractorError("deliberate failure")
-
     with tempfile.TemporaryDirectory() as tmpdir:
         pipeline = VulnPipeline(
-            extractors=[FailingExtractor()],
+            extractors=[_PicklableFailingExtractor()],
             loaders=[ParquetLoader(Path(tmpdir) / "out.parquet")],
         )
 
-        with pytest.raises(PipelineError, match="workers failed"):
+        with pytest.raises(PipelineError, match="workers failed") as exc_info:
             pipeline.run(parallel=True, workers=1)
+
+        assert isinstance(exc_info.value.__cause__, ExtractorError)
 
 
 def test_run_parallel_loader_outputs_keys_consistent(nvd_sample_path):
@@ -509,3 +513,23 @@ def test_run_parallel_loader_outputs_keys_consistent(nvd_sample_path):
 
         # Key should be loader name (e.g., "parquet"), same as serial path
         assert "parquet" in result.loader_outputs
+
+
+def test_run_parallel_disambiguates_same_name_loaders(nvd_sample_path):
+    """Parallel loader_outputs keys are disambiguated when loaders share names."""
+    from vulnflow.extractors.nvd import NVDExtractor
+    from vulnflow.loaders.files import ParquetLoader
+    from vulnflow.pipeline import VulnPipeline
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        paths = [Path(tmpdir) / f"out_{i}.parquet" for i in range(2)]
+        pipeline = VulnPipeline(
+            extractors=[NVDExtractor(str(nvd_sample_path)) for _ in range(2)],
+            loaders=[ParquetLoader(p) for p in paths],
+        )
+
+        result = pipeline.run(parallel=True, workers=2)
+
+        # Two loaders with same name "parquet" should get _0, _1 suffixes
+        assert "parquet_0" in result.loader_outputs
+        assert "parquet_1" in result.loader_outputs
