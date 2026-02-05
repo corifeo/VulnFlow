@@ -11,6 +11,7 @@ from __future__ import annotations
 from vulnflow.dataset import VulnDataset
 from vulnflow.transforms.computed.cvd_state import CVDStateTransform
 from vulnflow.transforms.enrichers.kev import KEVEnricher
+from vulnflow.transforms.flatten.kev import KEVFlattenTransform
 from vulnflow.transforms.inferences.events import EventInference
 
 
@@ -63,12 +64,13 @@ def test_cvd_state_with_kev():
     """CVD state reflects A timestamp from KEV."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    # Enrich with KEV first
-    dataset.transform([KEVEnricher(source="tests/fixtures/kev_sample.csv")])
-
-    # Then run EventInference and CVDStateTransform
-    EventInference().transform(dataset)
-    CVDStateTransform().transform(dataset)
+    # Enrich with KEV, flatten, infer, compute state
+    dataset.transform([
+        KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+        KEVFlattenTransform(),
+        EventInference(),
+        CVDStateTransform(),
+    ])
 
     states = dataset.get_column("cvd_state")
     # CVE-2024-0001 is in KEV, should have A

@@ -21,7 +21,6 @@ from vulnflow.transforms.enrichers.epss import DEFAULT_EPSS_URL, EPSSEnricher
 from vulnflow.transforms.enrichers.kev import DEFAULT_KEV_URL, KEVEnricher
 from vulnflow.utils.http import HttpFetcher, detect_format, is_url
 
-
 # =============================================================================
 # is_url() Tests
 # =============================================================================

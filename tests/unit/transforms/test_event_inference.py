@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from vulnflow.dataset import VulnDataset
 from vulnflow.transforms.enrichers.kev import KEVEnricher
+from vulnflow.transforms.flatten.kev import KEVFlattenTransform
 from vulnflow.transforms.inferences.events import EventInference, extract_date_from_url
 
 
@@ -72,11 +73,12 @@ def test_event_inference_a_from_kev():
     """EventInference infers A from KEV date_added."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    # First enrich with KEV
-    dataset.transform([KEVEnricher(source="tests/fixtures/kev_sample.csv")])
-
-    # Then run EventInference
-    EventInference().transform(dataset)
+    # First enrich with KEV, then flatten, then infer
+    dataset.transform([
+        KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+        KEVFlattenTransform(),
+        EventInference(),
+    ])
 
     a_timestamps = dataset.get_column("a_timestamp")
     # CVE-2024-0001 is in KEV, should have A timestamp

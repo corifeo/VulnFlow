@@ -78,6 +78,5 @@ class CPEFlattenTransform(BaseFlatten):
             out["cpe_version"][i] = selected.get("version")
             out["cpe_fix_version"][i] = selected.get("fix_version")
 
-        # Set all columns
-        for name, arr in out.items():
-            dataset.set_column(name, arr)
+        # Insert columns right after input_column (cpes)
+        dataset.insert_columns_after(self.input_column, out)

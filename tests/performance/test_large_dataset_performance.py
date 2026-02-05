@@ -75,9 +75,11 @@ def test_kev_enrichment_performance():
     elapsed = time.time() - start
 
     # Check results
-    kev_col = dataset.get_column_or_none("kev_date_added")
+    kev_col = dataset.get_column_or_none("kev")
     matched_count = (
-        sum(1 for x in kev_col if x is not None) if kev_col is not None else 0
+        sum(1 for x in kev_col if x is not None and x != "null")
+        if kev_col is not None
+        else 0
     )
 
     print(f"\nKEV enrichment: {record_count:,} records in {elapsed:.2f}s")
@@ -146,8 +148,12 @@ def test_full_pipeline_performance():
     total_elapsed = time.time() - start
 
     record_count = len(dataset)
-    kev_col = dataset.get_column_or_none("kev_date_added")
-    kev_matches = sum(1 for x in kev_col if x is not None) if kev_col is not None else 0
+    kev_col = dataset.get_column_or_none("kev")
+    kev_matches = (
+        sum(1 for x in kev_col if x is not None and x != "null")
+        if kev_col is not None
+        else 0
+    )
 
     epss_col = dataset.get_column_or_none("epss_probability")
     import numpy as np
@@ -308,7 +314,7 @@ def test_parquet_roundtrip_performance():
 
         # Verify data integrity
         assert len(dataset2) == record_count
-        assert "kev_date_added" in dataset2.columns
+        assert "kev" in dataset2.columns
         assert "epss_probability" in dataset2.columns
 
 
