@@ -18,7 +18,6 @@ import numpy as np
 from vulnflow import VulnDataset
 from vulnflow.transforms.computed.cvd_state import CVDStateTransform
 from vulnflow.transforms.inferences.events import EventInference
-from vulnflow.transforms.inferences.tags import TagInference
 
 
 def test_notebook_01_quick_start():

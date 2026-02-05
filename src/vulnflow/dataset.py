@@ -94,6 +94,48 @@ class VulnDataset:
 
         self._data[name] = data
 
+    def insert_columns_after(
+        self, after: str, columns: dict[str, np.ndarray]
+    ) -> None:
+        """Insert new columns immediately after a specified column.
+
+        Maintains column ordering for flatten transforms which should insert
+        scalar columns right after their JSON parent column.
+
+        Args:
+            after: Column name to insert after
+            columns: Dict of column_name -> array to insert
+
+        Raises:
+            KeyError: If 'after' column doesn't exist
+            ValueError: If column length doesn't match dataset length
+
+        Example:
+            dataset.insert_columns_after("cwes", {
+                "cwe_id": cwe_ids,
+                "cwe_name": cwe_names
+            })
+        """
+        if after not in self._data:
+            msg = f"Column '{after}' not found in dataset"
+            raise KeyError(msg)
+
+        # Validate lengths
+        for name, data in columns.items():
+            if self._data and len(data) != len(self):
+                msg = f"Column length mismatch: expected {len(self)}, got {len(data)}"
+                raise ValueError(msg)
+
+        # Rebuild dict with columns inserted after specified column
+        new_data: dict[str, np.ndarray] = {}
+        for key, value in self._data.items():
+            new_data[key] = value
+            if key == after:
+                # Insert new columns here
+                new_data.update(columns)
+
+        self._data = new_data
+
     def transform(self, transforms: list[object] | None = None) -> VulnDataset:
         """Apply transforms and enrichers to dataset (modifies in place).
 

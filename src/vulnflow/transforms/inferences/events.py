@@ -191,7 +191,7 @@ class EventInference(BaseInference):
     """
 
     name: str = "EventInference"
-    depends_on: list[str] = ["KEVEnricher"]
+    depends_on: list[str] = ["KEVFlattenTransform"]
 
     SCHEMA_VERSION: str = "3.0.0"
     OUTPUT_SCHEMA: list[FieldDefinition] = [

@@ -41,6 +41,7 @@ class PipelineExecutor:
         """Execute extractors sequentially and merge results.
 
         Extractors always run in strict mode (failures always raise).
+        Shows progress bar when multiple extractors present.
 
         Args:
             extractors: List of extractor instances
@@ -52,6 +53,7 @@ class PipelineExecutor:
             Exception: If any extractor fails (strict mode only)
         """
         from vulnflow.dataset import VulnDataset
+        from vulnflow.utils.progress import progress_bar
 
         if not extractors:
             return VulnDataset(), [], [], []
@@ -61,16 +63,25 @@ class PipelineExecutor:
         failed: list[str] = []
         errors: list[Exception] = []
 
-        for extractor in extractors:
-            ext_name = get_stage_name(extractor)
-            try:
-                ds = extractor.extract()
-                datasets.append(ds)
-                successful.append(ext_name)
-            except Exception as e:
-                failed.append(ext_name)
-                errors.append(e)
-                raise  # Extractor failures always raise
+        # Show progress bar when multiple extractors
+        with progress_bar(
+            total=len(extractors),
+            desc="Extracting data",
+            unit="extractors",
+        ) as pbar:
+            for extractor in extractors:
+                ext_name = get_stage_name(extractor)
+                pbar.set_postfix_str(f"[{ext_name}]")
+                try:
+                    ds = extractor.extract()
+                    datasets.append(ds)
+                    successful.append(ext_name)
+                except Exception as e:
+                    failed.append(ext_name)
+                    errors.append(e)
+                    raise  # Extractor failures always raise
+                finally:
+                    pbar.update(1)
 
         # Merge all extracted datasets
         merged = VulnDataset.merge(datasets)
@@ -178,6 +189,7 @@ class PipelineExecutor:
         """Execute loaders sequentially and collect outputs.
 
         Loaders always run in strict mode (failures always raise).
+        Shows progress bar when multiple loaders present.
 
         Args:
             dataset: Dataset to load
@@ -189,6 +201,8 @@ class PipelineExecutor:
         Raises:
             Exception: If any loader fails (strict mode only)
         """
+        from vulnflow.utils.progress import progress_bar
+
         if not loaders:
             return {}, [], [], []
 
@@ -197,15 +211,24 @@ class PipelineExecutor:
         failed: list[str] = []
         errors: list[Exception] = []
 
-        for loader in loaders:
-            loader_name = get_stage_name(loader)
-            try:
-                output = loader.load(dataset)
-                loader_outputs[loader_name] = output
-                successful.append(loader_name)
-            except Exception as e:
-                failed.append(loader_name)
-                errors.append(e)
-                raise  # Loader failures always raise
+        # Show progress bar when multiple loaders
+        with progress_bar(
+            total=len(loaders),
+            desc="Loading data",
+            unit="loaders",
+        ) as pbar:
+            for loader in loaders:
+                loader_name = get_stage_name(loader)
+                pbar.set_postfix_str(f"[{loader_name}]")
+                try:
+                    output = loader.load(dataset)
+                    loader_outputs[loader_name] = output
+                    successful.append(loader_name)
+                except Exception as e:
+                    failed.append(loader_name)
+                    errors.append(e)
+                    raise  # Loader failures always raise
+                finally:
+                    pbar.update(1)
 
         return loader_outputs, successful, failed, errors

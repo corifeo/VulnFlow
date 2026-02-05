@@ -27,7 +27,7 @@ def test_transform_with_no_args_uses_enricher_defaults():
     )
 
     # Should have KEV and EPSS columns
-    assert "kev_date_added" in dataset.columns or "epss_probability" in dataset.columns
+    assert "kev" in dataset.columns or "epss_probability" in dataset.columns
 
 
 def test_transform_with_no_args_uses_transform_defaults():

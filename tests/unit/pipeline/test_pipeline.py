@@ -156,7 +156,7 @@ def test_pipeline_with_enrichers():
     result = pipeline.run()
 
     assert result.dataset is not None
-    assert "kev_date_added" in result.dataset.columns
+    assert "kev" in result.dataset.columns
     assert "KEVEnricher" in result.successful_stages
 
 

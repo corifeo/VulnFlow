@@ -47,14 +47,7 @@ class EPSSEnricher(BaseEnricher):
     depends_on: list[str] = []
 
     OUTPUT_SCHEMA: list[FieldDefinition] = [
-        FieldDefinition(
-            "epss_probability", "float", "EPSS exploit probability", "EPSSEnricher"
-        ),
-        FieldDefinition(
-            "epss_percentile", "float", "EPSS percentile rank", "EPSSEnricher"
-        ),
-        FieldDefinition("epss_date", "datetime", "EPSS score date", "EPSSEnricher"),
-        FieldDefinition("epss_model", "int", "EPSS model version", "EPSSEnricher"),
+        FieldDefinition("epss_scores", "str", "EPSS scores array (JSON)", "EPSSEnricher"),
     ]
 
     def __init__(
@@ -93,7 +86,6 @@ class EPSSEnricher(BaseEnricher):
         """Enrich dataset with EPSS data.
 
         Appends new EPSS scores to the epss_scores array with date deduplication.
-        Also sets scalar columns for backward compatibility.
 
         Args:
             dataset: VulnDataset to enrich (modifies in place)
@@ -116,14 +108,7 @@ class EPSSEnricher(BaseEnricher):
         # Build lookup dict for EPSS data (keyed by CVE ID)
         epss_lookup: dict[str, dict[str, Any]] = epss_data
 
-        # Initialize scalar output arrays for backward compatibility
-        epss_probability = np.full(n, np.nan, dtype=np.float64)
-        epss_percentile = np.full(n, np.nan, dtype=np.float64)
-        epss_date_arr = np.full(n, None, dtype=object)
-        epss_model_arr = np.full(n, None, dtype=object)
-
         # Process each record
-        matched_indices: list[int] = []
         new_epss_scores = np.empty(n, dtype=object)
 
         for i, cve_id in enumerate(cve_ids):
@@ -137,7 +122,6 @@ class EPSSEnricher(BaseEnricher):
             # Check if we have new EPSS data for this CVE
             if cve_id in epss_lookup:
                 new_data = epss_lookup[cve_id]
-                matched_indices.append(i)
 
                 # Format date for comparison and storage
                 new_date = new_data.get("date")
@@ -161,21 +145,11 @@ class EPSSEnricher(BaseEnricher):
                 # Append new entry
                 existing_scores.append(new_entry)
 
-                # Set scalar columns for backward compatibility
-                epss_probability[i] = new_data["probability"]
-                epss_percentile[i] = new_data["percentile"]
-                epss_date_arr[i] = new_date
-                epss_model_arr[i] = new_data.get("model", 3)
-
             # Serialize updated scores
             new_epss_scores[i] = json.dumps(existing_scores)
 
-        # Set columns
+        # Set column
         dataset.set_column("epss_scores", new_epss_scores)
-        dataset.set_column("epss_probability", epss_probability)
-        dataset.set_column("epss_percentile", epss_percentile)
-        dataset.set_column("epss_date", epss_date_arr)
-        dataset.set_column("epss_model", epss_model_arr)
 
     async def _get_cached_data_async(self) -> dict[str, dict[str, Any]]:
         """Get EPSS data from cache or load fresh (async)."""

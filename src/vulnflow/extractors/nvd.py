@@ -93,6 +93,7 @@ class NVDExtractor(BaseExtractor):
         from dataclasses import asdict
 
         from vulnflow.dataset import VulnDataset
+        from vulnflow.utils.progress import progress_bar
 
         content = self._load_content()
         vulnerabilities = self._parse_content(content)
@@ -107,63 +108,70 @@ class NVDExtractor(BaseExtractor):
         arrays = {col: np.empty(n, dtype=object) for col in record_cols}
 
         # Single-pass: Parse JSON → dataclasses → serialize inline
-        for i, vuln in enumerate(vulnerabilities):
-            cve_data = vuln.get("cve", {})
+        with progress_bar(
+            total=n,
+            desc="Parsing CVEs",
+            unit="CVEs",
+        ) as pbar:
+            for i, vuln in enumerate(vulnerabilities):
+                cve_data = vuln.get("cve", {})
 
-            # Identity
-            arrays["id"][i] = str(uuid4())
-            arrays["cve_id"][i] = cve_data.get("id")
+                # Identity
+                arrays["id"][i] = str(uuid4())
+                arrays["cve_id"][i] = cve_data.get("id")
 
-            # Description (extract English)
-            description = None
-            for desc in cve_data.get("descriptions", []):
-                if desc.get("lang") == "en":
-                    description = desc.get("value")
-                    break
-            arrays["description"][i] = description
+                # Description (extract English)
+                description = None
+                for desc in cve_data.get("descriptions", []):
+                    if desc.get("lang") == "en":
+                        description = desc.get("value")
+                        break
+                arrays["description"][i] = description
 
-            # Metadata
-            arrays["first_seen_at"][i] = None
-            arrays["last_updated_at"][i] = None
+                # Metadata
+                arrays["first_seen_at"][i] = None
+                arrays["last_updated_at"][i] = None
 
-            # NVD Temporal
-            arrays["nvd_published_at"][i] = self._parse_timestamp(
-                cve_data.get("published")
-            )
-            arrays["nvd_modified_at"][i] = self._parse_timestamp(
-                cve_data.get("lastModified")
-            )
-            arrays["nvd_status"][i] = self._extract_nvd_status(cve_data) or "unknown"
+                # NVD Temporal
+                arrays["nvd_published_at"][i] = self._parse_timestamp(
+                    cve_data.get("published")
+                )
+                arrays["nvd_modified_at"][i] = self._parse_timestamp(
+                    cve_data.get("lastModified")
+                )
+                arrays["nvd_status"][i] = self._extract_nvd_status(cve_data) or "unknown"
 
-            # Complex fields: Parse to dataclasses → asdict() → JSON
-            # Type-safe but still efficient (single pass)
+                # Complex fields: Parse to dataclasses → asdict() → JSON
+                # Type-safe but still efficient (single pass)
 
-            # CVSS scores
-            cvss_entries = self._parse_cvss(cve_data.get("metrics", {}))
-            cvss_dicts = [asdict(entry) for entry in cvss_entries]
-            arrays["cvss_scores"][i] = json.dumps(cvss_dicts) if cvss_dicts else "[]"
+                # CVSS scores
+                cvss_entries = self._parse_cvss(cve_data.get("metrics", {}))
+                cvss_dicts = [asdict(entry) for entry in cvss_entries]
+                arrays["cvss_scores"][i] = json.dumps(cvss_dicts) if cvss_dicts else "[]"
 
-            # CWEs
-            cwe_entries = self._parse_cwes(cve_data.get("weaknesses", []))
-            cwe_dicts = [asdict(entry) for entry in cwe_entries]
-            arrays["cwes"][i] = json.dumps(cwe_dicts) if cwe_dicts else "[]"
+                # CWEs
+                cwe_entries = self._parse_cwes(cve_data.get("weaknesses", []))
+                cwe_dicts = [asdict(entry) for entry in cwe_entries]
+                arrays["cwes"][i] = json.dumps(cwe_dicts) if cwe_dicts else "[]"
 
-            # CPEs
-            cpe_entries = self._parse_cpes(cve_data.get("configurations", []))
-            cpe_dicts = [asdict(entry) for entry in cpe_entries]
-            arrays["cpes"][i] = json.dumps(cpe_dicts) if cpe_dicts else "[]"
+                # CPEs
+                cpe_entries = self._parse_cpes(cve_data.get("configurations", []))
+                cpe_dicts = [asdict(entry) for entry in cpe_entries]
+                arrays["cpes"][i] = json.dumps(cpe_dicts) if cpe_dicts else "[]"
 
-            # References
-            ref_entries = self._parse_references(cve_data.get("references", []))
-            ref_dicts = [asdict(entry) for entry in ref_entries]
-            arrays["references"][i] = json.dumps(ref_dicts) if ref_dicts else "[]"
+                # References
+                ref_entries = self._parse_references(cve_data.get("references", []))
+                ref_dicts = [asdict(entry) for entry in ref_entries]
+                arrays["references"][i] = json.dumps(ref_dicts) if ref_dicts else "[]"
 
-            # Empty fields (not in NVD)
-            arrays["epss_scores"][i] = "[]"
-            arrays["kev"][i] = "null"
-            arrays["exploits"][i] = "[]"
-            arrays["tags"][i] = "{}"
-            arrays["metadata"][i] = "{}"
+                # Empty fields (not in NVD)
+                arrays["epss_scores"][i] = "[]"
+                arrays["kev"][i] = "null"
+                arrays["exploits"][i] = "[]"
+                arrays["tags"][i] = "{}"
+                arrays["metadata"][i] = "{}"
+
+                pbar.update(1)
 
         # Build dataset
         dataset = VulnDataset()

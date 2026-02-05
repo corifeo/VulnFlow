@@ -157,6 +157,5 @@ class CVSSFlattenTransform(BaseFlatten):
                     out["cvss_integrity"][i] = match.group(7)
                     out["cvss_availability"][i] = match.group(8)
 
-        # Set all columns
-        for name, arr in out.items():
-            dataset.set_column(name, arr)
+        # Insert columns right after input_column (cvss_scores)
+        dataset.insert_columns_after(self.input_column, out)

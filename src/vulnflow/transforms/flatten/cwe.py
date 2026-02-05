@@ -4,7 +4,7 @@ Layer: Transform/Flatten
 Dependencies: transforms.flatten.base
 
 Selects the first CWE entry from the cwes array.
-Extracts 1 scalar column from the selected entry.
+Extracts 5 scalar columns from the selected entry.
 """
 
 from __future__ import annotations
@@ -23,17 +23,17 @@ if TYPE_CHECKING:
 
 @register_transform(default=True)
 class CWEFlattenTransform(BaseFlatten):
-    """Select primary CWE (first entry) and extract identifier.
+    """Select primary CWE (first entry) and extract all fields.
 
     Selection: First CWE from cwes array
 
-    Output columns (1):
-    - cwe_id
+    Output columns (5):
+    - cwe_id, cwe_name, cwe_category_id, cwe_category_name, cwe_abstraction_level
     """
 
     name: str = "CWEFlattenTransform"
     input_column: str = "cwes"
-    depends_on: list[str] = []
+    depends_on: list[str] = ["CWEEnricher"]
 
     def __init__(self) -> None:
         """Initialize CWE flatten transform."""
@@ -41,6 +41,22 @@ class CWEFlattenTransform(BaseFlatten):
 
     OUTPUT_SCHEMA: list[FieldDefinition] = [
         FieldDefinition("cwe_id", "str", "CWE identifier", "CWEFlattenTransform"),
+        FieldDefinition("cwe_name", "str", "CWE weakness name", "CWEFlattenTransform"),
+        FieldDefinition(
+            "cwe_category_id", "str", "Parent CWE category", "CWEFlattenTransform"
+        ),
+        FieldDefinition(
+            "cwe_category_name",
+            "str",
+            "Parent category name",
+            "CWEFlattenTransform",
+        ),
+        FieldDefinition(
+            "cwe_abstraction_level",
+            "str",
+            "CWE abstraction level",
+            "CWEFlattenTransform",
+        ),
     ]
 
     def transform(self, dataset: VulnDataset) -> None:
@@ -64,9 +80,12 @@ class CWEFlattenTransform(BaseFlatten):
             # Selection: first entry
             selected = cwes[0]
 
-            # Extract scalar field
+            # Extract all scalar fields
             out["cwe_id"][i] = selected.get("id")
+            out["cwe_name"][i] = selected.get("name")
+            out["cwe_category_id"][i] = selected.get("category_id")
+            out["cwe_category_name"][i] = selected.get("category_name")
+            out["cwe_abstraction_level"][i] = selected.get("abstraction_level")
 
-        # Set all columns
-        for name, arr in out.items():
-            dataset.set_column(name, arr)
+        # Insert columns right after input_column (cwes)
+        dataset.insert_columns_after(self.input_column, out)
