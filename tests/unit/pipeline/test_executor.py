@@ -9,7 +9,6 @@ Dependencies: dataset, extractors, transforms, loaders
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -19,7 +18,6 @@ from vulnflow.dataset import VulnDataset
 from vulnflow.executor import PipelineExecutor, get_stage_name
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.loaders.base import BaseLoader
-
 
 # =============================================================================
 # get_stage_name Tests
@@ -312,7 +310,7 @@ def test_run_loaders_raises_on_failure():
         name = "FailingLoader"
 
         def load(self, dataset: VulnDataset) -> Any:
-            raise IOError("Loader failed")
+            raise OSError("Loader failed")
 
     dataset = VulnDataset()
     loaders = [FailingLoader()]

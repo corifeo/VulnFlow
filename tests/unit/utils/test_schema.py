@@ -3,8 +3,6 @@
 from datetime import datetime
 from uuid import UUID
 
-import pytest
-
 from vulnflow.utils.schema import (
     build_type_map,
     deserialize_value,
@@ -13,7 +11,6 @@ from vulnflow.utils.schema import (
     infer_type,
     serialize_value,
 )
-
 
 # === Introspection Tests (existing functionality) ===
 
