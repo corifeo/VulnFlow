@@ -473,3 +473,11 @@ def test_pipeline_from_config_unknown_extractor():
 
     with pytest.raises(KeyError, match="Extractor not found: unknown_extractor"):
         VulnPipeline.from_config(config)
+
+
+def test_pipeline_error_is_vulnflow_error():
+    """PipelineError inherits from VulnFlowError."""
+    from vulnflow.exceptions import PipelineError, VulnFlowError
+
+    err = PipelineError("test")
+    assert isinstance(err, VulnFlowError)
