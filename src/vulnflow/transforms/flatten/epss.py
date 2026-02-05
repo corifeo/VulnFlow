@@ -81,6 +81,5 @@ class EPSSFlattenTransform(BaseFlatten):
             out["epss_date"][i] = selected.get("date")
             out["epss_model"][i] = selected.get("model")
 
-        # Set all columns
-        for name, arr in out.items():
-            dataset.set_column(name, arr)
+        # Insert columns right after input_column (epss_scores)
+        dataset.insert_columns_after(self.input_column, out)

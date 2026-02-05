@@ -88,6 +88,5 @@ class KEVFlattenTransform(BaseFlatten):
             out["kev_required_action"][i] = kev.get("required_action")
             out["kev_ransomware"][i] = kev.get("known_ransomware_use", False)
 
-        # Set all columns
-        for name, arr in out.items():
-            dataset.set_column(name, arr)
+        # Insert columns right after input_column (kev)
+        dataset.insert_columns_after(self.input_column, out)
