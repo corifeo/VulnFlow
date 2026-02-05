@@ -147,9 +147,7 @@ class VulnPipeline:
         from vulnflow.exceptions import PipelineError
 
         if not self.extractors:
-            raise PipelineError(
-                "Parallel execution requires at least one extractor"
-            )
+            raise PipelineError("Parallel execution requires at least one extractor")
         if len(self.extractors) != len(self.loaders):
             raise PipelineError(
                 f"Parallel execution requires equal extractors and loaders: "

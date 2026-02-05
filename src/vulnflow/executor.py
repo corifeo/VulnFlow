@@ -295,9 +295,7 @@ class PipelineExecutor:
                     loader_outputs[loader_key] = result
                     successful.extend([ext_name, loader_key])
                 except Exception as exc:
-                    logger.warning(
-                        "Parallel worker %d failed: %s", idx, exc
-                    )
+                    logger.warning("Parallel worker %d failed: %s", idx, exc)
                     failed.extend([ext_name, loader_key])
                     errors.append(exc)
 
