@@ -1,4 +1,4 @@
-"""CPEPrimaryTransform - Extract primary CPE from cpes array.
+"""CPEFlattenTransform - Extract primary CPE from cpes array.
 
 Layer: Transform/Flatten
 Dependencies: transforms.flatten.base
@@ -22,28 +22,34 @@ if TYPE_CHECKING:
 
 
 @register_transform(default=True)
-class CPEPrimaryTransform(BaseFlatten):
-    """Extract primary (first) CPE and its components.
+class CPEFlattenTransform(BaseFlatten):
+    """Select primary CPE (first entry) and extract components.
+
+    Selection: First CPE from cpes array
 
     Output columns (4):
     - cpe_vendor, cpe_product, cpe_version, cpe_fix_version
     """
 
-    name: str = "CPEPrimaryTransform"
+    name: str = "CPEFlattenTransform"
     input_column: str = "cpes"
     depends_on: list[str] = []
 
     OUTPUT_SCHEMA: list[FieldDefinition] = [
-        FieldDefinition("cpe_vendor", "str", "CPE vendor", "CPEPrimaryTransform"),
-        FieldDefinition("cpe_product", "str", "CPE product", "CPEPrimaryTransform"),
-        FieldDefinition("cpe_version", "str", "CPE version", "CPEPrimaryTransform"),
+        FieldDefinition("cpe_vendor", "str", "CPE vendor", "CPEFlattenTransform"),
+        FieldDefinition("cpe_product", "str", "CPE product", "CPEFlattenTransform"),
+        FieldDefinition("cpe_version", "str", "CPE version", "CPEFlattenTransform"),
         FieldDefinition(
             "cpe_fix_version",
             "str",
             "CPE fix version (versionEndExcluding)",
-            "CPEPrimaryTransform",
+            "CPEFlattenTransform",
         ),
     ]
+
+    def __init__(self) -> None:
+        """Initialize CPE flatten transform."""
+        super().__init__()  # MUST call first per CLAUDE.md
 
     def transform(self, dataset: VulnDataset) -> None:
         """Extract first CPE entry and its fields."""
@@ -56,6 +62,7 @@ class CPEPrimaryTransform(BaseFlatten):
         }
 
         for i, raw in enumerate(cpes_json):
+            # Check for empty/null JSON (stored as strings in columnar format)
             if not raw or raw == "[]" or raw == "null":
                 continue
             cpes = json.loads(str(raw))

@@ -536,7 +536,7 @@ def test_nvd_extractor_no_flattened_columns():
     assert "primary_cwe_id" not in dataset.columns
     assert "primary_cwe_name" not in dataset.columns
 
-    # These columns should NOT exist (moved to CPEPrimaryTransform)
+    # These columns should NOT exist (moved to CPEFlattenTransform)
     assert "primary_vendor" not in dataset.columns
     assert "primary_product" not in dataset.columns
 

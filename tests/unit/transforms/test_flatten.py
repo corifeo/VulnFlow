@@ -15,7 +15,7 @@ import pytest
 
 from vulnflow import VulnDataset
 from vulnflow.transforms.flatten import (
-    CPEPrimaryTransform,
+    CPEFlattenTransform,
     CVSSFlattenTransform,
     CWEPrimaryTransform,
 )
@@ -223,13 +223,13 @@ def test_cwe_primary_handles_empty_array():
 
 
 # =============================================================================
-# CPEPrimaryTransform Tests
+# CPEFlattenTransform Tests
 # =============================================================================
 
 
 def test_cpe_primary_extracts_first():
-    """CPEPrimaryTransform extracts first CPE by default."""
-    from vulnflow.transforms.flatten.cpe import CPEPrimaryTransform
+    """CPEFlattenTransform extracts first CPE by default."""
+    from vulnflow.transforms.flatten.cpe import CPEFlattenTransform
 
     ds = VulnDataset()
     ds._data = {
@@ -250,7 +250,7 @@ def test_cpe_primary_extracts_first():
         ),
     }
 
-    CPEPrimaryTransform().transform(ds)
+    CPEFlattenTransform().transform(ds)
 
     assert ds.get_column("cpe_vendor")[0] == "apache"
     assert ds.get_column("cpe_product")[0] == "log4j"
@@ -258,8 +258,8 @@ def test_cpe_primary_extracts_first():
 
 
 def test_cpe_primary_handles_empty_array():
-    """CPEPrimaryTransform handles empty cpes gracefully."""
-    from vulnflow.transforms.flatten.cpe import CPEPrimaryTransform
+    """CPEFlattenTransform handles empty cpes gracefully."""
+    from vulnflow.transforms.flatten.cpe import CPEFlattenTransform
 
     ds = VulnDataset()
     ds._data = {
@@ -267,15 +267,15 @@ def test_cpe_primary_handles_empty_array():
         "cpes": np.array(["[]"]),
     }
 
-    CPEPrimaryTransform().transform(ds)
+    CPEFlattenTransform().transform(ds)
 
     assert ds.get_column("cpe_vendor")[0] is None
     assert ds.get_column("cpe_product")[0] is None
 
 
 def test_cpe_primary_extracts_fix_version():
-    """CPEPrimaryTransform extracts fix_version if present."""
-    from vulnflow.transforms.flatten.cpe import CPEPrimaryTransform
+    """CPEFlattenTransform extracts fix_version if present."""
+    from vulnflow.transforms.flatten.cpe import CPEFlattenTransform
 
     ds = VulnDataset()
     ds._data = {
@@ -296,7 +296,7 @@ def test_cpe_primary_extracts_fix_version():
         ),
     }
 
-    CPEPrimaryTransform().transform(ds)
+    CPEFlattenTransform().transform(ds)
 
     assert ds.get_column("cpe_fix_version")[0] == "2.17.0"
 
@@ -410,11 +410,11 @@ def test_dataframe_flattens_primary_cwe():
 
 
 def test_dataframe_flattens_primary_cpe():
-    """CPEPrimaryTransform flattens first CPE to cpe_* columns."""
+    """CPEFlattenTransform flattens first CPE to cpe_* columns."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     # Apply flatten transform
-    CPEPrimaryTransform().transform(dataset)
+    CPEFlattenTransform().transform(dataset)
 
     df = dataset.to_pandas()
 

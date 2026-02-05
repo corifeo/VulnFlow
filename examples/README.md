@@ -114,7 +114,7 @@ cache = build_cache(paths, output_path="../data/complete_library.parquet")
 DEFAULT_TRANSFORMS = [
     CVSSFlattenTransform(),   # cvss_base_score, cvss_base_severity
     CWEPrimaryTransform(),    # cwe_id, cwe_name
-    CPEPrimaryTransform(),    # cpe_vendor, cpe_product
+    CPEFlattenTransform(),    # cpe_vendor, cpe_product
     EventInference(),         # v_timestamp, f_timestamp, confidence
     CVDStateTransform(),      # cvd_state, is_zero_day_exploit, fix_lag_days
     TagInference(),           # tag inference from references
@@ -136,7 +136,7 @@ uv run python examples/setup_data.py
 
 Use flatten transforms:
 ```python
-.transform([CVSSFlattenTransform(), CWEPrimaryTransform(), CPEPrimaryTransform()])
+.transform([CVSSFlattenTransform(), CWEPrimaryTransform(), CPEFlattenTransform()])
 ```
 
 Or use the support library:
