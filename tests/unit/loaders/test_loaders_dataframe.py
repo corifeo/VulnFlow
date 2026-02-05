@@ -156,7 +156,7 @@ def test_pandas_loader_with_flatten_transform_full_fidelity():
 
 
 def test_pandas_loader_with_cwe_transform():
-    """PandasLoader with CWEPrimaryTransform produces cwe_* columns."""
+    """PandasLoader with CWEPrimaryTransform produces cwe_id column."""
     from vulnflow.loaders.dataframe import PandasLoader
     from vulnflow.transforms.flatten import CWEPrimaryTransform
 
@@ -167,7 +167,6 @@ def test_pandas_loader_with_cwe_transform():
     df = loader.load(dataset)
 
     assert "cwe_id" in df.columns
-    assert "cwe_name" in df.columns
 
 
 def test_pandas_loader_with_cpe_transform():

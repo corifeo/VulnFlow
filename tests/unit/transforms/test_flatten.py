@@ -184,7 +184,7 @@ def test_cvss_flatten_handles_empty_array():
 
 
 def test_cwe_primary_extracts_first():
-    """CWEPrimaryTransform extracts first CWE."""
+    """CWEPrimaryTransform extracts first CWE ID."""
     from vulnflow.transforms.flatten.cwe import CWEPrimaryTransform
 
     ds = VulnDataset()
@@ -205,7 +205,6 @@ def test_cwe_primary_extracts_first():
     CWEPrimaryTransform().transform(ds)
 
     assert ds.get_column("cwe_id")[0] == "CWE-502"
-    assert ds.get_column("cwe_name")[0] == "Deserialization of Untrusted Data"
 
 
 def test_cwe_primary_handles_empty_array():
@@ -221,31 +220,6 @@ def test_cwe_primary_handles_empty_array():
     CWEPrimaryTransform().transform(ds)
 
     assert ds.get_column("cwe_id")[0] is None
-    assert ds.get_column("cwe_name")[0] is None
-
-
-def test_cwe_primary_handles_null_name():
-    """CWEPrimaryTransform handles CWE entries without name."""
-    from vulnflow.transforms.flatten.cwe import CWEPrimaryTransform
-
-    ds = VulnDataset()
-    ds._data = {
-        "cve_id": np.array(["CVE-2021-44228"]),
-        "cwes": np.array(
-            [
-                vulnflow_json.dumps(
-                    [
-                        {"id": "CWE-502", "name": None},
-                    ]
-                )
-            ]
-        ),
-    }
-
-    CWEPrimaryTransform().transform(ds)
-
-    assert ds.get_column("cwe_id")[0] == "CWE-502"
-    assert ds.get_column("cwe_name")[0] is None
 
 
 # =============================================================================
@@ -420,7 +394,7 @@ def test_epss_flatten_extracts_all_columns():
 
 
 def test_dataframe_flattens_primary_cwe():
-    """CWEPrimaryTransform flattens first CWE to cwe_* columns."""
+    """CWEPrimaryTransform flattens first CWE to cwe_id column."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     # Apply flatten transform
@@ -428,9 +402,8 @@ def test_dataframe_flattens_primary_cwe():
 
     df = dataset.to_pandas()
 
-    # Check columns exist
+    # Check column exists
     assert "cwe_id" in df.columns
-    assert "cwe_name" in df.columns
 
     # First record should have CWE-94
     assert df["cwe_id"].iloc[0] == "CWE-94"
