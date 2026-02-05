@@ -532,7 +532,7 @@ def test_nvd_extractor_no_flattened_columns():
     assert "cvss_base_score" not in dataset.columns
     assert "cvss_version" not in dataset.columns
 
-    # These columns should NOT exist (moved to CWEPrimaryTransform)
+    # These columns should NOT exist (moved to CWEFlattenTransform)
     assert "primary_cwe_id" not in dataset.columns
     assert "primary_cwe_name" not in dataset.columns
 

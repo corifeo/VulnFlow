@@ -156,12 +156,12 @@ def test_pandas_loader_with_flatten_transform_full_fidelity():
 
 
 def test_pandas_loader_with_cwe_transform():
-    """PandasLoader with CWEPrimaryTransform produces cwe_id column."""
+    """PandasLoader with CWEFlattenTransform produces cwe_id column."""
     from vulnflow.loaders.dataframe import PandasLoader
-    from vulnflow.transforms.flatten import CWEPrimaryTransform
+    from vulnflow.transforms.flatten import CWEFlattenTransform
 
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-    CWEPrimaryTransform().transform(dataset)
+    CWEFlattenTransform().transform(dataset)
     loader = PandasLoader()
 
     df = loader.load(dataset)

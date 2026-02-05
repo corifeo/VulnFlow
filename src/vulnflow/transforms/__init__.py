@@ -29,7 +29,7 @@ from vulnflow.transforms.flatten import (
     BaseFlatten,
     CPEFlattenTransform,
     CVSSFlattenTransform,
-    CWEPrimaryTransform,
+    CWEFlattenTransform,
     EPSSFlattenTransform,
 )
 
@@ -45,5 +45,5 @@ __all__ = [
     "CVSSFlattenTransform",
     "EPSSFlattenTransform",
     "CPEFlattenTransform",
-    "CWEPrimaryTransform",
+    "CWEFlattenTransform",
 ]
