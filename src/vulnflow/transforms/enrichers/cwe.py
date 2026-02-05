@@ -11,7 +11,6 @@ Used by: dataset.transform(), pipeline
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 import xml.etree.ElementTree as ET
@@ -29,6 +28,7 @@ if TYPE_CHECKING:
 from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.schema import CWEEntry
 from vulnflow.transforms.base import BaseEnricher
+from vulnflow.utils import json
 from vulnflow.utils.http import HttpFetcher, is_url
 
 logger = logging.getLogger(__name__)

@@ -21,6 +21,7 @@ Dependencies: schema
 
 from __future__ import annotations
 
+from vulnflow.utils import json
 from vulnflow.utils.cpe import parse_cpe23
 from vulnflow.utils.cvss import normalize_source
 from vulnflow.utils.cwe import CWEDatabase
@@ -51,4 +52,5 @@ __all__ = [
     "HttpFetcher",
     "ContentFormat",
     "progress_bar",
+    "json",
 ]
