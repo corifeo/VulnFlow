@@ -35,6 +35,10 @@ class CPEFlattenTransform(BaseFlatten):
     input_column: str = "cpes"
     depends_on: list[str] = []
 
+    def __init__(self) -> None:
+        """Initialize CPE flatten transform."""
+        super().__init__()  # MUST call first per CLAUDE.md
+
     OUTPUT_SCHEMA: list[FieldDefinition] = [
         FieldDefinition("cpe_vendor", "str", "CPE vendor", "CPEFlattenTransform"),
         FieldDefinition("cpe_product", "str", "CPE product", "CPEFlattenTransform"),
@@ -46,10 +50,6 @@ class CPEFlattenTransform(BaseFlatten):
             "CPEFlattenTransform",
         ),
     ]
-
-    def __init__(self) -> None:
-        """Initialize CPE flatten transform."""
-        super().__init__()  # MUST call first per CLAUDE.md
 
     def transform(self, dataset: VulnDataset) -> None:
         """Extract first CPE entry and its fields."""
