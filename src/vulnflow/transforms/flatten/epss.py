@@ -33,6 +33,10 @@ class EPSSFlattenTransform(BaseFlatten):
     input_column: str = "epss_scores"
     depends_on: list[str] = []
 
+    def __init__(self) -> None:
+        """Initialize EPSS flatten transform."""
+        super().__init__()  # MUST call first per CLAUDE.md
+
     OUTPUT_SCHEMA: list[FieldDefinition] = [
         FieldDefinition(
             "epss_probability", "float", "EPSS probability", "EPSSFlattenTransform"
@@ -57,6 +61,7 @@ class EPSSFlattenTransform(BaseFlatten):
         }
 
         for i, raw in enumerate(epss_json):
+            # Check for empty/null JSON (stored as strings in columnar format)
             if not raw or raw == "[]" or raw == "null":
                 continue
             scores = json.loads(str(raw))
