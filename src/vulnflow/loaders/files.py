@@ -85,6 +85,7 @@ class JSONLoader(BaseLoader):
             Metadata with path and record count
         """
         from vulnflow.utils import json
+        from vulnflow.utils.schema import serialize_value
 
         path = Path(self.path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,14 +95,13 @@ class JSONLoader(BaseLoader):
         if dataset._data:
             keys = list(dataset._data.keys())
             for i in range(len(dataset)):
-                record = {k: dataset._data[k][i] for k in keys}
-                # Convert non-serializable types
-                for k, v in record.items():
-                    if v is not None and not isinstance(v, (str, int, float, bool)):
-                        record[k] = str(v)
+                record = {}
+                for k in keys:
+                    value = dataset._data[k][i]
+                    record[k] = serialize_value(value)
                 records.append(record)
 
         with path.open("w") as f:
-            json.dump(records, f, indent=True, default=str)
+            json.dump(records, f, indent=True)
 
         return {"path": str(self.path), "record_count": len(dataset)}
