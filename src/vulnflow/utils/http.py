@@ -193,6 +193,9 @@ class HttpFetcher:
     ) -> tuple[bytes, ContentFormat]:
         """Synchronous wrapper for fetch().
 
+        Handles Jupyter/IPython environments where an event loop is already
+        running by using nest_asyncio to allow nested asyncio.run() calls.
+
         Args:
             url: HTTP/HTTPS URL to fetch
             cache_ttl: Cache time-to-live in seconds. None disables caching.
@@ -203,6 +206,14 @@ class HttpFetcher:
         Raises:
             HttpError: On network or HTTP errors (wraps httpx exceptions)
         """
+        try:
+            asyncio.get_running_loop()
+            # Already in an event loop (Jupyter) — need nest_asyncio
+            import nest_asyncio
+
+            nest_asyncio.apply()
+        except RuntimeError:
+            pass  # No loop running, asyncio.run() will work fine
         return asyncio.run(self.fetch(url, cache_ttl))
 
     def _maybe_decompress(self, content: bytes, url: str) -> bytes:
