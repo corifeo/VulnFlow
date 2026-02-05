@@ -78,12 +78,13 @@ class TestBaseTransform:
         assert len(columns) == 1
         assert columns[0].name == "test_field"
 
-    def test_base_transform_has_depends_on_default(self) -> None:
-        """BaseTransform provides empty depends_on by default."""
+    def test_base_transform_requires_explicit_depends_on(self) -> None:
+        """Transform with explicit depends_on succeeds."""
 
         class TestTransform(BaseTransform):
             name = "test"
             OUTPUT_SCHEMA: list[FieldDefinition] = []
+            depends_on: list[str] = []  # Explicit declaration required
 
             def transform(self, dataset: VulnDataset) -> None:
                 pass
@@ -104,6 +105,24 @@ class TestBaseTransform:
 
         transform = TestTransform()
         assert transform.depends_on == ["kev"]
+
+    def test_transform_missing_depends_on_raises(self) -> None:
+        """Transform without explicit depends_on should fail."""
+
+        with pytest.raises(
+            AttributeError,
+            match="must explicitly declare 'depends_on' class attribute",
+        ):
+
+            class BadTransform(BaseTransform):
+                name: str = "BadTransform"
+                OUTPUT_SCHEMA: list[FieldDefinition] = []
+                # Missing: depends_on = []
+
+                def transform(self, dataset: VulnDataset) -> None:
+                    pass
+
+            BadTransform()  # Should raise AttributeError
 
     def test_base_transform_has_default_schema_version(self) -> None:
         """BaseTransform provides default SCHEMA_VERSION."""
