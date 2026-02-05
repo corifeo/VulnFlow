@@ -47,17 +47,27 @@ class VulnPipeline:
     loaders: list[BaseLoader] = field(default_factory=list)
 
     def run(
-        self, dataset: VulnDataset | None = None, strict: bool = False
+        self,
+        dataset: VulnDataset | None = None,
+        strict: bool = False,
+        parallel: bool = False,
+        workers: int = 4,
     ) -> PipelineResult:
         """Execute pipeline stages: extract → transform → load.
 
         Args:
             dataset: Optional pre-existing dataset (skips extraction)
             strict: If True, raise on transformer errors. If False, collect errors.
+            parallel: If True, run extract→load pairs in parallel (Pattern 1).
+                      Requires len(extractors) == len(loaders) and no transforms.
+            workers: Max parallel workers when parallel=True (default 4)
 
         Returns:
             PipelineResult with dataset, metadata, and errors
         """
+        if parallel:
+            return self._run_parallel(workers=workers)
+
         start_time = time.time()
         errors: list[Exception] = []
         successful_stages: list[str] = []
@@ -115,6 +125,42 @@ class VulnPipeline:
             successful_stages=successful_stages,
             failed_stages=failed_stages,
             duration=duration,
+        )
+
+    def _run_parallel(self, workers: int = 4) -> PipelineResult:
+        """Execute Pattern 1: parallel Extract→Load mini-pipelines.
+
+        Validates pipeline structure for parallel execution:
+        - At least one extractor must exist
+        - Number of extractors must equal number of loaders (1:1 pairing)
+        - No transforms allowed (apply after merging)
+
+        Args:
+            workers: Max parallel workers (default 4)
+
+        Returns:
+            PipelineResult with merged dataset and metadata
+
+        Raises:
+            PipelineError: If pipeline structure is invalid for parallel execution
+        """
+        from vulnflow.exceptions import PipelineError
+
+        if not self.extractors:
+            raise PipelineError("Parallel execution requires at least one extractor")
+        if len(self.extractors) != len(self.loaders):
+            raise PipelineError(
+                f"Parallel execution requires equal extractors and loaders: "
+                f"got {len(self.extractors)} extractors, {len(self.loaders)} loaders"
+            )
+        if self.transformers:
+            raise PipelineError(
+                "Parallel execution requires no transforms. "
+                "Apply transforms after merging: dataset.transform([...])"
+            )
+
+        return PipelineExecutor.run_parallel(
+            self.extractors, self.loaders, workers=workers
         )
 
     def merge(self, other: VulnPipeline) -> VulnPipeline:

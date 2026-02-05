@@ -7,6 +7,7 @@ Hierarchy:
   - EnricherError: Enrichment failures (strict/lenient modes)
   - TransformError: Transform failures (strict/lenient modes)
   - LoaderError: Load failures (always fatal)
+  - PipelineError: Pipeline configuration or orchestration errors
 
 Layer: Core infrastructure
 """
@@ -67,6 +68,22 @@ class LoaderError(VulnFlowError):
     Example:
         >>> if not parent_dir.exists():
         ...     raise LoaderError(f"Parent directory does not exist: {parent_dir}")
+    """
+
+    pass
+
+
+class PipelineError(VulnFlowError):
+    """Pipeline configuration or orchestration error.
+
+    Raised when pipeline structure is invalid for the requested operation.
+    Examples:
+    - Parallel execution with mismatched extractor/loader counts
+    - Parallel execution with transforms (not supported in Pattern 1)
+
+    Example:
+        >>> if len(extractors) != len(loaders):
+        ...     raise PipelineError("Parallel requires equal extractors and loaders")
     """
 
     pass
