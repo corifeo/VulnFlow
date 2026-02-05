@@ -125,6 +125,21 @@ class TestBaseTransform:
 
             BadTransform()  # Should raise AttributeError
 
+    def test_transform_depends_on_wrong_type_raises(self) -> None:
+        """Transform with wrong depends_on type should fail."""
+
+        with pytest.raises(TypeError, match="depends_on must be a list"):
+
+            class BadTypeTransform(BaseTransform):
+                name: str = "BadTypeTransform"
+                OUTPUT_SCHEMA: list[FieldDefinition] = []
+                depends_on: str = "not_a_list"  # type: ignore[assignment]  # Wrong type
+
+                def transform(self, dataset: VulnDataset) -> None:
+                    pass
+
+            BadTypeTransform()  # Should raise TypeError
+
     def test_base_transform_has_default_schema_version(self) -> None:
         """BaseTransform provides default SCHEMA_VERSION."""
 
