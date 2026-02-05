@@ -23,7 +23,9 @@ class CWEEntry:
 
     id: str  # "CWE-502"
     name: str | None = None  # "Deserialization of Untrusted Data"
-    category_id: str | None = None  # "CWE-1000"
+    category_id: str | None = None  # "CWE-913"
+    category_name: str | None = None  # "Improper Control of Dynamically-Managed Code Resources"
+    abstraction_level: str | None = None  # "Category"|"Class"|"Base"|"Variant"|"Compound"
 
 
 @dataclass
