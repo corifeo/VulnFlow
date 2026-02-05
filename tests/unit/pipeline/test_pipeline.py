@@ -481,3 +481,53 @@ def test_pipeline_error_is_vulnflow_error():
 
     err = PipelineError("test")
     assert isinstance(err, VulnFlowError)
+
+
+def test_run_parallel_requires_equal_extractors_and_loaders(nvd_sample_path):
+    """Parallel execution requires len(extractors) == len(loaders)."""
+    import tempfile
+    from pathlib import Path
+
+    from vulnflow.exceptions import PipelineError
+    from vulnflow.extractors.nvd import NVDExtractor
+    from vulnflow.loaders.files import ParquetLoader
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pipeline = VulnPipeline(
+            extractors=[NVDExtractor(str(nvd_sample_path)), NVDExtractor(str(nvd_sample_path))],
+            loaders=[ParquetLoader(Path(tmpdir) / "out.parquet")],
+        )
+
+        with pytest.raises(PipelineError, match="equal extractors and loaders"):
+            pipeline.run(parallel=True, workers=2)
+
+
+def test_run_parallel_requires_no_transforms(nvd_sample_path):
+    """Parallel Pattern 1 requires no transforms."""
+    import tempfile
+    from pathlib import Path
+
+    from vulnflow.exceptions import PipelineError
+    from vulnflow.extractors.nvd import NVDExtractor
+    from vulnflow.loaders.files import ParquetLoader
+    from vulnflow.transforms.flatten import CVSSFlattenTransform
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pipeline = VulnPipeline(
+            extractors=[NVDExtractor(str(nvd_sample_path))],
+            transformers=[CVSSFlattenTransform()],
+            loaders=[ParquetLoader(Path(tmpdir) / "out.parquet")],
+        )
+
+        with pytest.raises(PipelineError, match="requires no transforms"):
+            pipeline.run(parallel=True, workers=2)
+
+
+def test_run_parallel_zero_extractors_raises():
+    """Parallel execution with no extractors raises PipelineError."""
+    from vulnflow.exceptions import PipelineError
+
+    pipeline = VulnPipeline(extractors=[], loaders=[])
+
+    with pytest.raises(PipelineError, match="at least one extractor"):
+        pipeline.run(parallel=True)
