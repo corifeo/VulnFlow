@@ -223,6 +223,39 @@ def test_cwe_primary_handles_empty_array():
     assert ds.get_column("cwe_id")[0] is None
 
 
+def test_cwe_flatten_extracts_all_enriched_fields() -> None:
+    """Test CWEFlattenTransform extracts all enriched CWE fields."""
+    dataset = VulnDataset()
+    dataset._data = {
+        "cve_id": np.array(["CVE-2024-0001"], dtype=object),
+        "cwes": np.array(
+            [
+                json.dumps(
+                    [
+                        {
+                            "id": "CWE-79",
+                            "name": "Cross-site Scripting (XSS)",
+                            "category_id": "CWE-74",
+                            "category_name": "Improper Neutralization",
+                            "abstraction_level": "Base",
+                        }
+                    ]
+                )
+            ],
+            dtype=object,
+        ),
+    }
+
+    transform = CWEFlattenTransform()
+    transform.transform(dataset)
+
+    assert dataset.get_column("cwe_id")[0] == "CWE-79"
+    assert dataset.get_column("cwe_name")[0] == "Cross-site Scripting (XSS)"
+    assert dataset.get_column("cwe_category_id")[0] == "CWE-74"
+    assert dataset.get_column("cwe_category_name")[0] == "Improper Neutralization"
+    assert dataset.get_column("cwe_abstraction_level")[0] == "Base"
+
+
 # =============================================================================
 # CPEFlattenTransform Tests
 # =============================================================================
