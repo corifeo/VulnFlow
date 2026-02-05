@@ -1,12 +1,13 @@
 """HTTP Utilities - Async HTTP client with caching and format detection.
 
 Provides:
+- HttpError: Exception wrapper (prevents httpx from leaking to enrichers/extractors)
 - is_url: Check if source is HTTP/HTTPS URL
 - detect_format: Detect content format from URL, headers, or content
 - HttpFetcher: Async HTTP client with disk caching and gzip support
 
 Layer: Utility
-Dependencies: httpx
+Dependencies: httpx (internal only, wrapped by HttpError)
 """
 
 from __future__ import annotations
@@ -24,6 +25,25 @@ import httpx
 logger = logging.getLogger(__name__)
 
 ContentFormat = Literal["json", "jsonl", "csv", "unknown"]
+
+
+class HttpError(Exception):
+    """HTTP operation failed.
+
+    Wraps httpx exceptions to prevent httpx from leaking into enrichers/extractors.
+    Enrichers and extractors should import and catch this instead of httpx.HTTPError.
+
+    Examples:
+        >>> from vulnflow.utils.http import HttpError, HttpFetcher
+        >>>
+        >>> fetcher = HttpFetcher()
+        >>> try:
+        ...     content, fmt = await fetcher.fetch("https://example.com/data.json")
+        ... except HttpError as e:
+        ...     logger.warning("Failed to fetch data: %s", e)
+    """
+
+    pass
 
 
 def is_url(source: str) -> bool:
@@ -134,35 +154,39 @@ class HttpFetcher:
             Tuple of (decompressed content bytes, detected format)
 
         Raises:
-            httpx.HTTPError: On network or HTTP errors
+            HttpError: On network or HTTP errors (wraps httpx exceptions)
         """
-        # Check cache first
-        if cache_ttl is not None:
-            cached = self._read_cache(url, cache_ttl)
-            if cached is not None:
-                content_type = None  # No header for cached content
-                fmt = detect_format(url, content_type, cached)
-                return cached, fmt
+        try:
+            # Check cache first
+            if cache_ttl is not None:
+                cached = self._read_cache(url, cache_ttl)
+                if cached is not None:
+                    content_type = None  # No header for cached content
+                    fmt = detect_format(url, content_type, cached)
+                    return cached, fmt
 
-        # Fetch from network (follow redirects)
-        async with httpx.AsyncClient(
-            timeout=self.timeout, follow_redirects=True
-        ) as client:
-            response = await client.get(url)
-            response.raise_for_status()
+            # Fetch from network (follow redirects)
+            async with httpx.AsyncClient(
+                timeout=self.timeout, follow_redirects=True
+            ) as client:
+                response = await client.get(url)
+                response.raise_for_status()
 
-        content = response.content
-        content_type = response.headers.get("content-type")
+            content = response.content
+            content_type = response.headers.get("content-type")
 
-        # Auto-decompress gzip
-        content = self._maybe_decompress(content, url)
+            # Auto-decompress gzip
+            content = self._maybe_decompress(content, url)
 
-        # Cache if TTL specified
-        if cache_ttl is not None:
-            self._write_cache(url, content)
+            # Cache if TTL specified
+            if cache_ttl is not None:
+                self._write_cache(url, content)
 
-        fmt = detect_format(url, content_type, content)
-        return content, fmt
+            fmt = detect_format(url, content_type, content)
+            return content, fmt
+
+        except httpx.HTTPError as e:
+            raise HttpError(f"Failed to fetch {url}: {e}") from e
 
     def fetch_sync(
         self, url: str, cache_ttl: int | None = None
@@ -177,7 +201,7 @@ class HttpFetcher:
             Tuple of (decompressed content bytes, detected format)
 
         Raises:
-            httpx.HTTPError: On network or HTTP errors
+            HttpError: On network or HTTP errors (wraps httpx exceptions)
         """
         return asyncio.run(self.fetch(url, cache_ttl))
 

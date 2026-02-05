@@ -54,8 +54,9 @@ def topological_sort(transforms: list[Any]) -> list[Any]:
         Order is stable for transforms with no dependencies.
 
     Raises:
-        ValueError: If circular dependencies detected (includes list of
-                   remaining transform names in error message)
+        ValueError: If circular dependencies detected. Error message includes:
+                   - Remaining transform names that couldn't be sorted
+                   - Unsatisfied dependencies for each remaining transform
 
     Examples:
         >>> class Transform:
@@ -85,8 +86,26 @@ def topological_sort(transforms: list[Any]) -> list[Any]:
         ]
 
         if not ready:
+            # Build detailed error message showing unsatisfied dependencies
+            satisfied = {r.name for r in result}
+            dependency_info = []
+
+            for t in remaining:
+                deps = getattr(t, "depends_on", [])
+                # Find dependencies that exist but aren't satisfied yet
+                unsatisfied = [
+                    dep for dep in deps if dep in by_name and dep not in satisfied
+                ]
+                if unsatisfied:
+                    dependency_info.append(f"{t.name} waits for: {unsatisfied}")
+
             remaining_names = [t.name for t in remaining]
-            raise ValueError(f"Circular dependency among: {remaining_names}")
+
+            msg = f"Circular dependency detected among: {remaining_names}"
+            if dependency_info:
+                msg += "\nUnsatisfied dependencies:\n  " + "\n  ".join(dependency_info)
+
+            raise ValueError(msg)
 
         result.extend(ready)
         for t in ready:
