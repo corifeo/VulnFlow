@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import os
 import time as _time
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from typing import Any
 
 from tqdm.auto import tqdm as _tqdm
@@ -88,7 +88,7 @@ class ProgressReporter:
         self._total = total
         self._unit = unit
         self._bar: _tqdm[Any] | None = None
-        self._token: Any = None
+        self._token: Token[bool] | None = None
         self._start_times: dict[str, float] = {}
 
     def stage_started(self, name: str) -> None:
