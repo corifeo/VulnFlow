@@ -91,6 +91,20 @@ class BaseExtractor(ABC):
                 f"{self.__class__.__name__} must define a non-empty 'format' class attribute"
             )
 
+    @property
+    def provenance_label(self) -> str:
+        """Human-readable label for provenance tracking.
+
+        Format: ClassName(filename) where filename is basename of path/url.
+        Subclasses with non-path sources should override.
+        """
+        source = getattr(self, "path", "unknown")
+        if isinstance(source, (str, Path)):
+            source_name = Path(str(source)).name
+        else:
+            source_name = str(source)
+        return f"{type(self).__name__}({source_name})"
+
     @abstractmethod
     def extract(self) -> VulnDataset:
         """Extract from source and return VulnDataset.

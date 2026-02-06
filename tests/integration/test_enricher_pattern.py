@@ -29,7 +29,9 @@ async def test_kev_enricher_to_flattener_pipeline(tmp_path: Path) -> None:
 
     # Create dataset
     dataset = VulnDataset()
-    dataset.set_column("cve_id", np.array(["CVE-2024-0001", "CVE-9999-9999"], dtype=object))
+    dataset.set_column(
+        "cve_id", np.array(["CVE-2024-0001", "CVE-9999-9999"], dtype=object)
+    )
 
     # Run enricher
     enricher = KEVEnricher(source=kev_csv, cache_dir=tmp_path / ".cache")

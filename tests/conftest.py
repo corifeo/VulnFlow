@@ -145,9 +145,6 @@ def dataset_from_records(records: list[VulnRecord]) -> VulnDataset:  # type: ign
         arrays["aliases"][i] = json.dumps(r.aliases)
         arrays["title"][i] = r.title
         arrays["description"][i] = r.description
-        arrays["first_seen_at"][i] = r.first_seen_at
-        arrays["last_updated_at"][i] = r.last_updated_at
-        arrays["sources"][i] = json.dumps(r.sources)
         arrays["nvd_published_at"][i] = r.nvd_published_at
         arrays["nvd_modified_at"][i] = r.nvd_modified_at
         arrays["cvss_scores"][i] = encode_nested(r.cvss_scores)
@@ -195,7 +192,6 @@ class MockExtractor:
                 id=uuid4(),
                 cve_id=f"CVE-2024-{i:04d}",
                 description=f"Mock vulnerability {i} from {self.name}",
-                sources=[self.name],
             )
             for i in range(self.num_records)
         ]

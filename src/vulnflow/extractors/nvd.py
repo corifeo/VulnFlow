@@ -128,10 +128,6 @@ class NVDExtractor(BaseExtractor):
                         break
                 arrays["description"][i] = description
 
-                # Metadata
-                arrays["first_seen_at"][i] = None
-                arrays["last_updated_at"][i] = None
-
                 # NVD Temporal
                 arrays["nvd_published_at"][i] = self._parse_timestamp(
                     cve_data.get("published")
@@ -139,7 +135,9 @@ class NVDExtractor(BaseExtractor):
                 arrays["nvd_modified_at"][i] = self._parse_timestamp(
                     cve_data.get("lastModified")
                 )
-                arrays["nvd_status"][i] = self._extract_nvd_status(cve_data) or "unknown"
+                arrays["nvd_status"][i] = (
+                    self._extract_nvd_status(cve_data) or "unknown"
+                )
 
                 # Complex fields: Parse to dataclasses → asdict() → JSON
                 # Type-safe but still efficient (single pass)
@@ -147,7 +145,9 @@ class NVDExtractor(BaseExtractor):
                 # CVSS scores
                 cvss_entries = self._parse_cvss(cve_data.get("metrics", {}))
                 cvss_dicts = [asdict(entry) for entry in cvss_entries]
-                arrays["cvss_scores"][i] = json.dumps(cvss_dicts) if cvss_dicts else "[]"
+                arrays["cvss_scores"][i] = (
+                    json.dumps(cvss_dicts) if cvss_dicts else "[]"
+                )
 
                 # CWEs
                 cwe_entries = self._parse_cwes(cve_data.get("weaknesses", []))
@@ -176,6 +176,7 @@ class NVDExtractor(BaseExtractor):
         # Build dataset
         dataset = VulnDataset()
         dataset._data = arrays
+        dataset._record_provenance(extractor=self.provenance_label)
         return dataset
 
     def _load_content(self) -> bytes:
@@ -293,7 +294,6 @@ class NVDExtractor(BaseExtractor):
                 vulnerabilities.append(obj)
         return vulnerabilities
 
-
     def _parse_timestamp(self, ts: str | None) -> datetime | None:
         """Parse ISO timestamp string to datetime."""
         if not ts:
@@ -387,7 +387,9 @@ class NVDExtractor(BaseExtractor):
                     version=cvss_data.get("version", "2.0"),
                     vector_string=cvss_data.get("vectorString", ""),
                     base_score=cvss_data.get("baseScore", 0.0),
-                    base_severity=metric.get("baseSeverity", "NONE"),  # Different location!
+                    base_severity=metric.get(
+                        "baseSeverity", "NONE"
+                    ),  # Different location!
                     **metadata,
                 )
             )

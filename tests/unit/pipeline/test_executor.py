@@ -23,7 +23,6 @@ from vulnflow.extractors.base import BaseExtractor
 from vulnflow.loaders.base import BaseLoader
 
 
-
 class _PicklableFailingExtractor(BaseExtractor):
     """Module-level extractor that always fails (picklable for ProcessPoolExecutor)."""
 
@@ -534,3 +533,15 @@ def test_run_parallel_disambiguates_same_name_loaders(nvd_sample_path):
         # Two loaders with same name "parquet" should get _0, _1 suffixes
         assert "parquet_0" in result.loader_outputs
         assert "parquet_1" in result.loader_outputs
+
+
+class TestProvenanceInExecutor:
+    """Tests for provenance tracking through executor stages."""
+
+    def test_run_extractors_merges_provenance(self, nvd_sample_path: Path) -> None:
+        """Provenance flows through run_extractors and merge."""
+        from vulnflow.extractors.nvd import NVDExtractor
+
+        ext = NVDExtractor(str(nvd_sample_path))
+        merged, _, _, _ = PipelineExecutor.run_extractors([ext])
+        assert any("NVDExtractor(" in e for e in merged.provenance["extractors"])

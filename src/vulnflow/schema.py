@@ -126,10 +126,6 @@ class VulnRecord:
     # Description
     description: str | None = None
 
-    # Metadata
-    first_seen_at: datetime = field(default_factory=datetime.now)
-    last_updated_at: datetime = field(default_factory=datetime.now)
-
     # NVD Temporal (what NVD provides)
     nvd_published_at: datetime | None = None
     nvd_modified_at: datetime | None = None

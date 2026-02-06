@@ -249,6 +249,7 @@ def test_serialize_value_uuid():
 
 def test_serialize_value_unknown_object():
     """serialize_value converts unknown objects to string."""
+
     class CustomObj:
         def __str__(self):
             return "custom"

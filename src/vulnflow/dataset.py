@@ -14,7 +14,10 @@ Storage: Columnar (dict[str, np.ndarray]) for vectorized operations at scale
 from __future__ import annotations
 
 import asyncio
+import copy
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from pandas import DataFrame as PandasDataFrame
@@ -23,6 +26,13 @@ from polars import DataFrame as PolarsDataFrame
 from vulnflow.utils.graph import topological_sort
 from vulnflow.utils.progress import progress_bar
 from vulnflow.utils.transforms import partition_transforms
+
+
+def _get_version() -> str:
+    """Get vulnflow version without circular import."""
+    from vulnflow import __version__
+
+    return __version__
 
 
 class VulnDataset:
@@ -35,6 +45,14 @@ class VulnDataset:
     def __init__(self) -> None:
         """Initialize empty dataset."""
         self._data: dict[str, np.ndarray] = {}
+        self._provenance: dict[str, Any] = {
+            "extractors": [],
+            "transforms": [],
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
+            "record_count": 0,
+            "vulnflow_version": _get_version(),
+        }
 
     def __len__(self) -> int:
         """Return number of records."""
@@ -52,6 +70,35 @@ class VulnDataset:
             List of column names in dataset
         """
         return list(self._data.keys())
+
+    @property
+    def provenance(self) -> dict[str, Any]:
+        """Return deep copy of provenance metadata.
+
+        Returns:
+            Dict with extractors, transforms, timestamps, record_count, vulnflow_version.
+        """
+        prov = copy.deepcopy(self._provenance)
+        prov["record_count"] = len(self)
+        return prov
+
+    def _record_provenance(
+        self,
+        *,
+        extractor: str | None = None,
+        transform: str | None = None,
+    ) -> None:
+        """Record a provenance event (extractor or transform execution).
+
+        Args:
+            extractor: Extractor label to record (deduplicated).
+            transform: Transform name to record (deduplicated).
+        """
+        if extractor and extractor not in self._provenance["extractors"]:
+            self._provenance["extractors"].append(extractor)
+        if transform and transform not in self._provenance["transforms"]:
+            self._provenance["transforms"].append(transform)
+        self._provenance["updated_at"] = datetime.now(UTC).isoformat()
 
     def get_column(self, name: str) -> np.ndarray:
         """Get column data as numpy array.
@@ -94,9 +141,7 @@ class VulnDataset:
 
         self._data[name] = data
 
-    def insert_columns_after(
-        self, after: str, columns: dict[str, np.ndarray]
-    ) -> None:
+    def insert_columns_after(self, after: str, columns: dict[str, np.ndarray]) -> None:
         """Insert new columns immediately after a specified column.
 
         Maintains column ordering for flatten transforms which should insert
@@ -203,6 +248,10 @@ class VulnDataset:
                 t.transform(self)  # type: ignore[attr-defined]
                 pbar.update(1)
 
+        # Record provenance for all transforms
+        for t in all_transforms:
+            self._record_provenance(transform=t.name)  # type: ignore[attr-defined]
+
         return self
 
     @classmethod
@@ -260,6 +309,24 @@ class VulnDataset:
                     arrays.append(np.full(len(ds), None, dtype=object))
 
             merged.set_column(col, np.concatenate(arrays))
+
+        # Merge provenance from all input datasets
+        all_extractors: list[str] = []
+        all_transforms: list[str] = []
+        created_dates: list[str] = []
+
+        for ds in datasets:
+            for ext in ds._provenance["extractors"]:
+                if ext not in all_extractors:
+                    all_extractors.append(ext)
+            for tfm in ds._provenance["transforms"]:
+                if tfm not in all_transforms:
+                    all_transforms.append(tfm)
+            created_dates.append(ds._provenance["created_at"])
+
+        merged._provenance["extractors"] = all_extractors
+        merged._provenance["transforms"] = all_transforms
+        merged._provenance["created_at"] = min(created_dates)
 
         return merged
 

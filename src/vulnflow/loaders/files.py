@@ -50,10 +50,19 @@ class ParquetLoader(BaseLoader):
         import pyarrow as pa
         import pyarrow.parquet as pq
 
+        from vulnflow.utils import json as vjson
+
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Convert to PyArrow table and write
+        # Convert to PyArrow table
         table = pa.table(dataset._data)
+
+        # Write provenance to Parquet schema metadata
+        provenance_bytes = vjson.dumps(dataset.provenance).encode("utf-8")
+        existing_meta = table.schema.metadata or {}
+        merged_meta = {**existing_meta, b"vulnflow:provenance": provenance_bytes}
+        table = table.replace_schema_metadata(merged_meta)
+
         pq.write_table(table, self.path)
 
         return {"path": str(self.path), "record_count": len(dataset)}

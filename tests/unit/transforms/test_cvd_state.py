@@ -65,12 +65,14 @@ def test_cvd_state_with_kev():
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     # Enrich with KEV, flatten, infer, compute state
-    dataset.transform([
-        KEVEnricher(source="tests/fixtures/kev_sample.csv"),
-        KEVFlattenTransform(),
-        EventInference(),
-        CVDStateTransform(),
-    ])
+    dataset.transform(
+        [
+            KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+            KEVFlattenTransform(),
+            EventInference(),
+            CVDStateTransform(),
+        ]
+    )
 
     states = dataset.get_column("cvd_state")
     # CVE-2024-0001 is in KEV, should have A
