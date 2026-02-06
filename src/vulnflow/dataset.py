@@ -24,7 +24,7 @@ from pandas import DataFrame as PandasDataFrame
 from polars import DataFrame as PolarsDataFrame
 
 from vulnflow.utils.graph import topological_sort
-from vulnflow.utils.progress import progress_bar
+from vulnflow.utils.progress import ProgressReporter
 from vulnflow.utils.transforms import partition_transforms
 
 
@@ -213,40 +213,39 @@ class VulnDataset:
         # All transforms for progress bar
         all_transforms = async_transforms + sync_transforms
 
-        with progress_bar(
+        with ProgressReporter(
+            "Transforming dataset",
             total=len(all_transforms),
-            desc="Transforming dataset",
             unit="transforms",
-        ) as pbar:
-            # Run async concurrently (NO individual progress updates)
+        ) as rpt:
+            # Run async concurrently
             if async_transforms:
 
                 async def run_all() -> None:
+                    for t in async_transforms:
+                        rpt.stage_started(t.name)  # type: ignore[attr-defined]
                     await asyncio.gather(
                         *[t.transform(self) for t in async_transforms]  # type: ignore[attr-defined]
                     )
+                    for t in async_transforms:
+                        rpt.stage_completed(t.name)  # type: ignore[attr-defined]
 
                 # Handle Jupyter/IPython event loops
                 try:
-                    # Check if we're in an existing event loop (Jupyter)
                     asyncio.get_running_loop()
-                    # We have a running loop, need nest_asyncio for nested run()
-                    import nest_asyncio
+                    import nest_asyncio  # type: ignore[import-untyped]
 
                     nest_asyncio.apply()
                     asyncio.run(run_all())
                 except RuntimeError:
-                    # No loop running, use standard asyncio.run()
                     asyncio.run(run_all())
 
-                # Update progress AFTER all async complete
-                pbar.update(len(async_transforms))
-
-            # Run sync sequentially (WITH individual progress updates)
+            # Run sync sequentially
             for t in sync_transforms:
-                pbar.set_postfix_str(f"[{t.name}]")  # type: ignore[attr-defined]
+                t_name: str = t.name  # type: ignore[attr-defined]
+                rpt.stage_started(t_name)
                 t.transform(self)  # type: ignore[attr-defined]
-                pbar.update(1)
+                rpt.stage_completed(t_name)
 
         # Record provenance for all transforms
         for t in all_transforms:
