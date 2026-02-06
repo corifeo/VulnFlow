@@ -33,7 +33,12 @@ from vulnflow.utils.http import (
     detect_format,
     is_url,
 )
-from vulnflow.utils.progress import progress_bar
+from vulnflow.utils.progress import (
+    ProgressReporter,
+    _suppress_progress,
+    _SuppressedProgress,
+    progress_bar,
+)
 from vulnflow.utils.schema import get_flattened_columns, get_record_columns
 from vulnflow.utils.transforms import is_async_transform, partition_transforms
 
@@ -51,6 +56,9 @@ __all__ = [
     "HttpError",
     "HttpFetcher",
     "ContentFormat",
+    "ProgressReporter",
+    "_SuppressedProgress",
+    "_suppress_progress",
     "progress_bar",
     "json",
 ]
