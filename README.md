@@ -79,13 +79,28 @@ uv add vulnflow
 
 ```python
 from vulnflow import VulnDataset
+from vulnflow.helpers import CacheBuilder
 
 # Simplest - just get data into pandas
 df = VulnDataset.from_nvd("nvd-2024/*.json").to_pandas()
 
+# Build entire NVD library with parallel extraction (CVSS flattened by default)
+dataset = CacheBuilder(years=[2024, 2025]).build(workers=4)
+df = dataset.to_pandas()
+
+# CacheBuilder modes:
+# CacheBuilder()                        # All years 2002-current
+# CacheBuilder(years=[2024, 2025])      # Specific years
+# CacheBuilder(exclude_years=[2002])    # All years except 2002
+# CacheBuilder(modified_only=True)      # Quick updates (Modified feed only)
+# CacheBuilder(recent_only=True)        # Recent feed only
+
+# Build options:
+# .build(workers=4)                     # Extract + flatten CVSS (default)
+# .build(workers=4, cvss=False)         # Extract only, keep nested CVSS JSON
+
 # With enrichment and transforms
 dataset = VulnDataset.from_nvd("nvd-2024/*.json")
-dataset.enrich()
 dataset.transform()
 df = dataset.to_pandas()
 ```
