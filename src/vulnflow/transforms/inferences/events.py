@@ -30,6 +30,8 @@ from vulnflow.utils import json
 
 logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
+
 # Pre-compiled regexes for performance
 _URL_DATE_SLASH = re.compile(r"/(\d{4})/(\d{2})/(\d{2})")
 _URL_DATE_ISO = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
@@ -107,6 +109,7 @@ def _parse_references(refs_json: str | None) -> list[dict[str, Any]]:
         result = json.loads(refs_json)
         return result if isinstance(result, list) else []
     except Exception:
+        logger.warning("Failed to parse references: %s", refs_json[:100])
         return []
 
 
@@ -428,7 +431,7 @@ class EventInference(BaseInference):
                         if self._assign(f_ts, f_conf, i, p_ts[i], 0.50):
                             stats["f"] += 1
                 except Exception:
-                    pass
+                    logger.warning("Failed to parse CPE data for record %d", i)
 
             # X from exploit URL patterns
             refs = parsed_refs[i] if i < len(parsed_refs) else []
