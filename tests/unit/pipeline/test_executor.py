@@ -386,6 +386,8 @@ def test_run_mini_pipeline_extracts_and_loads(nvd_sample_path):
 
         assert output_path.exists()
         assert "path" in result
+        assert "record_count" in result
+        assert result["record_count"] > 0
 
 
 # =============================================================================

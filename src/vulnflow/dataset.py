@@ -224,11 +224,16 @@ class VulnDataset:
                 async def run_all() -> None:
                     for t in async_transforms:
                         rpt.stage_started(t.name)  # type: ignore[attr-defined]
-                    await asyncio.gather(
-                        *[t.transform(self) for t in async_transforms]  # type: ignore[attr-defined]
-                    )
-                    for t in async_transforms:
-                        rpt.stage_completed(t.name)  # type: ignore[attr-defined]
+                    try:
+                        await asyncio.gather(
+                            *[t.transform(self) for t in async_transforms]  # type: ignore[attr-defined]
+                        )
+                        for t in async_transforms:
+                            rpt.stage_completed(t.name)  # type: ignore[attr-defined]
+                    except Exception as exc:
+                        for t in async_transforms:
+                            rpt.stage_failed(t.name, error=str(exc))  # type: ignore[attr-defined]
+                        raise
 
                 # Handle Jupyter/IPython event loops
                 try:
