@@ -77,6 +77,18 @@ class NVDExtractor(BaseExtractor):
         self.cache_ttl = cache_ttl
         self.timeout = timeout
 
+    @property
+    def label(self) -> str:
+        """Short display name derived from path.
+
+        Examples: nvdcve-2.0-2023, nvdcve-2.0-modified
+        """
+        name = Path(self.path).name
+        for ext in (".gz", ".json", ".jsonl", ".ndjson"):
+            if name.endswith(ext):
+                name = name[: -len(ext)]
+        return name
+
     def extract(self) -> VulnDataset:
         """Extract from NVD JSON/JSONL → VulnDataset.
 

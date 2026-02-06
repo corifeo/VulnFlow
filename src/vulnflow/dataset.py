@@ -17,15 +17,17 @@ import asyncio
 import copy
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from pandas import DataFrame as PandasDataFrame
-from polars import DataFrame as PolarsDataFrame
 
 from vulnflow.utils.graph import topological_sort
 from vulnflow.utils.progress import ProgressReporter
 from vulnflow.utils.transforms import partition_transforms
+
+if TYPE_CHECKING:
+    from pandas import DataFrame as PandasDataFrame
+    from polars import DataFrame as PolarsDataFrame
 
 
 def _get_version() -> str:

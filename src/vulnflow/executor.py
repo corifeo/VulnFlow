@@ -31,7 +31,14 @@ logger = logging.getLogger(__name__)
 
 
 def get_stage_name(obj: Any) -> str:
-    """Get stage name from object (prefer name attribute, fallback to class name)."""
+    """Get stage name from object.
+
+    Priority: label > name > class name.
+    label provides short, unique display names (e.g., nvdcve-2.0-2023).
+    """
+    label = getattr(obj, "label", None)
+    if label is not None:
+        return cast(str, label)
     return cast(str, getattr(obj, "name", obj.__class__.__name__))
 
 
@@ -48,11 +55,13 @@ def _run_mini_pipeline(
         loader: Loader instance to run
 
     Returns:
-        Loader output metadata dict
+        Loader output metadata dict with record_count and duration
     """
+    start = time.perf_counter()
     dataset = extractor.extract()
     result = loader.load(dataset)
     result["record_count"] = len(dataset)
+    result["duration"] = time.perf_counter() - start
     return result
 
 
@@ -359,24 +368,27 @@ class PipelineExecutor:
                 from concurrent.futures import ProcessPoolExecutor, as_completed
 
                 with ProcessPoolExecutor(max_workers=workers) as pool:
-                    futures = {
-                        pool.submit(_run_mini_pipeline, ext, loader): idx
-                        for idx, (ext, loader) in enumerate(tasks)
-                    }
+                    futures = {}
+                    for idx, (ext, loader) in enumerate(tasks):
+                        ext_name = get_stage_name(ext)
+                        rpt.stage_started(ext_name)
+                        futures[pool.submit(_run_mini_pipeline, ext, loader)] = idx
 
                     for future in as_completed(futures):
                         idx = futures[future]
                         ext_name = get_stage_name(extractors[idx])
                         loader_key = output_keys[idx]
-                        rpt.stage_started(ext_name)
                         try:
                             result = future.result()
                             record_count = result.get("record_count", 0)
+                            worker_duration = result.get("duration", None)
                             total_records += record_count
                             loader_outputs[loader_key] = result
                             successful.extend([ext_name, loader_key])
                             rpt.stage_completed(
-                                ext_name, detail=f"{record_count:,} CVEs"
+                                ext_name,
+                                detail=f"{record_count:,} CVEs",
+                                duration=worker_duration,
                             )
                         except Exception as exc:
                             logger.warning(

@@ -92,6 +92,15 @@ class BaseExtractor(ABC):
             )
 
     @property
+    def label(self) -> str:
+        """Short display name for progress reporting.
+
+        Defaults to provenance_label. Subclasses can override for
+        shorter names (e.g., filename stem instead of ClassName(file)).
+        """
+        return self.provenance_label
+
+    @property
     def provenance_label(self) -> str:
         """Human-readable label for provenance tracking.
 
