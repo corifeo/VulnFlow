@@ -32,10 +32,11 @@ def test_large_dataset_merge_performance(tmp_path: Path) -> None:
     pq.write_table(pa.table(cache._data), cache_path)
 
     # Create delta (2K records, 1K updates + 1K new)
-    delta_cve_ids = (
-        [f"CVE-2024-{i:06d}" for i in range(150_000, 151_000)]  # 1K updates
-        + [f"CVE-2024-{i:06d}" for i in range(300_000, 301_000)]  # 1K new
-    )
+    delta_cve_ids = [
+        f"CVE-2024-{i:06d}" for i in range(150_000, 151_000)
+    ] + [  # 1K updates
+        f"CVE-2024-{i:06d}" for i in range(300_000, 301_000)
+    ]  # 1K new
 
     delta = VulnDataset()
     delta._data = {

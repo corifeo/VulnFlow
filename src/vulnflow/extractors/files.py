@@ -137,6 +137,21 @@ class ParquetExtractor(BaseExtractor):
         dataset = VulnDataset()
         dataset._data = {col: table[col].to_numpy() for col in table.column_names}
 
+        # Restore provenance from Parquet metadata if present
+        meta = table.schema.metadata or {}
+        prov_bytes = meta.get(b"vulnflow:provenance")
+        if prov_bytes:
+            from vulnflow.utils import json as vjson
+
+            stored_prov = vjson.loads(prov_bytes)
+            dataset._provenance["extractors"] = stored_prov.get("extractors", [])
+            dataset._provenance["transforms"] = stored_prov.get("transforms", [])
+            dataset._provenance["created_at"] = stored_prov.get(
+                "created_at", dataset._provenance["created_at"]
+            )
+
+        # Record this extraction in provenance
+        dataset._record_provenance(extractor=self.provenance_label)
         return dataset
 
     def _merge_upsert(self, datasets: list[VulnDataset]) -> VulnDataset:
@@ -281,6 +296,7 @@ class JSONExtractor(BaseExtractor):
         if "description" not in all_columns:
             logger.warning("JSON dataset missing 'description' column")
 
+        dataset._record_provenance(extractor=self.provenance_label)
         return dataset
 
 
@@ -322,6 +338,7 @@ class PandasExtractor(BaseExtractor):
         if "description" not in self.dataframe.columns:
             logger.warning("DataFrame missing 'description' column")
 
+        dataset._record_provenance(extractor=self.provenance_label)
         return dataset
 
 

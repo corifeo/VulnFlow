@@ -20,7 +20,9 @@ from vulnflow.dataset import VulnDataset
         ("json", "to_json", "from_json", ".json"),
     ],
 )
-def test_file_roundtrip_preserves_data(tmp_path, format_name, to_method, from_method, extension):
+def test_file_roundtrip_preserves_data(
+    tmp_path, format_name, to_method, from_method, extension
+):
     """File export/import roundtrip preserves count, CVE IDs, and columns."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 

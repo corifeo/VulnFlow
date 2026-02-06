@@ -114,5 +114,3 @@ def test_all_loaders_have_format_attribute() -> None:
         assert (
             loader_class.format == expected_format
         ), f"{loader_class.__name__}.format = {loader_class.format}, expected {expected_format}"
-
-

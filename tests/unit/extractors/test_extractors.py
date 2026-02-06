@@ -655,3 +655,43 @@ def test_base_extractor_rejects_empty_format():
         EmptyFormatExtractor()
 
 
+# Provenance label tests
+
+
+class TestProvenanceLabel:
+    """Tests for extractor provenance labels."""
+
+    def test_nvd_extractor_label_with_file(self) -> None:
+        ext = NVDExtractor("data/nvdcve-2.0-2024.json.gz")
+        assert ext.provenance_label == "NVDExtractor(nvdcve-2.0-2024.json.gz)"
+
+    def test_nvd_extractor_label_with_url(self) -> None:
+        ext = NVDExtractor(
+            "https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-2024.json.gz"
+        )
+        assert ext.provenance_label == "NVDExtractor(nvdcve-2.0-2024.json.gz)"
+
+    def test_parquet_extractor_label(self) -> None:
+        ext = ParquetExtractor("data/library.parquet")
+        assert ext.provenance_label == "ParquetExtractor(library.parquet)"
+
+    def test_json_extractor_label(self) -> None:
+        from vulnflow.extractors.files import JSONExtractor
+
+        ext = JSONExtractor("data/export.json")
+        assert ext.provenance_label == "JSONExtractor(export.json)"
+
+    def test_nvd_extract_records_provenance(self, nvd_sample_path: Path) -> None:
+        ext = NVDExtractor(str(nvd_sample_path))
+        ds = ext.extract()
+        assert any("NVDExtractor(" in e for e in ds.provenance["extractors"])
+
+    def test_parquet_round_trip_records_provenance(self, tmp_path: Path) -> None:
+        import numpy as np
+
+        ds = VulnDataset()
+        ds._data = {"cve_id": np.array(["CVE-2024-0001"])}
+        ds.to_parquet(tmp_path / "test.parquet")
+
+        ds2 = ParquetExtractor(str(tmp_path / "test.parquet")).extract()
+        assert "ParquetExtractor(test.parquet)" in ds2.provenance["extractors"]

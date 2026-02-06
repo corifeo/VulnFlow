@@ -80,8 +80,7 @@ class TestDetectFormat:
 
     def test_content_type_ndjson(self) -> None:
         assert (
-            detect_format("https://example.com/data", "application/x-ndjson")
-            == "jsonl"
+            detect_format("https://example.com/data", "application/x-ndjson") == "jsonl"
         )
 
     def test_content_type_csv(self) -> None:

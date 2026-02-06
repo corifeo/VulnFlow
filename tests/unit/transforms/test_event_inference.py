@@ -74,11 +74,13 @@ def test_event_inference_a_from_kev():
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     # First enrich with KEV, then flatten, then infer
-    dataset.transform([
-        KEVEnricher(source="tests/fixtures/kev_sample.csv"),
-        KEVFlattenTransform(),
-        EventInference(),
-    ])
+    dataset.transform(
+        [
+            KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+            KEVFlattenTransform(),
+            EventInference(),
+        ]
+    )
 
     a_timestamps = dataset.get_column("a_timestamp")
     # CVE-2024-0001 is in KEV, should have A timestamp
