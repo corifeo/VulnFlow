@@ -1,15 +1,16 @@
-"""
-Progress bar utilities for Jupyter/terminal display.
+"""Progress bar utilities for Jupyter/terminal display.
 
 Provides centralized tqdm wrapper with VulnFlow defaults.
 Auto-detects Jupyter vs terminal environment.
 
 Provides:
 - progress_bar: Factory function with VulnFlow defaults
+- ProgressReporter: Manages tqdm bar + log lines for a pipeline phase
+- _SuppressedProgress: Silent proxy returned when progress is suppressed
+- _suppress_progress: ContextVar controlling suppression
 
 Layer: Utils
 Dependencies: tqdm
-Used by: dataset.transform(), extractors
 
 Configuration via environment variable:
     Set VULNFLOW_PROGRESS_STYLE to control display detail:
@@ -39,9 +40,111 @@ Example (disabling in tests):
 from __future__ import annotations
 
 import os
+import time as _time
+from contextvars import ContextVar
 from typing import Any
 
 from tqdm.auto import tqdm as _tqdm
+
+_suppress_progress: ContextVar[bool] = ContextVar(
+    "_suppress_progress", default=False
+)
+
+
+class _SuppressedProgress:
+    """Silent proxy returned when progress is suppressed."""
+
+    def update(self, n: int = 1) -> None:  # noqa: ARG002
+        pass
+
+    def set_postfix_str(self, s: str, refresh: bool = True) -> None:  # noqa: ARG002
+        pass
+
+    def close(self) -> None:
+        pass
+
+    def __enter__(self) -> _SuppressedProgress:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        pass
+
+
+class ProgressReporter:
+    """Manages tqdm bar + log lines for a pipeline phase.
+
+    Creates one tqdm bar for the phase. Prints log lines per stage.
+    Suppresses inner progress_bar() calls via ContextVar.
+
+    Usage:
+        with ProgressReporter("Extracting data", total=4, unit="feeds") as rpt:
+            rpt.stage_started("NVD-2023")
+            ds = extractor.extract()
+            rpt.stage_completed("NVD-2023", detail=f"{len(ds):,} CVEs")
+    """
+
+    def __init__(self, desc: str, total: int, unit: str) -> None:
+        self._desc = desc
+        self._total = total
+        self._unit = unit
+        self._bar: _tqdm[Any] | None = None
+        self._token: Any = None
+        self._start_times: dict[str, float] = {}
+
+    def stage_started(self, name: str) -> None:
+        """Record start time for this stage. No output."""
+        self._start_times[name] = _time.perf_counter()
+
+    def stage_completed(self, name: str, detail: str = "") -> None:
+        """Print checkmark line with optional detail and duration, tick bar."""
+        duration = self._elapsed(name)
+        line = f"  \u2713 {name} ({self._format_inner(detail, duration)})"
+        print(line)  # noqa: T201
+        if self._bar is not None:
+            self._bar.update(1)
+
+    def stage_failed(self, name: str, error: str = "") -> None:
+        """Print cross line with error and duration, tick bar."""
+        duration = self._elapsed(name)
+        line = f"  \u2717 {name}"
+        if error:
+            line += f" \u2014 {error}"
+        line += f" ({duration:.1f}s)"
+        print(line)  # noqa: T201
+        if self._bar is not None:
+            self._bar.update(1)
+
+    def summary(self, text: str) -> None:
+        """Print arrow summary line (no bar tick)."""
+        print(f"  \u2192 {text}")  # noqa: T201
+
+    def __enter__(self) -> ProgressReporter:
+        self._bar = progress_bar(
+            total=self._total,
+            desc=self._desc,
+            unit=self._unit,
+        )
+        self._token = _suppress_progress.set(True)
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        if self._token is not None:
+            _suppress_progress.reset(self._token)
+            self._token = None
+        if self._bar is not None:
+            self._bar.close()
+            self._bar = None
+
+    def _elapsed(self, name: str) -> float:
+        start = self._start_times.pop(name, None)
+        if start is None:
+            return 0.0
+        return _time.perf_counter() - start
+
+    def _format_inner(self, detail: str, duration: float) -> str:
+        if detail:
+            return f"{detail}, {duration:.1f}s"
+        return f"{duration:.1f}s"
 
 
 def progress_bar(
@@ -77,6 +180,9 @@ def progress_bar(
         ...     for i in range(100):
         ...         pbar.update(1)
     """
+    if _suppress_progress.get(False):
+        return _SuppressedProgress()  # type: ignore[return-value]
+
     style = os.getenv("VULNFLOW_PROGRESS_STYLE", "default").lower()
 
     # Style-specific defaults
