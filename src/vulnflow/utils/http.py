@@ -20,8 +20,6 @@ import time
 from pathlib import Path
 from typing import Literal
 
-import httpx
-
 logger = logging.getLogger(__name__)
 
 ContentFormat = Literal["json", "jsonl", "csv", "unknown"]
@@ -156,6 +154,8 @@ class HttpFetcher:
         Raises:
             HttpError: On network or HTTP errors (wraps httpx exceptions)
         """
+        import httpx
+
         try:
             # Check cache first
             if cache_ttl is not None:
