@@ -41,8 +41,19 @@ class _PicklableFailingExtractor(BaseExtractor):
 # =============================================================================
 
 
-def test_get_stage_name_prefers_name_attribute():
-    """get_stage_name() prefers the name attribute."""
+def test_get_stage_name_prefers_label():
+    """get_stage_name() prefers label over name."""
+
+    class TestStage:
+        name = "generic"
+        label = "nvdcve-2.0-2023"
+
+    obj = TestStage()
+    assert get_stage_name(obj) == "nvdcve-2.0-2023"
+
+
+def test_get_stage_name_falls_back_to_name():
+    """get_stage_name() falls back to name when no label."""
 
     class TestStage:
         name = "custom_name"
@@ -86,7 +97,8 @@ def test_run_extractors_merges_datasets():
     dataset, successful, failed, errors = PipelineExecutor.run_extractors(extractors)
 
     assert len(dataset) == 2
-    assert successful == ["MockExtractor", "MockExtractor"]
+    # label defaults to provenance_label: ClassName(path_basename)
+    assert successful == ["MockExtractor(unknown)", "MockExtractor(unknown)"]
     assert failed == []
     assert errors == []
 
@@ -388,6 +400,8 @@ def test_run_mini_pipeline_extracts_and_loads(nvd_sample_path):
         assert "path" in result
         assert "record_count" in result
         assert result["record_count"] > 0
+        assert "duration" in result
+        assert result["duration"] > 0.0
 
 
 # =============================================================================

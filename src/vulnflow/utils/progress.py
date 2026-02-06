@@ -95,17 +95,39 @@ class ProgressReporter:
         """Record start time for this stage. No output."""
         self._start_times[name] = _time.perf_counter()
 
-    def stage_completed(self, name: str, detail: str = "") -> None:
-        """Print checkmark line with optional detail and duration, tick bar."""
-        duration = self._elapsed(name)
+    def stage_completed(
+        self, name: str, detail: str = "", duration: float | None = None
+    ) -> None:
+        """Print checkmark line with optional detail and duration, tick bar.
+
+        Args:
+            name: Stage name (must match a prior stage_started call).
+            detail: Optional detail string (e.g., "1,555 CVEs").
+            duration: Override duration in seconds. If None, uses internal timer.
+        """
+        if duration is None:
+            duration = self._elapsed(name)
+        else:
+            self._start_times.pop(name, None)
         line = f"  \u2713 {name} ({self._format_inner(detail, duration)})"
         print(line)  # noqa: T201
         if self._bar is not None:
             self._bar.update(1)
 
-    def stage_failed(self, name: str, error: str = "") -> None:
-        """Print cross line with error and duration, tick bar."""
-        duration = self._elapsed(name)
+    def stage_failed(
+        self, name: str, error: str = "", duration: float | None = None
+    ) -> None:
+        """Print cross line with error and duration, tick bar.
+
+        Args:
+            name: Stage name (must match a prior stage_started call).
+            error: Optional error message.
+            duration: Override duration in seconds. If None, uses internal timer.
+        """
+        if duration is None:
+            duration = self._elapsed(name)
+        else:
+            self._start_times.pop(name, None)
         line = f"  \u2717 {name}"
         if error:
             line += f" \u2014 {error}"
