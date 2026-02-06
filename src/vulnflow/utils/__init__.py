@@ -2,7 +2,6 @@
 
 Provides:
 - parse_cpe23: CPE 2.3 string parser
-- CWEDatabase: CWE database loader
 - topological_sort: Dependency resolution for transforms
 - get_record_columns: Get VulnRecord field names
 - get_flattened_columns: Get flattened column names
@@ -24,7 +23,6 @@ from __future__ import annotations
 from vulnflow.utils import json
 from vulnflow.utils.cpe import parse_cpe23
 from vulnflow.utils.cvss import normalize_source
-from vulnflow.utils.cwe import CWEDatabase
 from vulnflow.utils.graph import topological_sort
 from vulnflow.utils.http import (
     ContentFormat,
@@ -35,8 +33,6 @@ from vulnflow.utils.http import (
 )
 from vulnflow.utils.progress import (
     ProgressReporter,
-    _suppress_progress,
-    _SuppressedProgress,
     progress_bar,
 )
 from vulnflow.utils.schema import get_flattened_columns, get_record_columns
@@ -45,7 +41,6 @@ from vulnflow.utils.transforms import is_async_transform, partition_transforms
 __all__ = [
     "parse_cpe23",
     "normalize_source",
-    "CWEDatabase",
     "topological_sort",
     "get_record_columns",
     "get_flattened_columns",
@@ -57,8 +52,6 @@ __all__ = [
     "HttpFetcher",
     "ContentFormat",
     "ProgressReporter",
-    "_SuppressedProgress",
-    "_suppress_progress",
     "progress_bar",
     "json",
 ]
