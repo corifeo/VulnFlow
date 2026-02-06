@@ -293,15 +293,16 @@ class VulnDataset:
         if len(datasets) == 1:
             return datasets[0]
 
-        # Get all columns (union)
-        all_columns: set[str] = set()
+        # Get all columns (union) - preserve insertion order
+        all_columns: dict[str, None] = {}
         for ds in datasets:
-            all_columns.update(ds.columns)
+            for col in ds.columns:
+                all_columns[col] = None
 
         # Concatenate arrays
         merged = cls()
 
-        for col in all_columns:
+        for col in all_columns.keys():
             arrays: list[np.ndarray] = []
             for ds in datasets:
                 # Get column or create None-filled array if missing

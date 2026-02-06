@@ -379,6 +379,58 @@ def test_json_extractor_validates_json_format():
             VulnDataset.from_json(output_path)
 
 
+def test_json_extractor_preserves_column_order():
+    """JSONExtractor preserves column order from first record."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "ordered.json"
+
+        # Create JSON with specific column order in first record
+        data = [
+            {"id": "1", "cve_id": "CVE-1", "score": 7.5, "tags": "test"},
+            {"severity": "HIGH", "cve_id": "CVE-2", "id": "2"},  # Different order
+        ]
+
+        with open(output_path, "w") as f:
+            json.dump(data, f)
+
+        dataset = VulnDataset.from_json(output_path)
+
+        # Should preserve first record's order: id, cve_id, score, tags
+        # Then append new columns: severity
+        expected_order = ["id", "cve_id", "score", "tags", "severity"]
+        assert dataset.columns == expected_order
+
+
+def test_json_extractor_repeated_loads_stable():
+    """JSONExtractor produces identical column order on repeated loads."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "stable.json"
+
+        data = [
+            {"a": 1, "b": 2, "c": 3},
+            {"d": 4, "a": 1, "b": 2},
+        ]
+
+        with open(output_path, "w") as f:
+            json.dump(data, f)
+
+        # Load multiple times
+        ds1 = VulnDataset.from_json(output_path)
+        ds2 = VulnDataset.from_json(output_path)
+        ds3 = VulnDataset.from_json(output_path)
+
+        # All loads should have identical column order
+        assert ds1.columns == ds2.columns
+        assert ds2.columns == ds3.columns
+        assert ds1.columns == ["a", "b", "c", "d"]
+
+
 # PandasExtractor tests
 
 

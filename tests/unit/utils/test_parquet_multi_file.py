@@ -221,3 +221,77 @@ def test_parquet_multi_file_schema_mismatch_fills_none(tmp_path):
     # Second record has description, no title
     assert titles[1] is None
     assert descriptions[1] == "Desc 2"
+
+
+def test_parquet_multi_file_preserves_column_order(tmp_path):
+    """Multi-file loading preserves first file's column order."""
+    # File 1: columns in order: cve_id, title, score
+    dataset1 = VulnDataset()
+    dataset1._data = {
+        "cve_id": np.array(["CVE-2024-0001"]),
+        "title": np.array(["Vuln 1"]),
+        "score": np.array([7.5]),
+    }
+
+    # File 2: different column order: severity, cve_id, tags
+    # (note: also has different columns to test appending)
+    dataset2 = VulnDataset()
+    dataset2._data = {
+        "severity": np.array(["HIGH"]),
+        "cve_id": np.array(["CVE-2024-0002"]),
+        "tags": np.array(["exploit"]),
+    }
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    file1 = tmp_path / "file1.parquet"
+    file2 = tmp_path / "file2.parquet"
+
+    pq.write_table(pa.table(dataset1._data), file1)
+    pq.write_table(pa.table(dataset2._data), file2)
+
+    extractor = ParquetExtractor([str(file1), str(file2)])
+    loaded = extractor.extract()
+
+    # Should preserve file1's order (cve_id, title, score) and append new columns
+    expected_order = ["cve_id", "title", "score", "severity", "tags"]
+    assert loaded.columns == expected_order
+
+
+def test_parquet_multi_file_repeated_loads_stable(tmp_path):
+    """Repeated multi-file loads produce identical column order."""
+    # Create two files
+    dataset1 = VulnDataset()
+    dataset1._data = {
+        "cve_id": np.array(["CVE-2024-0001"]),
+        "a": np.array([1]),
+        "b": np.array([2]),
+    }
+
+    dataset2 = VulnDataset()
+    dataset2._data = {
+        "cve_id": np.array(["CVE-2024-0002"]),
+        "c": np.array([3]),
+        "d": np.array([4]),
+    }
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    file1 = tmp_path / "file1.parquet"
+    file2 = tmp_path / "file2.parquet"
+
+    pq.write_table(pa.table(dataset1._data), file1)
+    pq.write_table(pa.table(dataset2._data), file2)
+
+    # Load multiple times
+    extractor = ParquetExtractor([str(file1), str(file2)])
+    loaded1 = extractor.extract()
+    loaded2 = extractor.extract()
+    loaded3 = extractor.extract()
+
+    # All loads should have identical column order
+    assert loaded1.columns == loaded2.columns
+    assert loaded2.columns == loaded3.columns
+    assert loaded1.columns == ["cve_id", "a", "b", "c", "d"]
