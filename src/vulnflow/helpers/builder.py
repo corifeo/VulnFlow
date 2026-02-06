@@ -133,7 +133,6 @@ class CacheBuilder:
     def build(
         self,
         workers: int = 4,
-        retries: int = 3,
         timeout: float = 120.0,
         cvss: bool = True,
     ) -> VulnDataset:
@@ -141,7 +140,6 @@ class CacheBuilder:
 
         Args:
             workers: Number of parallel worker processes.
-            retries: Number of retry attempts per feed (reserved for future use).
             timeout: HTTP timeout in seconds per feed.
             cvss: Apply CVSSFlattenTransform to extract scalar CVSS columns (default: True).
 
