@@ -180,6 +180,48 @@ def test_merge_handles_missing_columns():
     assert result.get_column("score")[1] is None
 
 
+def test_merge_preserves_column_order():
+    """VulnDataset.merge() preserves first dataset's column order, appending new columns."""
+    # First dataset has columns in order: id, cve_id, score
+    ds1 = VulnDataset()
+    ds1.set_column("id", np.array(["1", "2"]))
+    ds1.set_column("cve_id", np.array(["CVE-1", "CVE-2"]))
+    ds1.set_column("score", np.array([7.5, 8.0]))
+
+    # Second dataset has different column order: severity, cve_id, tags
+    ds2 = VulnDataset()
+    ds2.set_column("severity", np.array(["HIGH"]))
+    ds2.set_column("cve_id", np.array(["CVE-3"]))
+    ds2.set_column("tags", np.array(["test"]))
+
+    result = VulnDataset.merge([ds1, ds2])
+
+    # Should preserve ds1's order (id, cve_id, score) and append new columns (severity, tags)
+    expected_order = ["id", "cve_id", "score", "severity", "tags"]
+    assert result.columns == expected_order
+
+
+def test_merge_repeated_is_stable():
+    """VulnDataset.merge() produces identical column order when repeated."""
+    ds1 = VulnDataset()
+    ds1.set_column("a", np.array([1]))
+    ds1.set_column("b", np.array([2]))
+
+    ds2 = VulnDataset()
+    ds2.set_column("c", np.array([3]))
+    ds2.set_column("d", np.array([4]))
+
+    # Merge multiple times
+    result1 = VulnDataset.merge([ds1, ds2])
+    result2 = VulnDataset.merge([ds1, ds2])
+    result3 = VulnDataset.merge([ds1, ds2])
+
+    # All should have identical column order
+    assert result1.columns == result2.columns
+    assert result2.columns == result3.columns
+    assert result1.columns == ["a", "b", "c", "d"]
+
+
 class TestProvenance:
     """Tests for VulnDataset provenance tracking."""
 

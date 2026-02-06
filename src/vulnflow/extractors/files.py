@@ -183,15 +183,16 @@ class ParquetExtractor(BaseExtractor):
                 msg = "cve_id column required for multi-file merge"
                 raise ExtractorError(msg)
 
-        # Get union of all columns across datasets
-        all_columns = set()
+        # Get union of all columns across datasets - preserve insertion order
+        all_columns: dict[str, None] = {}
         for ds in datasets:
-            all_columns.update(ds.columns)
+            for col in ds.columns:
+                all_columns[col] = None
 
         # Concatenate all datasets, filling missing columns with None
         merged_data: dict[str, np.ndarray] = {}
 
-        for col in all_columns:
+        for col in all_columns.keys():
             arrays = []
             for ds in datasets:
                 if col in ds.columns:
@@ -268,15 +269,16 @@ class JSONExtractor(BaseExtractor):
         # Build type map once from Registry
         type_map = build_type_map()
 
-        # Extract all column names
-        all_columns: set[str] = set()
+        # Extract all column names - preserve insertion order
+        all_columns: dict[str, None] = {}
         for record in data:
-            all_columns.update(record.keys())
+            for col in record.keys():
+                all_columns[col] = None
 
         # Build columnar data
         columnar_data: dict[str, np.ndarray] = {}
 
-        for col in all_columns:
+        for col in all_columns.keys():
             # Collect all values for this column
             values = []
             for record in data:
