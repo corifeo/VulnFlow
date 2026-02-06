@@ -135,6 +135,7 @@ class CacheBuilder:
         workers: int = 4,
         retries: int = 3,
         timeout: float = 120.0,
+        cvss: bool = True,
     ) -> VulnDataset:
         """Build vulnerability dataset with parallel extraction.
 
@@ -142,6 +143,7 @@ class CacheBuilder:
             workers: Number of parallel worker processes.
             retries: Number of retry attempts per feed (reserved for future use).
             timeout: HTTP timeout in seconds per feed.
+            cvss: Apply CVSSFlattenTransform to extract scalar CVSS columns (default: True).
 
         Returns:
             Merged VulnDataset with all extracted records.
@@ -174,6 +176,14 @@ class CacheBuilder:
             # Merge temp parquets
             logger.info("Merging %d parquet files", len(temp_paths))
             merged = VulnDataset.from_parquet([str(p) for p in temp_paths])
+
+            # Apply CVSS flatten transform by default
+            if cvss:
+                from vulnflow.transforms.flatten import CVSSFlattenTransform
+
+                logger.info("Applying CVSSFlattenTransform")
+                transform = CVSSFlattenTransform()
+                transform.transform(merged)
 
             logger.info("Library built: %d records", len(merged))
             return merged
