@@ -3,9 +3,13 @@
 Layer: Transform/Flatten
 Dependencies: transforms.flatten.base
 
-Selects the best CVSS entry from the cvss_scores array based on:
-1. is_authoritative=True (Primary in NVD)
-2. First entry (fallback)
+Selects ONLY authoritative CVSS entries from the cvss_scores array:
+- is_authoritative=True (Primary type in NVD data)
+- Secondary scores from vendors (github, patchstack, etc.) are skipped
+- If no authoritative score exists, fields remain None
+
+This ensures cvss_source reflects the data source (nvd, redhat, etc.),
+not vendor-provided Secondary scores included in NVD feeds.
 
 Extracts 15 scalar columns from the selected entry.
 """
@@ -33,6 +37,10 @@ CVSS3_PATTERN = re.compile(
 @register_transform(default=True)
 class CVSSFlattenTransform(BaseFlatten):
     """Select authoritative CVSS score and extract components.
+
+    Selects ONLY authoritative (Primary) CVSS scores. Secondary vendor scores
+    (github, patchstack, etc.) are ignored. If no authoritative score exists,
+    all output fields remain None.
 
     Output columns (15):
     - cvss_version, cvss_base_score, cvss_base_severity, cvss_source
@@ -125,14 +133,17 @@ class CVSSFlattenTransform(BaseFlatten):
             if not scores:
                 continue
 
-            # Selection: is_authoritative=True > first
+            # Selection: only authoritative (Primary) scores from NVD
+            # Secondary scores from vendors (github, patchstack, etc.) are skipped
             selected = None
             for s in scores:
                 if s.get("is_authoritative"):
                     selected = s
                     break
+
+            # If no authoritative score, skip this record (leave fields as None)
             if not selected:
-                selected = scores[0]
+                continue
 
             # Extract scalar fields
             out["cvss_version"][i] = selected.get("version")

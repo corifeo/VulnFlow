@@ -128,8 +128,8 @@ def test_cvss_flatten_parses_vector_string():
     assert ds.get_column("cvss_availability")[0] == "H"
 
 
-def test_cvss_flatten_fallback_to_first():
-    """CVSSFlattenTransform falls back to first entry when no authoritative."""
+def test_cvss_flatten_skips_non_authoritative():
+    """CVSSFlattenTransform skips records with only Secondary (non-authoritative) scores."""
     from vulnflow.transforms.flatten.cvss import CVSSFlattenTransform
 
     ds = VulnDataset()
@@ -142,13 +142,13 @@ def test_cvss_flatten_fallback_to_first():
                         {
                             "version": "3.1",
                             "base_score": 9.0,
-                            "source": "first",
+                            "source": "github",
                             "is_authoritative": False,
                         },
                         {
                             "version": "3.1",
                             "base_score": 8.0,
-                            "source": "second",
+                            "source": "patchstack",
                             "is_authoritative": False,
                         },
                     ]
@@ -159,8 +159,53 @@ def test_cvss_flatten_fallback_to_first():
 
     CVSSFlattenTransform().transform(ds)
 
-    assert ds.get_column("cvss_base_score")[0] == 9.0
-    assert ds.get_column("cvss_source")[0] == "first"
+    # Should skip Secondary scores and leave fields as None
+    assert ds.get_column("cvss_base_score")[0] is None
+    assert ds.get_column("cvss_source")[0] is None
+    assert ds.get_column("cvss_version")[0] is None
+
+
+def test_cvss_flatten_prefers_primary_over_secondary():
+    """CVSSFlattenTransform selects Primary score when both Primary and Secondary exist."""
+    from vulnflow.transforms.flatten.cvss import CVSSFlattenTransform
+
+    ds = VulnDataset()
+    ds._data = {
+        "cve_id": np.array(["CVE-2021-44228"]),
+        "cvss_scores": np.array(
+            [
+                vulnflow_json.dumps(
+                    [
+                        {
+                            "version": "3.1",
+                            "base_score": 7.5,
+                            "source": "github",
+                            "is_authoritative": False,
+                        },
+                        {
+                            "version": "3.1",
+                            "base_score": 9.8,
+                            "source": "nvd",
+                            "is_authoritative": True,
+                        },
+                        {
+                            "version": "3.1",
+                            "base_score": 8.0,
+                            "source": "patchstack",
+                            "is_authoritative": False,
+                        },
+                    ]
+                )
+            ]
+        ),
+    }
+
+    CVSSFlattenTransform().transform(ds)
+
+    # Should select the Primary (NVD) score, ignoring Secondary vendor scores
+    assert ds.get_column("cvss_base_score")[0] == 9.8
+    assert ds.get_column("cvss_source")[0] == "nvd"
+    assert ds.get_column("cvss_version")[0] == "3.1"
 
 
 def test_cvss_flatten_handles_empty_array():
