@@ -2,10 +2,13 @@
 DataFrame Loaders - Pandas and Polars export
 
 Provides:
-- PandasLoader: Export to pandas DataFrame
-- PolarsLoader: Export to polars DataFrame (native, not via pandas)
+- PandasLoader: Export to pandas DataFrame (with NVD status filtering)
+- PolarsLoader: Export to polars DataFrame (with NVD status filtering)
 - to_pandas: Legacy function for backward compatibility
 - to_polars: Legacy function for backward compatibility
+
+DataFrame exports are the *analysis path* — they filter to sane defaults.
+File exports (parquet, json) are the *archive path* — always lossless.
 
 Layer: Load
 Dependencies: dataset
@@ -15,6 +18,8 @@ Used by: dataset.to_pandas(), to_polars()
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
+import numpy as np
 
 from vulnflow.registry import Registry
 
@@ -37,6 +42,70 @@ NESTED_COLUMNS = frozenset(
     }
 )
 
+# ============================================================================
+# Status filtering (DataFrame loaders only)
+# ============================================================================
+
+_NVD_STATUS_DEFAULTS: dict[str, bool] = {
+    "analyzed": True,
+    "modified": True,
+    "awaiting": False,
+    "rejected": False,
+    "deferred": False,
+}
+
+
+def _build_status_mask(
+    dataset: VulnDataset,
+    *,
+    analyzed: bool = True,
+    modified: bool = True,
+    awaiting: bool = False,
+    rejected: bool = False,
+    deferred: bool = False,
+) -> np.ndarray:
+    """Build boolean mask based on NVD status values.
+
+    Returns a boolean array where True means "include this row".
+    If the dataset has no ``nvd_status`` column the mask is all-True (no-op).
+    Rows with ``None`` status are always included.
+
+    Args:
+        dataset: VulnDataset to filter
+        analyzed: Include rows with status 'analyzed'
+        modified: Include rows with status 'modified'
+        awaiting: Include rows with status 'awaiting'
+        rejected: Include rows with status 'rejected'
+        deferred: Include rows with status 'deferred'
+
+    Returns:
+        Boolean numpy array (dtype=bool), same length as dataset
+    """
+    statuses = dataset.get_column_or_none("nvd_status")
+    if statuses is None:
+        return np.ones(len(dataset), dtype=bool)
+
+    flags = {
+        "analyzed": analyzed,
+        "modified": modified,
+        "awaiting": awaiting,
+        "rejected": rejected,
+        "deferred": deferred,
+    }
+    included = [status for status, include in flags.items() if include]
+
+    # None status → always include
+    is_none = np.array([s is None for s in statuses], dtype=bool)
+    mask: np.ndarray[tuple[int, ...], np.dtype[np.bool_]] = (
+        np.isin(statuses, included) | is_none
+    )
+    return mask
+
+
+# ============================================================================
+# DataFrame Loaders
+# ============================================================================
+
 
 @Registry.register_loader("pandas")
 class PandasLoader:
@@ -45,21 +114,26 @@ class PandasLoader:
     By default, excludes nested JSON columns for cleaner DataFrames (lossy).
     Set include_nested=True for full data fidelity on round-trip.
 
-    Args:
-        include_nested: If True, include nested JSON columns (cvss_scores, etc.)
-                       for full data fidelity. Default False excludes nested columns.
+    Filters rows by NVD status (analysis path). Default excludes awaiting,
+    rejected, and deferred rows.
     """
 
     format: str = "pandas"
 
-    def __init__(self, include_nested: bool = False) -> None:
+    def __init__(self, include_nested: bool = False, **status_kwargs: bool) -> None:
         """Initialize loader.
 
         Args:
             include_nested: If True, include nested JSON columns for full fidelity.
                            Default False excludes nested columns (lossy by default).
+            **status_kwargs: Override NVD status filters (analyzed, modified,
+                            awaiting, rejected, deferred). Defaults exclude
+                            awaiting, rejected, and deferred rows.
         """
         self.include_nested = include_nested
+        self._status_kwargs = {
+            k: status_kwargs.get(k, v) for k, v in _NVD_STATUS_DEFAULTS.items()
+        }
 
     def load(self, dataset: VulnDataset) -> pd.DataFrame:
         """Load dataset to pandas DataFrame.
@@ -72,11 +146,14 @@ class PandasLoader:
         """
         import pandas as pd
 
+        mask = _build_status_mask(dataset, **self._status_kwargs)
         if not self.include_nested:
-            data = {k: v for k, v in dataset._data.items() if k not in NESTED_COLUMNS}
+            data = {
+                k: v[mask] for k, v in dataset._data.items() if k not in NESTED_COLUMNS
+            }
             return pd.DataFrame(data)
 
-        return pd.DataFrame(dataset._data)
+        return pd.DataFrame({k: v[mask] for k, v in dataset._data.items()})
 
 
 @Registry.register_loader("polars")
@@ -88,21 +165,26 @@ class PolarsLoader:
     By default, excludes nested JSON columns for cleaner DataFrames (lossy).
     Set include_nested=True for full data fidelity on round-trip.
 
-    Args:
-        include_nested: If True, include nested JSON columns (cvss_scores, etc.)
-                       for full data fidelity. Default False excludes nested columns.
+    Filters rows by NVD status (analysis path). Default excludes awaiting,
+    rejected, and deferred rows.
     """
 
     format: str = "polars"
 
-    def __init__(self, include_nested: bool = False) -> None:
+    def __init__(self, include_nested: bool = False, **status_kwargs: bool) -> None:
         """Initialize loader.
 
         Args:
             include_nested: If True, include nested JSON columns for full fidelity.
                            Default False excludes nested columns (lossy by default).
+            **status_kwargs: Override NVD status filters (analyzed, modified,
+                            awaiting, rejected, deferred). Defaults exclude
+                            awaiting, rejected, and deferred rows.
         """
         self.include_nested = include_nested
+        self._status_kwargs = {
+            k: status_kwargs.get(k, v) for k, v in _NVD_STATUS_DEFAULTS.items()
+        }
 
     def load(self, dataset: VulnDataset) -> pl.DataFrame:
         """Load dataset to polars DataFrame.
@@ -115,14 +197,15 @@ class PolarsLoader:
         """
         import polars as pl
 
+        mask = _build_status_mask(dataset, **self._status_kwargs)
         if not self.include_nested:
             data = {
-                k: v.tolist()
+                k: v[mask].tolist()
                 for k, v in dataset._data.items()
                 if k not in NESTED_COLUMNS
             }
         else:
-            data = {k: v.tolist() for k, v in dataset._data.items()}
+            data = {k: v[mask].tolist() for k, v in dataset._data.items()}
 
         return pl.from_dict(data)
 

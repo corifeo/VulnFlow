@@ -19,7 +19,7 @@ from vulnflow.dataset import VulnDataset
 def test_dataset_from_nvd():
     """VulnDataset.from_nvd() loads NVD file."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-    assert len(dataset) == 3
+    assert len(dataset) == 5
     assert "cve_id" in dataset.columns
 
 
@@ -39,7 +39,7 @@ def test_dataset_get_column():
     cve_ids = dataset.get_column("cve_id")
 
     assert isinstance(cve_ids, np.ndarray)
-    assert len(cve_ids) == 3
+    assert len(cve_ids) == 5
 
 
 def test_dataset_get_column_missing_raises():
@@ -54,18 +54,24 @@ def test_dataset_set_column():
     """VulnDataset.set_column() adds new column."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    new_data = np.array(["NEW1", "NEW2", "NEW3"], dtype=object)
+    new_data = np.array(["NEW1", "NEW2", "NEW3", "NEW4", "NEW5"], dtype=object)
     dataset.set_column("computed_field", new_data)
 
     assert "computed_field" in dataset.columns
-    assert list(dataset.get_column("computed_field")) == ["NEW1", "NEW2", "NEW3"]
+    assert list(dataset.get_column("computed_field")) == [
+        "NEW1",
+        "NEW2",
+        "NEW3",
+        "NEW4",
+        "NEW5",
+    ]
 
 
 def test_dataset_set_column_wrong_length_raises():
     """VulnDataset.set_column() raises ValueError for wrong length."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    wrong_data = np.array(["A", "B"], dtype=object)  # Should be 3
+    wrong_data = np.array(["A", "B"], dtype=object)  # Should be 5
 
     with pytest.raises(ValueError, match="length mismatch"):
         dataset.set_column("bad_column", wrong_data)
@@ -80,7 +86,7 @@ def test_dataset_transform_applies_transforms():
         depends_on: list[str] = []
 
         def transform(self, ds: VulnDataset) -> None:
-            ds.set_column("mock_column", np.array(["A", "B", "C"], dtype=object))
+            ds.set_column("mock_column", np.array(["A"] * len(ds), dtype=object))
 
     dataset.transform([MockTransform()])
 

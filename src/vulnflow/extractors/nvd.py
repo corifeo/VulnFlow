@@ -147,9 +147,7 @@ class NVDExtractor(BaseExtractor):
                 arrays["nvd_modified_at"][i] = self._parse_timestamp(
                     cve_data.get("lastModified")
                 )
-                arrays["nvd_status"][i] = (
-                    self._extract_nvd_status(cve_data) or "unknown"
-                )
+                arrays["nvd_status"][i] = self._extract_nvd_status(cve_data)
 
                 # Complex fields: Parse to dataclasses → asdict() → JSON
                 # Type-safe but still efficient (single pass)
@@ -314,18 +312,30 @@ class NVDExtractor(BaseExtractor):
         ts = ts.replace("Z", "+00:00")
         return datetime.fromisoformat(ts)
 
-    def _extract_nvd_status(self, cve_data: dict[str, Any]) -> str | None:
+    def _extract_nvd_status(self, cve_data: dict[str, Any]) -> str:
         """Extract and normalize NVD status from vulnStatus field.
+
+        NVD statuses (https://nvd.nist.gov/vuln/vulnerability-status):
+        Analyzed, Awaiting Analysis, Undergoing Analysis, Received,
+        Modified, Deferred, Rejected.
+
+        Pre-2017 CVEs lack vulnStatus. For these, status is inferred:
+        - Description contains ``** REJECTED **`` → ``"rejected"``
+        - Otherwise → ``"analyzed"``
 
         Args:
             cve_data: The CVE data dict
 
         Returns:
-            Normalized status: analyzed, awaiting, modified, rejected, disputed, unknown
+            Normalized status: analyzed, awaiting, modified, rejected, deferred
         """
         vuln_status = cve_data.get("vulnStatus", "")
         if not vuln_status:
-            return None
+            # Pre-2017 CVEs lack vulnStatus. Check description for rejection.
+            desc = (cve_data.get("descriptions") or [{}])[0].get("value", "")
+            if "** REJECTED **" in desc:
+                return "rejected"
+            return "analyzed"
 
         status_lower = vuln_status.lower()
 
@@ -334,18 +344,18 @@ class NVDExtractor(BaseExtractor):
             return "analyzed"
         elif "awaiting" in status_lower:
             return "awaiting"
-        elif "modified" in status_lower:
-            return "modified"
-        elif "rejected" in status_lower:
-            return "rejected"
-        elif "disputed" in status_lower:
-            return "disputed"
         elif "received" in status_lower:
             return "awaiting"  # Treat "Received" as awaiting analysis
         elif "undergoing" in status_lower:
             return "awaiting"  # Treat "Undergoing Analysis" as awaiting
+        elif "modified" in status_lower:
+            return "modified"
+        elif "rejected" in status_lower:
+            return "rejected"
+        elif "deferred" in status_lower:
+            return "deferred"
         else:
-            return "unknown"
+            return "analyzed"  # Safe fallback for unrecognized values
 
     def _parse_cvss(self, metrics: dict[str, list[dict]]) -> list[CVSSEntry]:  # type: ignore[type-arg]
         """Parse CVSS metrics from NVD format.

@@ -26,7 +26,7 @@ def test_file_roundtrip_preserves_data(
     """File export/import roundtrip preserves count, CVE IDs, and columns."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    # Export
+    # Export (file loaders are lossless — no status filtering)
     output_path = tmp_path / f"out{extension}"
     getattr(dataset, to_method)(output_path)
 
@@ -34,7 +34,7 @@ def test_file_roundtrip_preserves_data(
     dataset2 = getattr(VulnDataset, from_method)(output_path)
 
     # Check count
-    assert len(dataset) == len(dataset2) == 3
+    assert len(dataset) == len(dataset2) == 5
 
     # Check CVE IDs preserved
     cve_ids_1 = list(dataset._data["cve_id"])
@@ -56,14 +56,16 @@ def test_dataframe_roundtrip_preserves_data(format_name, to_method, from_method)
     """DataFrame export/import roundtrip preserves count, CVE IDs, and columns."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    # Export (with full fidelity)
-    df = getattr(dataset, to_method)(include_nested=True)
+    # Export (with full fidelity, include all statuses for lossless roundtrip)
+    df = getattr(dataset, to_method)(
+        include_nested=True, awaiting=True, rejected=True, deferred=True
+    )
 
     # Import
     dataset2 = getattr(VulnDataset, from_method)(df)
 
     # Check count
-    assert len(dataset) == len(dataset2) == 3
+    assert len(dataset) == len(dataset2) == 5
 
     # Check CVE IDs preserved
     cve_ids_1 = list(dataset._data["cve_id"])
@@ -84,8 +86,12 @@ def test_parquet_roundtrip_preserves_dataframe(tmp_path):
     dataset2 = VulnDataset.from_parquet(output_path)
 
     # Compare DataFrames with include_nested=True for full fidelity
-    df1 = dataset.to_pandas(include_nested=True)
-    df2 = dataset2.to_pandas(include_nested=True)
+    df1 = dataset.to_pandas(
+        include_nested=True, awaiting=True, rejected=True, deferred=True
+    )
+    df2 = dataset2.to_pandas(
+        include_nested=True, awaiting=True, rejected=True, deferred=True
+    )
 
     # Same columns
     assert set(df1.columns) == set(df2.columns)
@@ -123,12 +129,12 @@ def test_json_vs_parquet_fidelity(tmp_path):
     """Compare JSON vs Parquet round-trip fidelity."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
-    # JSON round-trip
+    # JSON round-trip (file loaders are lossless)
     json_path = tmp_path / "out.json"
     dataset.to_json(json_path)
     dataset_json = VulnDataset.from_json(json_path)
 
-    # Parquet round-trip
+    # Parquet round-trip (file loaders are lossless)
     parquet_path = tmp_path / "out.parquet"
     dataset.to_parquet(parquet_path)
     dataset_parquet = VulnDataset.from_parquet(parquet_path)

@@ -26,7 +26,7 @@ def test_parquet_loader_writes_file(tmp_path):
 
     assert output_path.exists()
     assert result["path"] == str(output_path)
-    assert result["record_count"] == 3
+    assert result["record_count"] == 5
 
 
 def test_parquet_loader_in_pipeline(tmp_path):
@@ -43,7 +43,7 @@ def test_parquet_loader_in_pipeline(tmp_path):
     result = pipeline.run()
 
     assert output_path.exists()
-    assert len(result.dataset) == 3
+    assert len(result.dataset) == 5
     assert "parquet" in result.loader_outputs  # Uses name attribute, not class name
 
 

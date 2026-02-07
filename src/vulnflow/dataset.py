@@ -337,38 +337,80 @@ class VulnDataset:
 
         return merged
 
-    def to_pandas(self, include_nested: bool = False) -> PandasDataFrame:
+    def to_pandas(
+        self,
+        include_nested: bool = False,
+        *,
+        analyzed: bool = True,
+        modified: bool = True,
+        awaiting: bool = False,
+        rejected: bool = False,
+        deferred: bool = False,
+    ) -> PandasDataFrame:
         """Export dataset to pandas DataFrame.
 
         Args:
             include_nested: If True, include nested JSON columns (cvss_scores, etc.)
                            for full data fidelity. Default False excludes nested columns.
+            analyzed: Include rows with NVD status 'analyzed' (default True)
+            modified: Include rows with NVD status 'modified' (default True)
+            awaiting: Include rows with NVD status 'awaiting' (default False)
+            rejected: Include rows with NVD status 'rejected' (default False)
+            deferred: Include rows with NVD status 'deferred' (default False)
 
         Returns:
             Pandas DataFrame
         """
         from vulnflow.loaders.dataframe import PandasLoader
 
-        loader = PandasLoader(include_nested=include_nested)
+        loader = PandasLoader(
+            include_nested=include_nested,
+            analyzed=analyzed,
+            modified=modified,
+            awaiting=awaiting,
+            rejected=rejected,
+            deferred=deferred,
+        )
         return loader.load(self)
 
-    def to_polars(self, include_nested: bool = False) -> PolarsDataFrame:
+    def to_polars(
+        self,
+        include_nested: bool = False,
+        *,
+        analyzed: bool = True,
+        modified: bool = True,
+        awaiting: bool = False,
+        rejected: bool = False,
+        deferred: bool = False,
+    ) -> PolarsDataFrame:
         """Export dataset to polars DataFrame.
 
         Args:
             include_nested: If True, include nested JSON columns (cvss_scores, etc.)
                            for full data fidelity. Default False excludes nested columns.
+            analyzed: Include rows with NVD status 'analyzed' (default True)
+            modified: Include rows with NVD status 'modified' (default True)
+            awaiting: Include rows with NVD status 'awaiting' (default False)
+            rejected: Include rows with NVD status 'rejected' (default False)
+            deferred: Include rows with NVD status 'deferred' (default False)
 
         Returns:
             Polars DataFrame
         """
         from vulnflow.loaders.dataframe import PolarsLoader
 
-        loader = PolarsLoader(include_nested=include_nested)
+        loader = PolarsLoader(
+            include_nested=include_nested,
+            analyzed=analyzed,
+            modified=modified,
+            awaiting=awaiting,
+            rejected=rejected,
+            deferred=deferred,
+        )
         return loader.load(self)
 
     def to_parquet(self, path: str | Path) -> None:
-        """Export dataset to Parquet file.
+        """Export dataset to Parquet file (lossless, no filtering).
 
         Args:
             path: Output file path
@@ -379,7 +421,7 @@ class VulnDataset:
         loader.load(self)
 
     def to_json(self, path: str | Path) -> None:
-        """Export dataset to JSON file.
+        """Export dataset to JSON file (lossless, no filtering).
 
         Args:
             path: Output file path
@@ -466,7 +508,7 @@ class VulnDataset:
         Example:
             >>> ds = VulnDataset.from_nvd("data.json")
             >>> ds.get_status_distribution()
-            {'analyzed': 1141, 'awaiting': 1506, 'modified': 89, 'rejected': 28, 'unknown': 3}
+            {'analyzed': 1141, 'awaiting': 1506, 'modified': 89, 'rejected': 28}
         """
         import numpy as np
 
