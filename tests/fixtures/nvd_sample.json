@@ -1,7 +1,7 @@
 {
-  "resultsPerPage": 3,
+  "resultsPerPage": 5,
   "startIndex": 0,
-  "totalResults": 3,
+  "totalResults": 5,
   "format": "NVD_CVE",
   "version": "2.0",
   "timestamp": "2024-01-15T12:00:00.000Z",
@@ -209,6 +209,42 @@
             "tags": ["Vendor Advisory", "Patch"]
           }
         ]
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2015-0001",
+        "sourceIdentifier": "cve@mitre.org",
+        "published": "2015-03-10T12:00:00.000Z",
+        "lastModified": "2015-03-10T12:00:00.000Z",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "Buffer overflow in Legacy Product allows remote attackers to execute arbitrary code."
+          }
+        ],
+        "metrics": {},
+        "weaknesses": [],
+        "configurations": [],
+        "references": []
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2015-0002",
+        "sourceIdentifier": "cve@mitre.org",
+        "published": "2015-06-15T08:00:00.000Z",
+        "lastModified": "2015-06-15T08:00:00.000Z",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "** REJECTED ** DO NOT USE THIS CANDIDATE NUMBER. Reason: This was rejected as a duplicate."
+          }
+        ],
+        "metrics": {},
+        "weaknesses": [],
+        "configurations": [],
+        "references": []
       }
     }
   ]

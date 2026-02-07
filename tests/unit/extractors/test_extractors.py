@@ -27,7 +27,7 @@ def test_nvd_extractor_returns_dataset():
     dataset = extractor.extract()
 
     assert isinstance(dataset, VulnDataset)
-    assert len(dataset) == 3
+    assert len(dataset) == 5
     assert "cve_id" in dataset.columns
 
 
@@ -560,6 +560,37 @@ def test_nvd_extractor_extracts_nvd_status():
     assert status[2] == "modified"
 
 
+def test_nvd_extractor_status_missing_defaults_to_analyzed():
+    """NVD extractor infers 'analyzed' when vulnStatus missing (pre-2017 CVEs)."""
+    extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
+    dataset = extractor.extract()
+
+    status = dataset.get_column("nvd_status")
+    # Fourth record has no vulnStatus → should infer "analyzed"
+    assert status[3] == "analyzed"
+
+
+def test_nvd_extractor_status_missing_rejected_description():
+    """NVD extractor infers 'rejected' when vulnStatus missing and description has ** REJECTED **."""
+    extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
+    dataset = extractor.extract()
+
+    status = dataset.get_column("nvd_status")
+    # Fifth record has no vulnStatus + ** REJECTED ** in description → "rejected"
+    assert status[4] == "rejected"
+
+
+def test_nvd_extractor_status_never_none():
+    """NVD extractor never returns None for nvd_status."""
+    extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
+    dataset = extractor.extract()
+
+    statuses = dataset.get_column("nvd_status")
+    for i, s in enumerate(statuses):
+        assert s is not None, f"nvd_status[{i}] is None"
+        assert isinstance(s, str), f"nvd_status[{i}] is not str: {type(s)}"
+
+
 def test_nvd_extractor_extracts_fix_version():
     """NVD extractor captures versionEndExcluding as fix_version."""
     extractor = NVDExtractor("tests/fixtures/nvd_sample.json")
@@ -616,7 +647,7 @@ def test_nvd_extractor_encodes_complex_fields():
 
 def test_parquet_extractor_returns_dataset():
     """ParquetExtractor.extract() returns VulnDataset."""
-    # First create a parquet file
+    # First create a parquet file (include all statuses for lossless roundtrip)
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -628,7 +659,7 @@ def test_parquet_extractor_returns_dataset():
         result = extractor.extract()
 
         assert isinstance(result, VulnDataset)
-        assert len(result) == 3
+        assert len(result) == 5
 
 
 def test_parquet_extractor_direct_load():

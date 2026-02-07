@@ -129,7 +129,7 @@ class VulnRecord:
     # NVD Temporal (what NVD provides)
     nvd_published_at: datetime | None = None
     nvd_modified_at: datetime | None = None
-    nvd_status: str | None = None  # analyzed, awaiting, modified, rejected, disputed, unknown
+    nvd_status: str | None = None  # analyzed, awaiting, modified, rejected, deferred
 
     # Note: CVD Timeline (v/f/d/p/x/a_timestamp) is NOT part of VulnRecord.
     # EventInference (Phase 11) adds these columns directly to VulnDataset.

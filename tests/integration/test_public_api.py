@@ -37,15 +37,15 @@ def test_public_api_end_to_end(tmp_path):
 
     # Load from NVD
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-    assert len(dataset) == 3
+    assert len(dataset) == 5
 
-    # Export to Parquet
+    # Export to Parquet (file loaders are lossless)
     output_path = tmp_path / "output.parquet"
     dataset.to_parquet(output_path)
 
     # Reload
     dataset2 = VulnDataset.from_parquet(output_path)
-    assert len(dataset2) == 3
+    assert len(dataset2) == 5
 
 
 def test_public_api_pipeline_end_to_end(tmp_path):
@@ -63,6 +63,6 @@ def test_public_api_pipeline_end_to_end(tmp_path):
     result = pipeline.run()
 
     assert result.dataset is not None
-    assert len(result.dataset) == 3
+    assert len(result.dataset) == 5
     assert output_path.exists()
     assert "parquet" in result.loader_outputs  # Uses name attribute, not class name

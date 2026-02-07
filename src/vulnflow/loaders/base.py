@@ -7,7 +7,7 @@ Provides:
 
 Layer: Load
 Dependencies: dataset
-Used by: files, dataframe, sql loaders
+Used by: files loaders
 """
 
 from __future__ import annotations
@@ -50,7 +50,9 @@ class Loader(Protocol):
 
 
 class BaseLoader(ABC):
-    """Base class for loaders with format validation.
+    """Base class for file loaders with format validation.
+
+    File loaders are the *archive path* — always lossless, no filtering.
 
     Provides:
     - Format validation on initialization
@@ -60,22 +62,13 @@ class BaseLoader(ABC):
     Subclasses must:
     - Define format: str class attribute
     - Implement load() method
-
-    Example:
-        >>> class JSONLoader(BaseLoader):
-        ...     format = "json"
-        ...     name = "JSONLoader"
-        ...
-        ...     def load(self, dataset: VulnDataset) -> dict[str, Any]:
-        ...         # Implementation
-        ...         pass
     """
 
     format: str
     name: str
 
     def __init__(self) -> None:
-        """Initialize loader and validate format attribute.
+        """Initialize loader and validate format.
 
         Raises:
             LoaderError: If format attribute is missing or empty

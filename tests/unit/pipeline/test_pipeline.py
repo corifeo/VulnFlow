@@ -129,7 +129,9 @@ def test_pipeline_executes_transforms():
         depends_on: list[str] = []
 
         def transform(self, dataset):  # type: ignore[no-untyped-def]
-            dataset.set_column("mock_column", np.array(["A", "B", "C"], dtype=object))
+            dataset.set_column(
+                "mock_column", np.array(["A"] * len(dataset), dtype=object)
+            )
 
     pipeline = VulnPipeline(
         extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],

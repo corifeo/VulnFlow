@@ -22,9 +22,11 @@ from vulnflow.transforms.inferences.events import EventInference
 
 def test_notebook_01_quick_start():
     """Notebook 01: Quick start one-liner works."""
-    # One-liner: NVD → pandas DataFrame
+    # One-liner: NVD → pandas DataFrame (default filters exclude awaiting+rejected)
     df = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").to_pandas()
 
+    # 5 total: analyzed, awaiting, modified, analyzed(pre-2017), rejected(pre-2017)
+    # Default DataFrame filter excludes awaiting + rejected → 3
     assert len(df) == 3
     assert "cve_id" in df.columns
     assert "description" in df.columns
@@ -35,10 +37,10 @@ def test_notebook_01_save_load_parquet():
     with tempfile.TemporaryDirectory() as tmpdir:
         cache_path = Path(tmpdir) / "cache.parquet"
 
-        # Save
+        # Save (file loaders are lossless)
         VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").to_parquet(cache_path)
 
-        # Load
+        # Load and convert to DataFrame (default filter applies)
         df = VulnDataset.from_parquet(cache_path).to_pandas()
 
         assert len(df) == 3
@@ -50,10 +52,10 @@ def test_notebook_02_incremental_upsert():
         cache_path = Path(tmpdir) / "cache.parquet"
         delta_path = Path(tmpdir) / "delta.parquet"
 
-        # Build cache
+        # Build cache (file loaders are lossless)
         VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").to_parquet(cache_path)
 
-        # Build delta (modified + new)
+        # Build delta (modified + new) — no nvd_status column
         delta_ds = VulnDataset()
         delta_ds._data = {
             "cve_id": np.array(["CVE-2024-0001", "CVE-2024-9999"], dtype=object),
@@ -69,18 +71,23 @@ def test_notebook_02_incremental_upsert():
         delta_ds.to_parquet(delta_path)
 
         # Load cache + delta (upsert)
-        df = VulnDataset.from_parquet([str(cache_path), str(delta_path)]).to_pandas()
+        # Use legacy to_pandas() (no filtering) to verify upsert semantics.
+        merged = VulnDataset.from_parquet([str(cache_path), str(delta_path)])
 
-        # Verify upsert: 3 original + 1 new - 1 overwritten = 4
-        assert len(df) == 4
+        from vulnflow.loaders.dataframe import to_pandas
+
+        df_all = to_pandas(merged)
+
+        # Verify upsert: 5 original + 1 new - 1 overwritten = 6
+        assert len(df_all) == 6
 
         # Verify CVE-2024-0001 was updated
-        updated = df[df["cve_id"] == "CVE-2024-0001"].iloc[0]
+        updated = df_all[df_all["cve_id"] == "CVE-2024-0001"].iloc[0]
         assert updated["cvss_base_score"] == 10.0
         assert "UPDATED" in updated["description"]
 
         # Verify new CVE added
-        new_cve = df[df["cve_id"] == "CVE-2024-9999"].iloc[0]
+        new_cve = df_all[df_all["cve_id"] == "CVE-2024-9999"].iloc[0]
         assert "NEW" in new_cve["description"]
 
 
@@ -107,7 +114,7 @@ def test_notebook_03_cache_enriched():
     with tempfile.TemporaryDirectory() as tmpdir:
         enriched_path = Path(tmpdir) / "enriched.parquet"
 
-        # Build enriched cache
+        # Build enriched cache (file loaders are lossless)
         VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").transform(
             [CVDStateTransform(), EventInference(), EventInference()]
         ).to_parquet(enriched_path)
@@ -118,6 +125,7 @@ def test_notebook_03_cache_enriched():
         # Verify all transforms preserved
         assert "cvd_state" in df.columns
         assert "v_timestamp" in df.columns
+        # Default filter: 3 of 5 (analyzed, modified, analyzed)
         assert len(df) == 3
 
 
@@ -126,7 +134,7 @@ def test_notebook_03_incremental_with_transforms():
     with tempfile.TemporaryDirectory() as tmpdir:
         cache_path = Path(tmpdir) / "cache_transformed.parquet"
 
-        # Build transformed cache
+        # Build transformed cache (file loaders are lossless)
         VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").transform(
             [CVDStateTransform(), EventInference()]
         ).to_parquet(cache_path)
@@ -142,21 +150,21 @@ def test_notebook_03_incremental_with_transforms():
 def test_all_notebook_patterns_chain():
     """End-to-end: Verify all notebook patterns work together."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Pattern 1: Quick start
+        # Pattern 1: Quick start (default filters exclude awaiting+rejected)
         df1 = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").to_pandas()
         assert len(df1) == 3
 
-        # Pattern 2: Save cache
+        # Pattern 2: Save cache (lossless)
         cache_path = Path(tmpdir) / "cache.parquet"
         VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").to_parquet(cache_path)
 
-        # Pattern 3: Apply transforms and save
+        # Pattern 3: Apply transforms and save (lossless)
         enriched_path = Path(tmpdir) / "enriched.parquet"
         VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").transform(
             [CVDStateTransform()]
         ).to_parquet(enriched_path)
 
-        # Pattern 4: Load enriched
+        # Pattern 4: Load enriched (default filter applies on to_pandas)
         df2 = VulnDataset.from_parquet(enriched_path).to_pandas()
         assert "cvd_state" in df2.columns
 

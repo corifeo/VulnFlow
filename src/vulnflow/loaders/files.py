@@ -1,9 +1,11 @@
 """
-File Loaders - Parquet, JSON, CSV writers
+File Loaders - Parquet, JSON writers (lossless archive path)
 
 Provides:
 - ParquetLoader: Writes to Parquet files
 - JSONLoader: Writes to JSON files
+
+File loaders are the *archive path* — always lossless, no status filtering.
 
 Layer: Load
 Dependencies: dataset
@@ -24,7 +26,7 @@ if TYPE_CHECKING:
 
 @Registry.register_loader("parquet")
 class ParquetLoader(BaseLoader):
-    """Load dataset to Parquet file."""
+    """Load dataset to Parquet file (lossless, no filtering)."""
 
     format: str = "parquet"
     name: str = "parquet"
@@ -70,7 +72,7 @@ class ParquetLoader(BaseLoader):
 
 @Registry.register_loader("json")
 class JSONLoader(BaseLoader):
-    """Load dataset to JSON file."""
+    """Load dataset to JSON file (lossless, no filtering)."""
 
     format: str = "json"
     name: str = "json"
@@ -113,4 +115,4 @@ class JSONLoader(BaseLoader):
         with path.open("w") as f:
             json.dump(records, f, indent=True)
 
-        return {"path": str(self.path), "record_count": len(dataset)}
+        return {"path": str(self.path), "record_count": len(records)}
