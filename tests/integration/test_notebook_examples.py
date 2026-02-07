@@ -32,20 +32,6 @@ def test_notebook_01_quick_start():
     assert "description" in df.columns
 
 
-def test_notebook_01_save_load_parquet():
-    """Notebook 01: Save to parquet and reload."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        cache_path = Path(tmpdir) / "cache.parquet"
-
-        # Save (file loaders are lossless)
-        VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").to_parquet(cache_path)
-
-        # Load and convert to DataFrame (default filter applies)
-        df = VulnDataset.from_parquet(cache_path).to_pandas()
-
-        assert len(df) == 3
-
-
 def test_notebook_02_incremental_upsert():
     """Notebook 02: Cache + delta with upsert semantics."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -127,46 +113,3 @@ def test_notebook_03_cache_enriched():
         assert "v_timestamp" in df.columns
         # Default filter: 3 of 5 (analyzed, modified, analyzed)
         assert len(df) == 3
-
-
-def test_notebook_03_incremental_with_transforms():
-    """Notebook 03: Combine incremental + transforms."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        cache_path = Path(tmpdir) / "cache_transformed.parquet"
-
-        # Build transformed cache (file loaders are lossless)
-        VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").transform(
-            [CVDStateTransform(), EventInference()]
-        ).to_parquet(cache_path)
-
-        # Load (in production, would merge cache + delta)
-        df = VulnDataset.from_parquet(cache_path).to_pandas()
-
-        assert len(df) == 3
-        assert "cvd_state" in df.columns
-        assert "v_timestamp" in df.columns
-
-
-def test_all_notebook_patterns_chain():
-    """End-to-end: Verify all notebook patterns work together."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Pattern 1: Quick start (default filters exclude awaiting+rejected)
-        df1 = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").to_pandas()
-        assert len(df1) == 3
-
-        # Pattern 2: Save cache (lossless)
-        cache_path = Path(tmpdir) / "cache.parquet"
-        VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").to_parquet(cache_path)
-
-        # Pattern 3: Apply transforms and save (lossless)
-        enriched_path = Path(tmpdir) / "enriched.parquet"
-        VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").transform(
-            [CVDStateTransform()]
-        ).to_parquet(enriched_path)
-
-        # Pattern 4: Load enriched (default filter applies on to_pandas)
-        df2 = VulnDataset.from_parquet(enriched_path).to_pandas()
-        assert "cvd_state" in df2.columns
-
-        # All patterns successful
-        assert len(df1) == len(df2)

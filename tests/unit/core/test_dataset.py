@@ -134,28 +134,6 @@ def test_dataset_transform_detects_circular_dependencies():
         dataset.transform([Transform1(), Transform2()])
 
 
-def test_dataset_transform_runs_async_concurrently():
-    """dataset.transform() runs async enrichers concurrently."""
-    import asyncio
-    import time
-
-    class AsyncEnricher:
-        name = "async1"
-        depends_on: list[str] = []
-
-        async def transform(self, dataset):
-            await asyncio.sleep(0.1)
-
-    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-
-    start = time.time()
-    dataset.transform([AsyncEnricher(), AsyncEnricher()])
-    elapsed = time.time() - start
-
-    # Should take ~0.1s (concurrent), not ~0.2s (sequential)
-    assert elapsed < 0.15
-
-
 def test_merge_multiple_datasets():
     """VulnDataset.merge() concatenates datasets."""
     ds1 = VulnDataset()

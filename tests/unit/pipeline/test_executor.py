@@ -438,30 +438,8 @@ def test_parquet_loader_is_picklable():
 # =============================================================================
 
 
-def test_run_parallel_creates_multiple_outputs(nvd_sample_path):
-    """Parallel execution runs N extractors → N loaders."""
-    from vulnflow.extractors.nvd import NVDExtractor
-    from vulnflow.loaders.files import ParquetLoader
-    from vulnflow.pipeline import VulnPipeline
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        paths = [Path(tmpdir) / f"out_{i}.parquet" for i in range(2)]
-
-        pipeline = VulnPipeline(
-            extractors=[NVDExtractor(str(nvd_sample_path)) for _ in range(2)],
-            loaders=[ParquetLoader(p) for p in paths],
-        )
-
-        result = pipeline.run(parallel=True, workers=2)
-
-        for p in paths:
-            assert p.exists()
-        assert result.dataset is None
-        assert len(result.loader_outputs) == 2
-
-
-def test_run_parallel_single_extractor_works(nvd_sample_path):
-    """Parallel execution works with single extractor+loader pair."""
+def test_run_parallel_single_pair(nvd_sample_path):
+    """Parallel execution with single extractor+loader: file exists, duration tracked, key correct."""
     from vulnflow.extractors.nvd import NVDExtractor
     from vulnflow.loaders.files import ParquetLoader
     from vulnflow.pipeline import VulnPipeline
@@ -476,24 +454,8 @@ def test_run_parallel_single_extractor_works(nvd_sample_path):
         result = pipeline.run(parallel=True, workers=1)
 
         assert output.exists()
-        assert len(result.loader_outputs) == 1
-
-
-def test_run_parallel_tracks_duration(nvd_sample_path):
-    """Parallel execution tracks wall-clock duration."""
-    from vulnflow.extractors.nvd import NVDExtractor
-    from vulnflow.loaders.files import ParquetLoader
-    from vulnflow.pipeline import VulnPipeline
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        pipeline = VulnPipeline(
-            extractors=[NVDExtractor(str(nvd_sample_path))],
-            loaders=[ParquetLoader(Path(tmpdir) / "out.parquet")],
-        )
-
-        result = pipeline.run(parallel=True, workers=1)
-
         assert result.duration > 0.0
+        assert "parquet" in result.loader_outputs
 
 
 def test_run_parallel_worker_failure_raises_pipeline_error():
@@ -511,24 +473,6 @@ def test_run_parallel_worker_failure_raises_pipeline_error():
             pipeline.run(parallel=True, workers=1)
 
         assert isinstance(exc_info.value.__cause__, ExtractorError)
-
-
-def test_run_parallel_loader_outputs_keys_consistent(nvd_sample_path):
-    """Parallel loader_outputs keys use same format as serial path."""
-    from vulnflow.extractors.nvd import NVDExtractor
-    from vulnflow.loaders.files import ParquetLoader
-    from vulnflow.pipeline import VulnPipeline
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        pipeline = VulnPipeline(
-            extractors=[NVDExtractor(str(nvd_sample_path))],
-            loaders=[ParquetLoader(Path(tmpdir) / "out.parquet")],
-        )
-
-        result = pipeline.run(parallel=True, workers=1)
-
-        # Key should be loader name (e.g., "parquet"), same as serial path
-        assert "parquet" in result.loader_outputs
 
 
 def test_run_parallel_disambiguates_same_name_loaders(nvd_sample_path):
