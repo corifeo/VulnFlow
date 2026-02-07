@@ -86,6 +86,15 @@ class TestAPIEnricherBase:
 class TestRetryBehavior:
     """Tests for _fetch_with_retry."""
 
+    @pytest.fixture(autouse=True)
+    def _fast_sleep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Disable asyncio.sleep for fast retry tests."""
+
+        async def _noop_sleep(_seconds: float) -> None:
+            pass
+
+        monkeypatch.setattr("asyncio.sleep", _noop_sleep)
+
     @pytest.mark.asyncio
     async def test_returns_on_first_success(self) -> None:
         call_count = 0
@@ -167,6 +176,15 @@ class TestRetryBehavior:
 
 class TestConcurrencyLimits:
     """Tests for _fetch_with_limits and semaphore behavior."""
+
+    @pytest.fixture(autouse=True)
+    def _fast_sleep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Disable asyncio.sleep for fast rate-limit tests."""
+
+        async def _noop_sleep(_seconds: float) -> None:
+            pass
+
+        monkeypatch.setattr("asyncio.sleep", _noop_sleep)
 
     @pytest.mark.asyncio
     async def test_concurrency_limited(self) -> None:
@@ -346,8 +364,16 @@ class TestExploitDBEnricher:
         assert exploits[1]["source"] == "exploitdb"
 
     @pytest.mark.asyncio
-    async def test_transform_with_mock_fetch(self) -> None:
+    async def test_transform_with_mock_fetch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Full transform with mocked _fetch_for_cve."""
+
+        async def _noop_sleep(_seconds: float) -> None:
+            pass
+
+        monkeypatch.setattr("asyncio.sleep", _noop_sleep)
+
         dataset = VulnDataset()
         dataset.set_column(
             "cve_id", np.array(["CVE-2024-0001", "CVE-2024-0002"], dtype=object)

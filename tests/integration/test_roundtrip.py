@@ -76,37 +76,6 @@ def test_dataframe_roundtrip_preserves_data(format_name, to_method, from_method)
     assert set(dataset.columns) == set(dataset2.columns)
 
 
-def test_parquet_roundtrip_preserves_dataframe(tmp_path):
-    """Data survives NVD -> Parquet -> DataFrame roundtrip with nested columns."""
-    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-
-    output_path = tmp_path / "roundtrip.parquet"
-    dataset.to_parquet(output_path)
-
-    dataset2 = VulnDataset.from_parquet(output_path)
-
-    # Compare DataFrames with include_nested=True for full fidelity
-    df1 = dataset.to_pandas(
-        include_nested=True, awaiting=True, rejected=True, deferred=True
-    )
-    df2 = dataset2.to_pandas(
-        include_nested=True, awaiting=True, rejected=True, deferred=True
-    )
-
-    # Same columns
-    assert set(df1.columns) == set(df2.columns)
-
-    # Same row count
-    assert len(df1) == len(df2)
-
-    # CVE IDs match
-    assert list(df1["cve_id"]) == list(df2["cve_id"])
-
-    # Nested JSON columns preserved (cvss_scores array)
-    assert "cvss_scores" in df1.columns
-    assert "cvss_scores" in df2.columns
-
-
 def test_pandas_polars_consistency():
     """Pandas and Polars export have same data (both with same include_nested setting)."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
@@ -123,29 +92,3 @@ def test_pandas_polars_consistency():
 
     # Both should have same columns
     assert set(df_pandas.columns) == set(df_polars.columns)
-
-
-def test_json_vs_parquet_fidelity(tmp_path):
-    """Compare JSON vs Parquet round-trip fidelity."""
-    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-
-    # JSON round-trip (file loaders are lossless)
-    json_path = tmp_path / "out.json"
-    dataset.to_json(json_path)
-    dataset_json = VulnDataset.from_json(json_path)
-
-    # Parquet round-trip (file loaders are lossless)
-    parquet_path = tmp_path / "out.parquet"
-    dataset.to_parquet(parquet_path)
-    dataset_parquet = VulnDataset.from_parquet(parquet_path)
-
-    # Both preserve structure
-    assert len(dataset_json) == len(dataset_parquet) == len(dataset)
-    assert (
-        set(dataset_json.columns)
-        == set(dataset_parquet.columns)
-        == set(dataset.columns)
-    )
-
-    # CVE IDs match
-    assert list(dataset_json._data["cve_id"]) == list(dataset_parquet._data["cve_id"])

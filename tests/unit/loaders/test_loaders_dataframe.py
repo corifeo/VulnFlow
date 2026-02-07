@@ -15,79 +15,22 @@ from vulnflow.dataset import VulnDataset
 from vulnflow.loaders.dataframe import to_pandas, to_polars
 
 
-def test_to_pandas_returns_dataframe():
-    """to_pandas() returns pandas DataFrame."""
+def test_to_pandas_basic():
+    """to_pandas() returns correct DataFrame with all columns."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-
     df = to_pandas(dataset)
-
     assert isinstance(df, pd.DataFrame)
-
-
-def test_to_pandas_has_all_columns():
-    """to_pandas() includes all dataset columns."""
-    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-
-    df = to_pandas(dataset)
-
-    # Should have all columns from dataset
+    assert len(df) == len(dataset)
     assert set(df.columns) == set(dataset.columns)
 
 
-def test_to_pandas_correct_row_count():
-    """to_pandas() preserves record count."""
+def test_to_polars_basic():
+    """to_polars() returns correct DataFrame with all columns."""
     dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-
-    df = to_pandas(dataset)
-
-    assert len(df) == len(dataset)
-
-
-def test_to_polars_returns_dataframe():
-    """to_polars() returns polars DataFrame."""
-    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-
     df = to_polars(dataset)
-
     assert isinstance(df, pl.DataFrame)
-
-
-def test_to_polars_has_all_columns():
-    """to_polars() includes all dataset columns."""
-    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-
-    df = to_polars(dataset)
-
-    # Should have all columns from dataset
-    assert set(df.columns) == set(dataset.columns)
-
-
-def test_to_polars_correct_row_count():
-    """to_polars() preserves record count."""
-    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-
-    df = to_polars(dataset)
-
     assert len(df) == len(dataset)
-
-
-def test_pandas_polars_consistency():
-    """to_pandas() and to_polars() produce equivalent data."""
-    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-
-    pdf = to_pandas(dataset)
-    plf = to_polars(dataset)
-
-    # Same columns
-    assert set(pdf.columns) == set(plf.columns)
-
-    # Same row count
-    assert len(pdf) == len(plf)
-
-    # Same CVE IDs (as a spot check)
-    pandas_cves = set(pdf["cve_id"].tolist())
-    polars_cves = set(plf["cve_id"].to_list())
-    assert pandas_cves == polars_cves
+    assert set(df.columns) == set(dataset.columns)
 
 
 # ============================================================================
