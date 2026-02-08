@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from vulnflow.dataset import VulnDataset
-from vulnflow.exceptions import ExtractorError, PipelineError
+from vulnflow.exceptions import ExtractorError
 from vulnflow.executor import PipelineExecutor, get_stage_name
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.loaders.base import BaseLoader
@@ -458,8 +458,8 @@ def test_run_parallel_single_pair(nvd_sample_path):
         assert "parquet" in result.loader_outputs
 
 
-def test_run_parallel_worker_failure_raises_pipeline_error():
-    """Worker failure raises PipelineError with original exception chained."""
+def test_run_parallel_worker_failure_returns_partial_result():
+    """Worker failure returns PipelineResult with errors (no raise)."""
     from vulnflow.loaders.files import ParquetLoader
     from vulnflow.pipeline import VulnPipeline
 
@@ -469,10 +469,11 @@ def test_run_parallel_worker_failure_raises_pipeline_error():
             loaders=[ParquetLoader(Path(tmpdir) / "out.parquet")],
         )
 
-        with pytest.raises(PipelineError, match="workers failed") as exc_info:
-            pipeline.run(parallel=True, workers=1)
+        result = pipeline.run(parallel=True, workers=1)
 
-        assert isinstance(exc_info.value.__cause__, ExtractorError)
+        assert len(result.errors) == 1
+        assert isinstance(result.errors[0], ExtractorError)
+        assert len(result.failed_stages) > 0
 
 
 def test_run_parallel_disambiguates_same_name_loaders(nvd_sample_path):

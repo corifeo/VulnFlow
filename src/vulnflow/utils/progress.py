@@ -76,6 +76,11 @@ class ProgressReporter:
     Creates one tqdm bar for the phase. Prints log lines per stage.
     Suppresses inner progress_bar() calls via ContextVar.
 
+    # TODO: Unicode characters (U+2713, U+2717, U+2192, U+2014) crash on
+    # Windows cp1252 consoles. Replace with encoding-aware constants that
+    # detect sys.stdout.encoding and fall back to ASCII. Currently mitigated
+    # by quiet=True in CacheBuilder for programmatic use.
+
     Usage:
         with ProgressReporter("Extracting data", total=4, unit="feeds") as rpt:
             rpt.stage_started("NVD-2023")
@@ -90,6 +95,7 @@ class ProgressReporter:
         self._bar: _tqdm[Any] | None = None
         self._token: Token[bool] | None = None
         self._start_times: dict[str, float] = {}
+        self._silent: bool = False
 
     def stage_started(self, name: str) -> None:
         """Record start time for this stage. No output."""
@@ -109,8 +115,9 @@ class ProgressReporter:
             duration = self._elapsed(name)
         else:
             self._start_times.pop(name, None)
-        line = f"  \u2713 {name} ({self._format_inner(detail, duration)})"
-        print(line)  # noqa: T201
+        if not self._silent:
+            line = f"  \u2713 {name} ({self._format_inner(detail, duration)})"
+            print(line)  # noqa: T201
         if self._bar is not None:
             self._bar.update(1)
 
@@ -128,19 +135,26 @@ class ProgressReporter:
             duration = self._elapsed(name)
         else:
             self._start_times.pop(name, None)
-        line = f"  \u2717 {name}"
-        if error:
-            line += f" \u2014 {error}"
-        line += f" ({duration:.1f}s)"
-        print(line)  # noqa: T201
+        if not self._silent:
+            line = f"  \u2717 {name}"
+            if error:
+                line += f" \u2014 {error}"
+            line += f" ({duration:.1f}s)"
+            print(line)  # noqa: T201
         if self._bar is not None:
             self._bar.update(1)
 
     def summary(self, text: str) -> None:
         """Print arrow summary line (no bar tick)."""
-        print(f"  \u2192 {text}")  # noqa: T201
+        if not self._silent:
+            print(f"  \u2192 {text}")  # noqa: T201
 
     def __enter__(self) -> ProgressReporter:
+        # Capture outer suppression state before we set our own flag.
+        # The reporter suppresses inner progress_bar() calls, but its own
+        # print statements should only be suppressed when an outer caller
+        # (e.g. CacheBuilder quiet mode) set _suppress_progress first.
+        self._silent = _suppress_progress.get(False)
         self._bar = progress_bar(
             total=self._total,
             desc=self._desc,

@@ -13,6 +13,7 @@ Used by: Notebooks, user scripts
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import tempfile
 from datetime import datetime
@@ -56,6 +57,7 @@ class CacheBuilder:
         include_modified: bool = False,
         modified_only: bool = False,
         recent_only: bool = False,
+        quiet: bool = False,
     ) -> None:
         """Initialize CacheBuilder with feed selection parameters.
 
@@ -65,6 +67,7 @@ class CacheBuilder:
             include_modified: Add Modified feed to year-based modes.
             modified_only: Build from Modified feed only (quick update).
             recent_only: Build from Recent feed only.
+            quiet: Suppress all progress output during build.
 
         Raises:
             ValueError: If mutually exclusive parameters are combined.
@@ -75,6 +78,7 @@ class CacheBuilder:
         self._urls = self._resolve_urls(
             years, exclude_years, include_modified, modified_only, recent_only
         )
+        self._quiet = quiet
 
     @staticmethod
     def _validate_params(
@@ -145,17 +149,28 @@ class CacheBuilder:
 
         Returns:
             Merged VulnDataset with all extracted records.
+
+        Raises:
+            RuntimeError: If all feeds fail and no parquet files are produced.
         """
         from vulnflow.dataset import VulnDataset
         from vulnflow.extractors.nvd import NVDExtractor
         from vulnflow.loaders.files import ParquetLoader
         from vulnflow.pipeline import VulnPipeline
+        from vulnflow.utils.progress import _suppress_progress
 
         logger.info(
             "Building library from %d feeds with %d workers",
             len(self._urls),
             workers,
         )
+
+        # Suppress progress output when quiet mode is enabled
+        old_tqdm_disable = os.environ.get("TQDM_DISABLE")
+        suppress_token = None
+        if self._quiet:
+            os.environ["TQDM_DISABLE"] = "1"
+            suppress_token = _suppress_progress.set(True)
 
         temp_dir = Path(tempfile.mkdtemp(prefix="vulnflow_cache_"))
         try:
@@ -171,9 +186,34 @@ class CacheBuilder:
 
             pipeline.run(parallel=True, workers=workers)
 
-            # Merge temp parquets
-            logger.info("Merging %d parquet files", len(temp_paths))
-            merged = VulnDataset.from_parquet([str(p) for p in temp_paths])
+            # Check which temp files actually exist (some workers may have failed)
+            existing_paths = [p for p in temp_paths if p.exists()]
+            missing_paths = [p for p in temp_paths if not p.exists()]
+
+            if missing_paths:
+                failed_feeds = [
+                    self._urls[i]
+                    for i, p in enumerate(temp_paths)
+                    if not p.exists()
+                ]
+                logger.warning(
+                    "%d feed(s) produced no output: %s",
+                    len(missing_paths),
+                    ", ".join(failed_feeds),
+                )
+
+            if not existing_paths:
+                raise RuntimeError(
+                    f"All {len(temp_paths)} feeds failed; no data to merge"
+                )
+
+            # Merge temp parquets (only existing files)
+            logger.info(
+                "Merging %d of %d parquet files",
+                len(existing_paths),
+                len(temp_paths),
+            )
+            merged = VulnDataset.from_parquet([str(p) for p in existing_paths])
 
             # Apply CVSS flatten transform by default
             if cvss:
@@ -187,6 +227,14 @@ class CacheBuilder:
             return merged
 
         finally:
+            # Restore progress suppression state
+            if self._quiet:
+                if suppress_token is not None:
+                    _suppress_progress.reset(suppress_token)
+                if old_tqdm_disable is None:
+                    os.environ.pop("TQDM_DISABLE", None)
+                else:
+                    os.environ["TQDM_DISABLE"] = old_tqdm_disable
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     @classmethod
