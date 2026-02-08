@@ -137,15 +137,20 @@ class CacheBuilder:
         self,
         timeout: float = 120.0,
         cvss: bool = True,
+        epss: bool = True,
+        kev: bool = True,
     ) -> VulnDataset:
         """Build vulnerability dataset with concurrent extraction.
 
         Uses ThreadPoolExecutor for concurrent feed extraction (no subprocess
-        overhead). Optionally applies CVSSFlattenTransform after extraction.
+        overhead). Enriches with EPSS/KEV by default (bulk CSV downloads,
+        cached locally for 24h).
 
         Args:
             timeout: HTTP timeout in seconds per feed.
-            cvss: Apply CVSSFlattenTransform to extract scalar CVSS columns (default: True).
+            cvss: Flatten CVSS scores to scalar columns (default: True).
+            epss: Enrich with EPSS exploitation probabilities (default: True).
+            kev: Enrich with CISA KEV catalog data (default: True).
 
         Returns:
             Merged VulnDataset with all extracted records.
@@ -176,6 +181,18 @@ class CacheBuilder:
                 from vulnflow.transforms.flatten import CVSSFlattenTransform
 
                 transformers.append(CVSSFlattenTransform())
+
+            if epss:
+                from vulnflow.transforms.enrichers.epss import EPSSEnricher
+                from vulnflow.transforms.flatten import EPSSFlattenTransform
+
+                transformers.extend([EPSSEnricher(), EPSSFlattenTransform()])
+
+            if kev:
+                from vulnflow.transforms.enrichers.kev import KEVEnricher
+                from vulnflow.transforms.flatten import KEVFlattenTransform
+
+                transformers.extend([KEVEnricher(), KEVFlattenTransform()])
 
             pipeline = VulnPipeline(
                 extractors=extractors,

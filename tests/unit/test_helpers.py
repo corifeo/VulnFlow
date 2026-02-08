@@ -143,7 +143,7 @@ class TestCacheBuilderBuild:
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
 
-        ds = builder.build()
+        ds = builder.build(epss=False, kev=False)
 
         assert len(ds) > 0
 
@@ -154,7 +154,7 @@ class TestCacheBuilderBuild:
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
 
-        ds = builder.build()
+        ds = builder.build(epss=False, kev=False)
 
         # Default behavior: CVSSFlattenTransform adds 15 scalar columns
         assert "cvss_base_score" in ds.columns
@@ -169,7 +169,7 @@ class TestCacheBuilderBuild:
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
 
-        ds = builder.build(cvss=False)
+        ds = builder.build(cvss=False, epss=False, kev=False)
 
         # With cvss=False, only cvss_scores exists (nested JSON)
         assert "cvss_scores" in ds.columns
@@ -182,7 +182,7 @@ class TestCacheBuilderBuild:
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
 
-        ds = builder.build(cvss=True)
+        ds = builder.build(cvss=True, epss=False, kev=False)
 
         # CVSSFlattenTransform adds 15 scalar columns
         assert "cvss_base_score" in ds.columns
@@ -206,3 +206,51 @@ class TestCacheBuilderBuild:
 
         sig = inspect.signature(CacheBuilder.build)
         assert "workers" not in sig.parameters
+
+    def test_build_default_enriches_epss(self, nvd_sample_path, monkeypatch):
+        """build() enriches with EPSS by default."""
+        from vulnflow.helpers.builder import CacheBuilder
+        from vulnflow.transforms.enrichers import epss as epss_mod
+
+        monkeypatch.setattr(epss_mod, "DEFAULT_EPSS_URL", "tests/fixtures/epss_sample.csv")
+
+        builder = CacheBuilder(years=[2024])
+        builder._urls = [str(nvd_sample_path)]
+        ds = builder.build(kev=False)
+
+        assert "epss_probability" in ds.columns
+        assert "epss_percentile" in ds.columns
+
+    def test_build_default_enriches_kev(self, nvd_sample_path, monkeypatch):
+        """build() enriches with KEV by default."""
+        from vulnflow.helpers.builder import CacheBuilder
+        from vulnflow.transforms.enrichers import kev as kev_mod
+
+        monkeypatch.setattr(kev_mod, "DEFAULT_KEV_URL", "tests/fixtures/kev_sample.csv")
+
+        builder = CacheBuilder(years=[2024])
+        builder._urls = [str(nvd_sample_path)]
+        ds = builder.build(epss=False)
+
+        assert "is_kev" in ds.columns
+        assert "kev_date_added" in ds.columns
+
+    def test_build_epss_false_skips(self, nvd_sample_path):
+        """build(epss=False) skips EPSS enrichment."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024])
+        builder._urls = [str(nvd_sample_path)]
+        ds = builder.build(epss=False, kev=False)
+
+        assert "epss_probability" not in ds.columns
+
+    def test_build_kev_false_skips(self, nvd_sample_path):
+        """build(kev=False) skips KEV enrichment."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024])
+        builder._urls = [str(nvd_sample_path)]
+        ds = builder.build(epss=False, kev=False)
+
+        assert "is_kev" not in ds.columns
