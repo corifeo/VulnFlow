@@ -78,8 +78,8 @@ async def test_cwe_enricher_caches_parsed_database(tmp_path: Path) -> None:
     }
     await enricher.transform(dataset)
 
-    # Verify cache exists
-    cache_file = cache_dir / "cwe_database.json"
+    # Verify cache exists in cwe/ subdirectory
+    cache_file = cache_dir / "cwe" / "cwe_database.json"
     assert cache_file.exists()
 
     cached_data = json.loads(cache_file.read_text())

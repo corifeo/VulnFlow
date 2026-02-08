@@ -15,7 +15,6 @@ import logging
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import asdict
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 from zipfile import ZipFile
@@ -54,7 +53,7 @@ class CWEEnricher(BaseEnricher):
     def __init__(
         self,
         source: str | Path | None = None,
-        cache_ttl: int = 2592000,  # 30 days (CWE updates quarterly)
+        cache_ttl: int = 0,
         cache_dir: Path | str = ".cache",
         timeout: float = 60.0,
     ) -> None:
@@ -62,7 +61,7 @@ class CWEEnricher(BaseEnricher):
 
         Args:
             source: Path to CWE XML file, URL, or None for default MITRE URL.
-            cache_ttl: Cache time-to-live in seconds (default 30 days)
+            cache_ttl: Cache time-to-live in seconds (0 = never expire)
             cache_dir: Directory for cache storage
             timeout: HTTP request timeout in seconds
         """
@@ -140,7 +139,8 @@ class CWEEnricher(BaseEnricher):
     async def _get_cached_cwe_db(self) -> dict[str, dict[str, str | None]]:
         """Get CWE database from cache or load fresh (async)."""
         now = time.time()
-        if self._cache is None or now - self._cache_time > self.cache_ttl:
+        expired = self.cache_ttl > 0 and now - self._cache_time > self.cache_ttl
+        if self._cache is None or expired:
             self._cache = await self._load_cwe_database()
             self._cache_time = now
         return self._cache
@@ -151,18 +151,15 @@ class CWEEnricher(BaseEnricher):
         Returns:
             Dict mapping CWE ID to metadata dict (fully denormalized)
         """
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_file = self.cache_dir / "cwe_database.json"
-        cache_meta = self.cache_dir / "cwe_database.meta"
+        cwe_dir = self.cache_dir / "cwe"
+        cwe_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = cwe_dir / "cwe_database.json"
 
-        # Check cache freshness
-        if cache_file.exists() and cache_meta.exists():
-            meta = json.loads(cache_meta.read_text())
-            cached_time = datetime.fromisoformat(meta["downloaded_at"])
-            age_seconds = (datetime.now() - cached_time).total_seconds()
-
-            if age_seconds < self.cache_ttl:
-                logger.info(f"Using cached CWE database (age: {age_seconds:.0f}s)")
+        # Use cached database if it exists and hasn't expired
+        if cache_file.exists():
+            age = time.time() - cache_file.stat().st_mtime
+            if self.cache_ttl == 0 or age < self.cache_ttl:
+                logger.info(f"Using cached CWE database (age: {age:.0f}s)")
                 cached_db: dict[str, dict[str, str | None]] = json.loads(
                     cache_file.read_text()
                 )
@@ -177,10 +174,13 @@ class CWEEnricher(BaseEnricher):
 
         # Parse and cache
         cwe_db = self._parse_cwe_xml(xml_path)
-        cache_file.write_text(json.dumps(cwe_db, indent=2))
-        cache_meta.write_text(
-            json.dumps({"downloaded_at": datetime.now().isoformat()})
-        )
+        cache_file.write_text(json.dumps(cwe_db))
+
+        # Clean up intermediate files
+        for name in ("cwec_latest.xml.zip", "cwec_latest.xml"):
+            intermediate = cwe_dir / name
+            if intermediate.exists():
+                intermediate.unlink()
 
         logger.info(f"Cached {len(cwe_db)} CWE entries")
         return cwe_db
@@ -191,22 +191,25 @@ class CWEEnricher(BaseEnricher):
         Returns:
             Path to extracted XML file
         """
+        cwe_dir = self.cache_dir / "cwe"
+        cwe_dir.mkdir(parents=True, exist_ok=True)
+
         if self._http_fetcher is None:
             self._http_fetcher = HttpFetcher(
-                cache_dir=self.cache_dir, timeout=self.timeout
+                cache_dir=cwe_dir, timeout=self.timeout
             )
 
         # Download zip file
-        zip_path = self.cache_dir / "cwec_latest.xml.zip"
+        zip_path = cwe_dir / "cwec_latest.xml.zip"
         try:
-            content, _fmt = await self._http_fetcher.fetch(str(self.source), cache_ttl=self.cache_ttl)
+            content, _fmt = await self._http_fetcher.fetch(str(self.source))
             zip_path.write_bytes(content)
         except Exception as e:
             logger.error(f"Failed to download CWE XML from {self.source}: {e}")
             raise RuntimeError(f"Failed to download CWE database: {e}") from e
 
         # Extract XML
-        xml_path = self.cache_dir / "cwec_latest.xml"
+        xml_path = cwe_dir / "cwec_latest.xml"
         with ZipFile(zip_path, "r") as zf:
             # CWE zip contains single XML file
             xml_name = zf.namelist()[0]
