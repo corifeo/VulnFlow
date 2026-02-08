@@ -75,6 +75,13 @@ class VulnPipeline:
 
         # Stage 2: Transform (phased via build_phases)
         if self.transformers and dataset is not None:
+            try:
+                asyncio.get_running_loop()
+                import nest_asyncio  # type: ignore[import-untyped]
+
+                nest_asyncio.apply()
+            except RuntimeError:
+                pass  # No running loop — normal case
             t_succ, t_fail, t_err = asyncio.run(
                 PipelineExecutor.run_transforms(
                     dataset, self.transformers, strict
@@ -109,8 +116,8 @@ class VulnPipeline:
         """Merge pipeline stages horizontally by type (immutable).
 
         Combines extractors, transformers, and loaders from both pipelines
-        into a single pipeline. During execution, all extractors run first
-        (sequentially), then all transformers, then all loaders.
+        into a single pipeline. During execution, extractors run first
+        (concurrently via ThreadPool), then transforms (phased), then loaders.
 
         This is horizontal stage merging, NOT sequential composition where
         the output of one pipeline feeds into another. Instead, it merges
@@ -200,8 +207,8 @@ class VulnPipeline:
         all pipelines. Equivalent to calling .merge() repeatedly.
 
         During execution:
-        1. All extractors run sequentially (merge outputs)
-        2. All transformers run (async concurrently, sync sequentially)
+        1. All extractors run concurrently via ThreadPool (merge outputs)
+        2. All transforms run in dependency-aware phases
         3. All loaders run sequentially
 
         This is NOT sequential pipeline execution. It merges stage lists.

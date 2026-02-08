@@ -275,6 +275,105 @@ async def test_run_transforms_empty_list():
     assert errors == []
 
 
+@pytest.mark.asyncio
+async def test_run_transforms_mixed_async_sync_same_phase():
+    """Async and sync transforms in the same phase run concurrently."""
+    call_times: dict[str, float] = {}
+
+    class SlowAsync:
+        name = "async_t"
+        depends_on: list[str] = []
+
+        async def transform(self, dataset: VulnDataset) -> None:
+            import asyncio as _aio
+
+            await _aio.sleep(0.1)
+            call_times["async_t"] = time.time()
+
+    class SlowSync:
+        name = "sync_t"
+        depends_on: list[str] = []
+
+        def transform(self, dataset: VulnDataset) -> None:
+            time.sleep(0.1)
+            call_times["sync_t"] = time.time()
+
+    dataset = VulnDataset()
+    start = time.time()
+    successful, failed, errors = await PipelineExecutor.run_transforms(
+        dataset, [SlowAsync(), SlowSync()], strict=True
+    )
+    elapsed = time.time() - start
+
+    assert set(successful) == {"async_t", "sync_t"}
+    assert errors == []
+    # Both in same phase, concurrent — should be ~0.1s not ~0.2s
+    assert elapsed < 0.25
+
+
+@pytest.mark.asyncio
+async def test_run_transforms_sync_failure_through_to_thread():
+    """Sync transform failure propagates correctly through asyncio.to_thread()."""
+    from vulnflow.exceptions import TransformError
+
+    class FailingSync:
+        name = "failing_sync"
+        depends_on: list[str] = []
+
+        def transform(self, dataset: VulnDataset) -> None:
+            raise TransformError("sync transform failed")
+
+    dataset = VulnDataset()
+
+    # Strict mode: error propagates
+    with pytest.raises(TransformError, match="sync transform failed"):
+        await PipelineExecutor.run_transforms(
+            dataset, [FailingSync()], strict=True
+        )
+
+    # Lenient mode: error collected
+    successful, failed, errors = await PipelineExecutor.run_transforms(
+        dataset, [FailingSync()], strict=False
+    )
+    assert "failing_sync" in failed
+    assert len(errors) == 1
+
+
+def test_run_extractors_concurrent_failure_raises():
+    """When 1 of N concurrent extractors fails, error propagates."""
+
+    class GoodExtractor(BaseExtractor):
+        format = "good"
+        name = "GoodExtractor"
+
+        def __init__(self, cve_id: str):
+            super().__init__()
+            self.cve_id = cve_id
+
+        def extract(self) -> VulnDataset:
+            time.sleep(0.05)
+            ds = VulnDataset()
+            ds._data = {"cve_id": np.array([self.cve_id])}
+            return ds
+
+    class FailingExtractor(BaseExtractor):
+        format = "fail"
+        name = "FailingExtractor"
+
+        def extract(self) -> VulnDataset:
+            raise RuntimeError("Extractor 2 failed")
+
+    # 3 extractors, 1 fails — requires ThreadPool path (len > 1)
+    extractors: list[BaseExtractor] = [
+        GoodExtractor("CVE-1"),
+        FailingExtractor(),
+        GoodExtractor("CVE-3"),
+    ]
+
+    with pytest.raises(RuntimeError, match="Extractor 2 failed"):
+        PipelineExecutor.run_extractors(extractors)
+
+
 # =============================================================================
 # run_loaders Tests
 # =============================================================================
