@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import functools
 import json
-import json as _json_mod
 import logging
 import re
 from datetime import datetime
@@ -55,7 +54,7 @@ def _supports_fmt(fn: Any) -> Any:
     def wrapper(*args: Any, fmt: str = "dict", **kwargs: Any) -> Any:
         result = fn(*args, **kwargs)
         if fmt == "json":
-            return _json_mod.dumps(result, indent=2, default=str)
+            return json.dumps(result, indent=2, default=str)
         return result
 
     return wrapper
