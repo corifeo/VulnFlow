@@ -42,6 +42,24 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_PATH = Path("data/nvd_library.parquet")
 
+# Attack vector full-name to abbreviation mapping
+_AV_ALIASES: dict[str, str] = {
+    "NETWORK": "N",
+    "ADJACENT": "A",
+    "LOCAL": "L",
+    "PHYSICAL": "P",
+}
+
+
+def _normalize_attack_vector(attack_vector: str) -> str:
+    """Normalize attack vector to stored abbreviation.
+
+    Accepts full names (NETWORK, ADJACENT, LOCAL, PHYSICAL) or
+    abbreviations (N, A, L, P), case-insensitive.
+    """
+    av = attack_vector.upper()
+    return _AV_ALIASES.get(av, av)
+
 
 def _supports_fmt(fn: Any) -> Any:
     """Add fmt parameter to explore functions.
@@ -253,11 +271,20 @@ def summary(ds: VulnDataset) -> dict[str, Any]:
 
 
 @_supports_fmt
-def describe_severity(ds: VulnDataset) -> dict[str, Any]:
+def describe_severity(
+    ds: VulnDataset,
+    *,
+    attack_vector: str | None = None,
+    min_score: float | None = None,
+) -> dict[str, Any]:
     """Severity breakdown as a dict, with per-year detail.
 
     Args:
         ds: VulnDataset to analyze.
+        attack_vector: Optional CVSS attack vector filter. Accepts full
+            name or abbreviation, case-insensitive.
+            Valid values: NETWORK/N, ADJACENT/A, LOCAL/L, PHYSICAL/P.
+        min_score: Optional minimum CVSS base score filter.
 
     Returns:
         Dict with keys: total, overall (severity counts), by_year.
@@ -265,6 +292,15 @@ def describe_severity(ds: VulnDataset) -> dict[str, Any]:
     import pandas as pd_module
 
     df = ds.to_pandas(awaiting=True, deferred=True)
+
+    # Apply optional filters
+    if attack_vector is not None and "cvss_attack_vector" in df.columns:
+        df = df[df["cvss_attack_vector"] == _normalize_attack_vector(attack_vector)]
+
+    if min_score is not None and "cvss_base_score" in df.columns:
+        scores = pd_module.to_numeric(df["cvss_base_score"], errors="coerce")
+        df = df[scores >= min_score]
+
     result: dict[str, Any] = {"total": len(df)}
 
     if "cvss_base_severity" not in df.columns:
@@ -357,6 +393,7 @@ def search(
     status: str | None = None,
     keyword: str | None = None,
     cwe: str | None = None,
+    attack_vector: str | None = None,
     limit: int = 20,
     columns: list[str] | None = None,
 ) -> list[dict[str, Any]]:
@@ -370,6 +407,9 @@ def search(
         status: NVD status.
         keyword: Case-insensitive keyword in description.
         cwe: CWE ID (e.g., "CWE-79").
+        attack_vector: CVSS attack vector. Accepts full name or abbreviation,
+            case-insensitive. Valid values: NETWORK/N, ADJACENT/A, LOCAL/L,
+            PHYSICAL/P.
         limit: Max results to return.
         columns: Columns to include in output. Defaults to a useful subset.
 
@@ -385,6 +425,7 @@ def search(
         status=status,
         keyword=keyword,
         cwe=cwe,
+        attack_vector=attack_vector,
     )
 
     if columns is None:
@@ -660,6 +701,7 @@ def find(
     status: str | None = None,
     keyword: str | None = None,
     cwe: str | None = None,
+    attack_vector: str | None = None,
 ) -> pd.DataFrame:
     """Filter CVEs by common criteria. All filters are AND-combined.
 
@@ -671,6 +713,9 @@ def find(
         status: NVD status (e.g., "analyzed", "modified").
         keyword: Case-insensitive keyword search in description.
         cwe: CWE ID to match (e.g., "CWE-79").
+        attack_vector: CVSS attack vector. Accepts full name or abbreviation,
+            case-insensitive. Valid values: NETWORK/N, ADJACENT/A, LOCAL/L,
+            PHYSICAL/P.
 
     Returns:
         Filtered DataFrame matching all criteria.
@@ -702,6 +747,9 @@ def find(
         cwe_col = _find_cwe_column(df)
         if cwe_col is not None:
             mask = mask & (df[cwe_col] == cwe)
+
+    if attack_vector is not None and "cvss_attack_vector" in df.columns:
+        mask = mask & (df["cvss_attack_vector"] == _normalize_attack_vector(attack_vector))
 
     return df[mask]
 
