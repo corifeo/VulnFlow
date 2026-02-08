@@ -69,3 +69,5 @@ uv.lock
 examples/.cache/
 
 CLAUDE.md
+examples/.ipynb_checkpoints/01-quick-exploration-checkpoint.ipynb
+vuln-analysis.skill
