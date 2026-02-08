@@ -216,7 +216,6 @@ class TestCacheBuilderBuild:
         import glob
         import shutil
 
-        from vulnflow.exceptions import PipelineError
         from vulnflow.helpers.builder import CacheBuilder
 
         # Clean up any leftover temp directories from previous runs
@@ -227,7 +226,7 @@ class TestCacheBuilderBuild:
         builder = CacheBuilder(modified_only=True)
         builder._urls = ["/nonexistent/file.json"]
 
-        with pytest.raises(PipelineError):
+        with pytest.raises(RuntimeError, match="All .* feeds failed"):
             builder.build(workers=1)
 
         leftover = glob.glob(str(Path(temp_root) / "vulnflow_cache_*"))

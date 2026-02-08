@@ -309,12 +309,10 @@ class PipelineExecutor:
             workers: Number of parallel worker processes
 
         Returns:
-            PipelineResult with loader_outputs, no dataset (dataset=None)
-
-        Raises:
-            PipelineError: If any worker fails
+            PipelineResult with loader_outputs, no dataset (dataset=None).
+            Partial results are returned when some workers fail (errors
+            logged as warnings instead of raised).
         """
-        from vulnflow.exceptions import PipelineError
         from vulnflow.pipeline import PipelineResult
         from vulnflow.utils.progress import ProgressReporter
 
@@ -404,10 +402,13 @@ class PipelineExecutor:
         duration = time.time() - start_time
 
         if errors:
-            raise PipelineError(
-                f"Parallel execution failed: "
-                f"{len(errors)} of {len(tasks)} workers failed"
-            ) from errors[0]
+            logger.warning(
+                "%d extractor(s) failed: %s",
+                len(errors),
+                ", ".join(
+                    f"{n}: {e}" for n, e in zip(failed, errors, strict=False)
+                ),
+            )
 
         return PipelineResult(
             dataset=None,
