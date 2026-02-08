@@ -1,199 +1,287 @@
-"""
-Explorer - Convenience functions for interactive vulnerability data analysis
+"""Explorer - LLM-friendly functions for interactive vulnerability analysis.
 
-Provides two layers:
-1. LLM-friendly functions (return dicts/lists, JSON-serializable):
-   - data_info: Report what data is available and coverage gaps
-   - summary: Full dataset overview as structured dict
-   - describe_severity: Severity breakdown as dict
-   - describe_yearly: Year-over-year counts as dict
-   - describe_monthly: Monthly counts as dict
-   - describe_nested: Top values from nested JSON columns as dict
-   - search: Filter CVEs and return list of dicts
-   - lookup: Single CVE detail as dict
+All functions return JSON-serializable dicts/lists.
 
-2. DataFrame functions (return pandas types, for notebooks):
-   - severity_distribution, top_values, yearly_counts, monthly_counts
-   - inspect_nested, find
-
-Both layers share: load, status_distribution
-
-Layer: User-facing helpers
-Dependencies: dataset, helpers.builder
-Used by: Notebooks, user scripts, Claude Code skill
+Public API (10): load, data_info, describe, summary, severity, trend,
+nested, search, lookup, status_distribution.
 """
 
 from __future__ import annotations
 
 import functools
-import json
 import logging
 import re
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    import pandas as pd
+import numpy as np
 
+from vulnflow.utils import json as vjson
+
+if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_PATH = Path("data/nvd_library.parquet")
 
-# Attack vector full-name to abbreviation mapping
 _AV_ALIASES: dict[str, str] = {
     "NETWORK": "N",
     "ADJACENT": "A",
     "LOCAL": "L",
     "PHYSICAL": "P",
 }
-
-
-def _normalize_attack_vector(attack_vector: str) -> str:
-    """Normalize attack vector to stored abbreviation.
-
-    Accepts full names (NETWORK, ADJACENT, LOCAL, PHYSICAL) or
-    abbreviations (N, A, L, P), case-insensitive.
-    """
-    av = attack_vector.upper()
-    return _AV_ALIASES.get(av, av)
+_NVD_FIRST_YEAR = 2002
+_NESTED_COLUMNS = frozenset(
+    {"cvss_scores", "cwes", "cpes", "references", "exploits", "epss_scores", "kev"}
+)
+_KNOWN_NUMERIC = frozenset(
+    {
+        "cvss_base_score",
+        "cvss_exploitability_score",
+        "cvss_impact_score",
+        "epss_probability",
+        "epss_percentile",
+        "epss_model",
+    }
+)
+_IDENTITY_COLS = frozenset({"id", "cve_id", "description"})
 
 
 def _supports_fmt(fn: Any) -> Any:
-    """Add fmt parameter to explore functions.
-
-    When fmt="json", returns formatted JSON string instead of dict/list.
-    Default fmt="dict" preserves original return type.
-    """
+    """Wrap function to accept fmt='json' for JSON string output."""
 
     @functools.wraps(fn)
     def wrapper(*args: Any, fmt: str = "dict", **kwargs: Any) -> Any:
         result = fn(*args, **kwargs)
         if fmt == "json":
-            return json.dumps(result, indent=2, default=str)
+            import json as stdlib_json
+
+            return stdlib_json.dumps(result, indent=2, default=str)
         return result
 
     return wrapper
 
-# NVD feed years range
-_NVD_FIRST_YEAR = 2002
+
+def _analysis_mask(ds: VulnDataset) -> np.ndarray:
+    """Boolean mask excluding rejected records."""
+    status = ds.get_column_or_none("nvd_status")
+    if status is None:
+        return np.ones(len(ds), dtype=bool)
+    result: np.ndarray = status != "rejected"
+    return result
 
 
-# ============================================================================
-# Data Readiness
-# ============================================================================
+def _normalize_attack_vector(av: str) -> str:
+    return _AV_ALIASES.get(av.upper(), av.upper())
 
 
-@_supports_fmt
-def data_info() -> dict[str, Any]:
-    """Report what vulnerability data is available and what is missing.
+def _valid_mask(arr: np.ndarray) -> np.ndarray:
+    """Boolean mask of non-null/non-empty elements."""
+    result: np.ndarray
+    if arr.dtype == np.dtype(object):
+        result = (arr != None) & (arr != "")  # noqa: E711
+    elif arr.dtype.kind == "f":
+        result = ~np.isnan(arr)
+    elif arr.dtype.kind == "M":
+        result = ~np.isnat(arr)
+    else:
+        result = np.ones(len(arr), dtype=bool)
+    return result
 
-    Returns a dict describing cache status, year coverage, record count,
-    and freshness. Use this to decide whether to build or update before
-    answering a question.
 
-    Returns:
-        Dict with keys: has_cache, cache_path, record_count, years,
-        year_range, is_complete, missing_years, cache_age_hours,
-        needs_update, columns.
+def _value_counts(arr: np.ndarray, n: int = 0) -> dict[str, int]:
+    """Top-N value counts from a pre-filtered (no nulls) array. 0 = all."""
+    if len(arr) == 0:
+        return {}
+    unique, counts = np.unique(arr, return_counts=True)
+    order = np.argsort(-counts)
+    if n > 0:
+        order = order[:n]
+    return {str(unique[i]): int(counts[i]) for i in order}
+
+
+def _extract_years(cve_ids: np.ndarray) -> np.ndarray:
+    """Extract year ints from CVE ID strings. Returns -1 for unparseable."""
+    u = cve_ids.astype("U20")
+    result = np.full(len(u), -1, dtype=np.int32)
+    for i in range(len(u)):
+        s = u[i]
+        if len(s) >= 8 and s[4:8].isdigit():
+            result[i] = int(s[4:8])
+    return result
+
+
+def _find_column(ds_or_cols: Any, *names: str) -> str | None:
+    """Find first matching column name."""
+    cols = ds_or_cols.columns if hasattr(ds_or_cols, "columns") else ds_or_cols
+    for name in names:
+        if name in cols:
+            return name
+    return None
+
+
+def _parse_json_cell(cell: Any) -> Any:
+    """Parse a cell that may be JSON-encoded or already parsed."""
+    if cell is None:
+        return None
+    if isinstance(cell, str):
+        if not cell or cell == "null" or cell == "[]":
+            return None
+        try:
+            return vjson.loads(cell)
+        except (vjson.JSONDecodeError, ValueError):
+            return None
+    if isinstance(cell, (dict, list)):
+        return cell if cell else None
+    return None
+
+
+def _extract_field(item: Any, field: str | None) -> Any:
+    """Extract a field from an item (dict or object)."""
+    if field is None:
+        return str(item) if not isinstance(item, str) else item
+    if isinstance(item, dict):
+        return item.get(field)
+    return getattr(item, field, None)
+
+
+def _serialize_value(val: Any) -> Any:
+    """Convert a value to JSON-serializable form."""
+    if val is None:
+        return None
+    if isinstance(val, float) and (val != val):
+        return None
+    if isinstance(val, (str, int, float, bool)):
+        return val
+    if isinstance(val, datetime):
+        return val.isoformat()
+    type_name = type(val).__name__
+    if "int" in type_name or "float" in type_name:
+        return val.item() if hasattr(val, "item") else val
+    if "Timestamp" in type_name:
+        return val.isoformat()
+    return str(val)
+
+
+def _profile_column(
+    name: str, arr: np.ndarray, top_n: int, sample_json: int
+) -> dict[str, Any]:
+    """Classify and profile a column in one pass.
+
+    Defers np.unique (the dominant cost) until actually needed, and
+    computes it at most once per column.
     """
-    from datetime import UTC
+    n = len(arr)
+    mask = _valid_mask(arr)
+    fill_pct = round(float(np.sum(mask)) / n * 100, 1) if n else 0.0
+    valid = arr[mask]
 
-    current_year = datetime.now(UTC).year
+    # Classify cheaply first (no np.unique for identity/nested/numeric/etc.)
+    kind = _classify_kind(name, arr, valid)
 
-    if not DEFAULT_CACHE_PATH.exists():
-        return {
-            "has_cache": False,
-            "cache_path": str(DEFAULT_CACHE_PATH),
-            "record_count": 0,
-            "years": [],
-            "year_range": None,
-            "is_complete": False,
-            "missing_years": list(range(_NVD_FIRST_YEAR, current_year + 1)),
-            "cache_age_hours": None,
-            "needs_update": True,
-            "columns": [],
-        }
-
-    from vulnflow.dataset import VulnDataset
-
-    ds = VulnDataset.from_parquet(str(DEFAULT_CACHE_PATH))
-    col = ds.get_column("cve_id")
-
-    years_found: set[int] = set()
-    for cve_id in col:
-        if cve_id and isinstance(cve_id, str) and cve_id.startswith("CVE-"):
-            parts = cve_id.split("-")
-            if len(parts) >= 2 and parts[1].isdigit():
-                years_found.add(int(parts[1]))
-
-    sorted_years = sorted(years_found)
-    expected_years = set(range(_NVD_FIRST_YEAR, current_year + 1))
-    missing = sorted(expected_years - years_found)
-    is_complete = len(missing) == 0
-
-    import time
-
-    mtime = DEFAULT_CACHE_PATH.stat().st_mtime
-    age_hours = (time.time() - mtime) / 3600
-
-    return {
-        "has_cache": True,
-        "cache_path": str(DEFAULT_CACHE_PATH),
-        "record_count": len(ds),
-        "years": sorted_years,
-        "year_range": f"{sorted_years[0]}-{sorted_years[-1]}" if sorted_years else None,
-        "is_complete": is_complete,
-        "missing_years": missing,
-        "cache_age_hours": round(age_hours, 1),
-        "needs_update": age_hours > 24,
-        "columns": ds.columns,
+    info: dict[str, Any] = {
+        "name": name,
+        "dtype": str(arr.dtype),
+        "kind": kind,
+        "fill_pct": fill_pct,
     }
 
+    if kind == "numeric":
+        if arr.dtype == object:
+            import pandas as pd_module
 
-def load(path: str | Path | None = None) -> VulnDataset:
-    """Load dataset from parquet cache, or build if missing.
+            floats = pd_module.to_numeric(
+                pd_module.Series(arr), errors="coerce"
+            ).to_numpy()
+        else:
+            floats = arr.astype(np.float64)
+        valid_f = floats[~np.isnan(floats)]
+        info["unique_count"] = int(len(np.unique(valid_f))) if len(valid_f) > 0 else 0
+        if len(valid_f) > 0:
+            info["min"] = round(float(np.min(valid_f)), 2)
+            info["max"] = round(float(np.max(valid_f)), 2)
+            info["mean"] = round(float(np.mean(valid_f)), 2)
+            info["p50"] = round(float(np.median(valid_f)), 2)
+    elif kind == "timestamp":
+        ts_valid = arr[~np.isnat(arr)] if arr.dtype.kind == "M" else arr
+        if len(ts_valid) > 0:
+            info["min"] = str(np.min(ts_valid))
+            info["max"] = str(np.max(ts_valid))
+    elif kind == "bool":
+        if arr.dtype == np.dtype(bool):
+            info["true_count"] = int(np.sum(arr))
+            info["false_count"] = int(n - np.sum(arr))
+        else:
+            info["true_count"] = int(sum(1 for v in arr if v is True))
+            info["false_count"] = int(sum(1 for v in arr if v is False))
+    elif kind == "json_array":
+        info["avg_items"] = _avg_json_array_length(arr, sample_json)
+    elif kind in ("categorical", "high_cardinality"):
+        # Compute np.unique once — only for columns that need it
+        if len(valid) > 0:
+            u, c = np.unique(valid, return_counts=True)
+            info["unique_count"] = int(len(u))
+            limit = top_n if kind == "categorical" else min(top_n, 5)
+            order = np.argsort(-c)[:limit]
+            info["top_values"] = {str(u[i]): int(c[i]) for i in order}
+        else:
+            info["unique_count"] = 0
+            info["top_values"] = {}
+    elif kind == "identity":
+        # Skip expensive np.unique — use fill count as proxy
+        info["unique_count"] = int(np.sum(mask))
 
-    Resolution order:
-    1. Explicit path (parquet/json/nvd based on extension)
-    2. data/nvd_library.parquet (default cache)
-    3. Build via CacheBuilder (saves to default cache)
+    return info
 
-    Args:
-        path: Explicit path to load from. Supports .parquet, .json extensions.
-              If None, uses default cache path.
 
-    Returns:
-        VulnDataset loaded from the resolved source.
+def _classify_kind(name: str, arr: np.ndarray, valid: np.ndarray) -> str:
+    """Classify column kind without np.unique (cheap classification)."""
+    if name in _IDENTITY_COLS:
+        return "identity"
+    if name in _KNOWN_NUMERIC:
+        return "numeric"
+    dtype = arr.dtype
+    if dtype.kind in ("f", "i", "u"):
+        return "numeric"
+    if dtype.kind == "M":
+        return "timestamp"
+    if dtype == np.dtype(bool) or name == "is_kev":
+        return "bool"
+    if name in _NESTED_COLUMNS and dtype is np.dtype(object):
+        first = next((v for v in arr if v is not None and v != ""), None)
+        if isinstance(first, str):
+            if first.startswith("["):
+                return "json_array"
+            if first.startswith("{"):
+                return "json_object"
+    if dtype is np.dtype(object) and len(valid) > 0:
+        # Sample-based cardinality check: take first 1000 valid values
+        sample = valid[:1000] if len(valid) > 1000 else valid
+        uc = len(np.unique(sample))
+        return "categorical" if uc <= 25 else "high_cardinality"
+    return "categorical"
 
-    Raises:
-        FileNotFoundError: If explicit path does not exist.
-        ValueError: If file extension is not supported.
-    """
-    from vulnflow.dataset import VulnDataset
 
-    if path is not None:
-        p = Path(path)
-        if not p.exists():
-            raise FileNotFoundError(f"File not found: {p}")
-        return _load_by_extension(p)
-
-    # Try default cache
-    if DEFAULT_CACHE_PATH.exists():
-        logger.info("Loading from cache: %s", DEFAULT_CACHE_PATH)
-        return VulnDataset.from_parquet(str(DEFAULT_CACHE_PATH))
-
-    # Build via CacheBuilder
-    logger.info("No cache found, building via CacheBuilder...")
-    from vulnflow.helpers.builder import CacheBuilder
-
-    ds = CacheBuilder(quiet=True).build()
-    DEFAULT_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    ds.to_parquet(DEFAULT_CACHE_PATH)
-    logger.info("Cache saved to %s", DEFAULT_CACHE_PATH)
-    return ds
+def _avg_json_array_length(arr: np.ndarray, sample_size: int) -> float | None:
+    """Sampled average items per JSON array cell."""
+    non_null = [
+        v for v in arr if v is not None and v != "" and v != "[]" and v != "null"
+    ]
+    if not non_null:
+        return None
+    rng = np.random.default_rng(42)
+    indices = rng.choice(
+        len(non_null), size=min(len(non_null), sample_size), replace=False
+    )
+    lengths = [
+        len(p)
+        for idx in indices
+        if isinstance((p := _parse_json_cell(non_null[idx])), list)
+    ]
+    return round(sum(lengths) / len(lengths), 1) if lengths else None
 
 
 def _load_by_extension(path: Path) -> VulnDataset:
@@ -212,175 +300,267 @@ def _load_by_extension(path: Path) -> VulnDataset:
     raise ValueError(msg)
 
 
-# ============================================================================
-# LLM-Friendly Functions (return dicts/lists, JSON-serializable)
-# ============================================================================
+@_supports_fmt
+def data_info() -> dict[str, Any]:
+    """Report what vulnerability data is available and what is missing."""
+    from datetime import UTC
+
+    current_year = datetime.now(UTC).year
+
+    if not DEFAULT_CACHE_PATH.exists():
+        return {
+            "has_cache": False,
+            "cache_path": str(DEFAULT_CACHE_PATH),
+            "record_count": 0,
+            "years": [],
+            "year_range": None,
+            "is_complete": False,
+            "missing_years": list(range(_NVD_FIRST_YEAR, current_year + 1)),
+            "cache_age_hours": None,
+            "needs_update": True,
+            "columns": [],
+        }
+
+    import time
+
+    from vulnflow.dataset import VulnDataset
+
+    ds = VulnDataset.from_parquet(str(DEFAULT_CACHE_PATH))
+    years_arr = _extract_years(ds.get_column("cve_id"))
+    sorted_years = sorted({int(y) for y in years_arr if y > 0})
+    expected = set(range(_NVD_FIRST_YEAR, current_year + 1))
+    missing = sorted(expected - set(sorted_years))
+    age_hours = (time.time() - DEFAULT_CACHE_PATH.stat().st_mtime) / 3600
+
+    return {
+        "has_cache": True,
+        "cache_path": str(DEFAULT_CACHE_PATH),
+        "record_count": len(ds),
+        "years": sorted_years,
+        "year_range": (
+            f"{sorted_years[0]}-{sorted_years[-1]}" if sorted_years else None
+        ),
+        "is_complete": len(missing) == 0,
+        "missing_years": missing,
+        "cache_age_hours": round(age_hours, 1),
+        "needs_update": age_hours > 24,
+        "columns": ds.columns,
+    }
+
+
+def load(path: str | Path | None = None) -> VulnDataset:
+    """Load dataset from parquet cache, or build if missing.
+
+    Args:
+        path: Explicit path (.parquet or .json). If None, uses default cache.
+    """
+    from vulnflow.dataset import VulnDataset
+
+    if path is not None:
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"File not found: {p}")
+        return _load_by_extension(p)
+
+    if DEFAULT_CACHE_PATH.exists():
+        logger.info("Loading from cache: %s", DEFAULT_CACHE_PATH)
+        return VulnDataset.from_parquet(str(DEFAULT_CACHE_PATH))
+
+    logger.info("No cache found, building via CacheBuilder...")
+    from vulnflow.helpers.builder import CacheBuilder
+
+    ds = CacheBuilder(quiet=True).build()
+    DEFAULT_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ds.to_parquet(DEFAULT_CACHE_PATH)
+    logger.info("Cache saved to %s", DEFAULT_CACHE_PATH)
+    return ds
+
+
+@_supports_fmt
+def describe(
+    ds: VulnDataset, *, top_n: int = 10, sample_json: int = 1000
+) -> dict[str, Any]:
+    """Adaptive statistical profile of all columns."""
+    return {
+        "record_count": len(ds),
+        "column_count": len(ds.columns),
+        "columns": [
+            _profile_column(c, ds.get_column(c), top_n, sample_json) for c in ds.columns
+        ],
+    }
 
 
 @_supports_fmt
 def summary(ds: VulnDataset) -> dict[str, Any]:
-    """Full dataset overview as a structured dict.
-
-    Returns a comprehensive snapshot: record count, year range, status
-    breakdown, severity breakdown, and top CWEs/vendors.
-
-    Args:
-        ds: VulnDataset to summarize.
-
-    Returns:
-        Dict with keys: record_count, years, status, severity,
-        top_cwes, top_vendors, columns.
-    """
-    df = ds.to_pandas(awaiting=True, deferred=True)
+    """High-level overview: counts, years, severity, top CWEs/vendors."""
+    mask = _analysis_mask(ds)
+    filtered_ids = ds.get_column("cve_id")[mask]
 
     result: dict[str, Any] = {
-        "record_count": len(df),
-        "columns": list(df.columns),
+        "record_count": int(np.sum(mask)),
+        "columns": ds.columns,
     }
 
-    # Year range
-    if "cve_id" in df.columns:
-        import pandas as pd_module
+    years = _extract_years(filtered_ids)
+    valid_years = years[years > 0]
+    if len(valid_years) > 0:
+        uy, cy = np.unique(valid_years, return_counts=True)
+        result["years"] = {int(y): int(c) for y, c in zip(uy, cy, strict=True)}
 
-        year_series = df["cve_id"].str.extract(r"CVE-(\d{4})", expand=False)
-        year_nums = pd_module.to_numeric(year_series, errors="coerce").dropna().astype(int)
-        year_counts = year_nums.value_counts().sort_index()
-        result["years"] = {int(k): int(v) for k, v in year_counts.items()}  # type: ignore[call-overload]
-
-    # Status
     result["status"] = status_distribution(ds)
 
-    # Severity
-    if "cvss_base_severity" in df.columns:
-        sev = df["cvss_base_severity"].value_counts()
-        result["severity"] = {str(k): int(v) for k, v in sev.items()}
-
-    # Top CWEs
-    cwe_col = _find_cwe_column(df)
-    if cwe_col is not None:
-        cwe_counts = df[cwe_col].value_counts().head(10)
-        result["top_cwes"] = {str(k): int(v) for k, v in cwe_counts.items()}
-
-    # Top vendors
-    vendor_col = _find_vendor_column(df)
-    if vendor_col is not None:
-        vendor_counts = df[vendor_col].value_counts().head(10)
-        result["top_vendors"] = {str(k): int(v) for k, v in vendor_counts.items()}
+    for key, col_name in [
+        ("severity", "cvss_base_severity"),
+        ("top_cwes", _find_column(ds, "primary_cwe_id", "cwe_id")),
+        ("top_vendors", _find_column(ds, "primary_vendor", "cpe_vendor")),
+    ]:
+        if col_name is None:
+            continue
+        col = ds.get_column_or_none(col_name)
+        if col is None:
+            continue
+        filtered = col[mask]
+        vm = _valid_mask(filtered)
+        valid = filtered[vm]
+        if len(valid) > 0:
+            result[key] = _value_counts(valid, 10 if key != "severity" else 0)
 
     return result
 
 
 @_supports_fmt
-def describe_severity(
+def severity(
     ds: VulnDataset,
     *,
     attack_vector: str | None = None,
     min_score: float | None = None,
 ) -> dict[str, Any]:
-    """Severity breakdown as a dict, with per-year detail.
+    """Severity breakdown with per-year detail and optional filters."""
+    mask = _analysis_mask(ds)
 
-    Args:
-        ds: VulnDataset to analyze.
-        attack_vector: Optional CVSS attack vector filter. Accepts full
-            name or abbreviation, case-insensitive.
-            Valid values: NETWORK/N, ADJACENT/A, LOCAL/L, PHYSICAL/P.
-        min_score: Optional minimum CVSS base score filter.
+    if attack_vector is not None:
+        av_col = ds.get_column_or_none("cvss_attack_vector")
+        if av_col is not None:
+            mask = mask & (av_col == _normalize_attack_vector(attack_vector))
 
-    Returns:
-        Dict with keys: total, overall (severity counts), by_year.
-    """
-    import pandas as pd_module
+    if min_score is not None:
+        score_col = ds.get_column_or_none("cvss_base_score")
+        if score_col is not None:
+            import pandas as pd_module
 
-    df = ds.to_pandas(awaiting=True, deferred=True)
+            scores = pd_module.to_numeric(
+                pd_module.Series(score_col), errors="coerce"
+            ).to_numpy()
+            mask = mask & (~np.isnan(scores) & (scores >= min_score))
 
-    # Apply optional filters
-    if attack_vector is not None and "cvss_attack_vector" in df.columns:
-        df = df[df["cvss_attack_vector"] == _normalize_attack_vector(attack_vector)]
+    result: dict[str, Any] = {"total": int(np.sum(mask))}
 
-    if min_score is not None and "cvss_base_score" in df.columns:
-        scores = pd_module.to_numeric(df["cvss_base_score"], errors="coerce")
-        df = df[scores >= min_score]
-
-    result: dict[str, Any] = {"total": len(df)}
-
-    if "cvss_base_severity" not in df.columns:
+    sev_col = ds.get_column_or_none("cvss_base_severity")
+    if sev_col is None:
         result["overall"] = {}
         result["by_year"] = {}
         return result
 
-    sev = df["cvss_base_severity"].value_counts()
-    result["overall"] = {str(k): int(v) for k, v in sev.items()}
+    filtered_sev = sev_col[mask]
+    sev_vm = _valid_mask(filtered_sev)
+    result["overall"] = _value_counts(filtered_sev[sev_vm])
 
     # Per-year
-    if "cve_id" in df.columns:
-        df = df.copy()
-        df["_year"] = pd_module.to_numeric(
-            df["cve_id"].str.extract(r"CVE-(\d{4})", expand=False),
-            errors="coerce",
-        )
-        by_year: dict[str, dict[str, int]] = {}
-        for year_val in sorted(df["_year"].dropna().unique()):
-            year_df = df[df["_year"] == year_val]
-            year_sev = year_df["cvss_base_severity"].value_counts()
-            by_year[str(int(year_val))] = {str(k): int(v) for k, v in year_sev.items()}
-        result["by_year"] = by_year
-
+    years = _extract_years(ds.get_column("cve_id")[mask])
+    by_year: dict[str, dict[str, int]] = {}
+    for yv in sorted(np.unique(years[years > 0])):
+        ym = years == yv
+        ys = filtered_sev[ym]
+        ys_valid = ys[_valid_mask(ys)]
+        if len(ys_valid) > 0:
+            by_year[str(int(yv))] = _value_counts(ys_valid)
+    result["by_year"] = by_year
     return result
 
 
 @_supports_fmt
-def describe_yearly(ds: VulnDataset) -> dict[str, int]:
-    """CVE counts per year as a dict.
+def trend(
+    ds: VulnDataset, *, by: str = "year", year: int | None = None
+) -> dict[str, int]:
+    """Temporal CVE counts. by='year' or 'month', with optional year filter."""
+    mask = _analysis_mask(ds)
 
-    Args:
-        ds: VulnDataset to analyze.
+    if by == "year":
+        years = _extract_years(ds.get_column("cve_id")[mask])
+        valid = years[years > 0]
+        if len(valid) == 0:
+            return {}
+        unique_y, counts_y = np.unique(valid, return_counts=True)
+        order = np.argsort(unique_y)
+        return {str(int(unique_y[i])): int(counts_y[i]) for i in order}
 
-    Returns:
-        Dict mapping year (str) to count.
-    """
-    df = ds.to_pandas(awaiting=True, deferred=True)
-    counts = yearly_counts(df)
-    return {str(int(k)): int(v) for k, v in counts.items()}  # type: ignore[call-overload]
+    # by == "month"
+    pub_col = ds.get_column_or_none("nvd_published_at")
+    if pub_col is None:
+        return {}
+
+    filtered_pub = pub_col[mask]
+
+    # Convert numpy datetime64 to Python datetime for .year/.month access
+    if filtered_pub.dtype.kind == "M":
+        # Vectorized: extract year and month from datetime64 array
+        valid_dt = ~np.isnat(filtered_pub)
+        ts = filtered_pub[valid_dt].astype("datetime64[M]")
+        year_arr = ts.astype("datetime64[Y]").astype(int) + 1970
+        month_arr = (ts - ts.astype("datetime64[Y]")).astype(int) + 1
+        counts: Counter[str] = Counter()
+        for i in range(len(year_arr)):
+            y, m = int(year_arr[i]), int(month_arr[i])
+            if year is not None and y != year:
+                continue
+            counts[f"{y:04d}-{m:02d}"] += 1
+        return dict(sorted(counts.items()))
+
+    # Fallback for object arrays with Python datetime values
+    counts_obj: Counter[str] = Counter()
+    for val in filtered_pub:
+        if val is None:
+            continue
+        try:
+            if isinstance(val, np.datetime64):
+                if np.isnat(val):
+                    continue
+                dt = val.astype("datetime64[us]").item()
+            elif isinstance(val, datetime):
+                dt = val
+            else:
+                continue
+            val_year = dt.year
+            if year is not None and val_year != year:
+                continue
+            counts_obj[f"{val_year:04d}-{dt.month:02d}"] += 1
+        except (AttributeError, TypeError, OverflowError):
+            continue
+
+    return dict(sorted(counts_obj.items()))
 
 
 @_supports_fmt
-def describe_monthly(
-    ds: VulnDataset, year: int | None = None
+def nested(
+    ds: VulnDataset, column: str, field: str | None = None, n: int = 10
 ) -> dict[str, int]:
-    """CVE counts per month as a dict.
+    """Top values from a nested JSON column."""
+    col_data = ds.get_column(column)
+    values: list[Any] = []
+    for cell in col_data:
+        parsed = _parse_json_cell(cell)
+        if parsed is None:
+            continue
+        if isinstance(parsed, list):
+            for item in parsed:
+                values.append(_extract_field(item, field))
+        else:
+            values.append(_extract_field(parsed, field))
 
-    Args:
-        ds: VulnDataset to analyze.
-        year: Optional year filter.
-
-    Returns:
-        Dict mapping year-month (str) to count.
-    """
-    df = ds.to_pandas(awaiting=True, deferred=True)
-    counts = monthly_counts(df, year=year)
-    return {str(k): int(v) for k, v in counts.items()}
-
-
-@_supports_fmt
-def describe_nested(
-    ds: VulnDataset,
-    column: str,
-    field: str | None = None,
-    n: int = 10,
-) -> dict[str, int]:
-    """Top values from a nested JSON column as a dict.
-
-    Args:
-        ds: VulnDataset with the nested JSON column.
-        column: Name of the JSON-encoded column.
-        field: Field to extract from each nested object.
-        n: Number of top values.
-
-    Returns:
-        Dict mapping value to count.
-    """
-    series = inspect_nested(ds, column, field, n)
-    return {str(k): int(v) for k, v in series.items()}
+    if not values:
+        return {}
+    counter = Counter(str(v) for v in values if v is not None)
+    return dict(counter.most_common(n))
 
 
 @_supports_fmt
@@ -397,67 +577,66 @@ def search(
     limit: int = 20,
     columns: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Filter CVEs and return results as a list of dicts.
+    """Multi-criteria CVE search returning list of dicts."""
+    import pandas as pd_module
 
-    Args:
-        ds: VulnDataset to search.
-        severity: CVSS severity level (e.g., "CRITICAL").
-        min_score: Minimum CVSS base score.
-        year: CVE year.
-        status: NVD status.
-        keyword: Case-insensitive keyword in description.
-        cwe: CWE ID (e.g., "CWE-79").
-        attack_vector: CVSS attack vector. Accepts full name or abbreviation,
-            case-insensitive. Valid values: NETWORK/N, ADJACENT/A, LOCAL/L,
-            PHYSICAL/P.
-        limit: Max results to return.
-        columns: Columns to include in output. Defaults to a useful subset.
-
-    Returns:
-        List of dicts, each representing a CVE record.
-    """
     df = ds.to_pandas(awaiting=True, deferred=True)
-    filtered = find(
-        df,
-        severity=severity,
-        min_score=min_score,
-        year=year,
-        status=status,
-        keyword=keyword,
-        cwe=cwe,
-        attack_vector=attack_vector,
-    )
+    mask = pd_module.Series(True, index=df.index)
+
+    if severity is not None and "cvss_base_severity" in df.columns:
+        mask = mask & (df["cvss_base_severity"].str.upper() == severity.upper())
+    if min_score is not None and "cvss_base_score" in df.columns:
+        mask = mask & (
+            pd_module.to_numeric(df["cvss_base_score"], errors="coerce") >= min_score
+        )
+    if year is not None and "cve_id" in df.columns:
+        mask = mask & (
+            df["cve_id"].str.extract(r"CVE-(\d{4})", expand=False) == str(year)
+        )
+    if status is not None and "nvd_status" in df.columns:
+        mask = mask & (df["nvd_status"] == status)
+    if keyword is not None and "description" in df.columns:
+        mask = mask & df["description"].str.contains(
+            re.escape(keyword), case=False, na=False
+        )
+    if cwe is not None:
+        cwe_col = _find_column(df, "primary_cwe_id", "cwe_id")
+        if cwe_col is not None:
+            mask = mask & (df[cwe_col] == cwe)
+    if attack_vector is not None and "cvss_attack_vector" in df.columns:
+        mask = mask & (
+            df["cvss_attack_vector"] == _normalize_attack_vector(attack_vector)
+        )
 
     if columns is None:
-        columns = _default_output_columns(df)
+        preferred = [
+            "cve_id",
+            "description",
+            "cvss_base_score",
+            "cvss_base_severity",
+            "nvd_status",
+            "nvd_published_at",
+        ]
+        for col_name in [
+            _find_column(ds, "primary_cwe_id", "cwe_id"),
+            _find_column(ds, "primary_vendor", "cpe_vendor"),
+            _find_column(ds, "primary_product", "cpe_product"),
+        ]:
+            if col_name:
+                preferred.append(col_name)
+        columns = [c for c in preferred if c in df.columns]
 
-    available = [c for c in columns if c in filtered.columns]
-    result_df = filtered[available].head(limit)
-
-    records: list[dict[str, Any]] = []
-    for _, row in result_df.iterrows():
-        record = {}
-        for col in available:
-            val = row[col]
-            record[col] = _serialize_value(val)
-        records.append(record)
-
-    return records
+    available = [c for c in columns if c in df[mask].columns]
+    result_df = df[mask][available].head(limit)
+    return [
+        {col: _serialize_value(row[col]) for col in available}
+        for _, row in result_df.iterrows()
+    ]
 
 
 @_supports_fmt
 def lookup(ds: VulnDataset, cve_id: str) -> dict[str, Any] | None:
-    """Look up a single CVE by ID and return full details as a dict.
-
-    Args:
-        ds: VulnDataset to search.
-        cve_id: CVE identifier (e.g., "CVE-2024-1234").
-
-    Returns:
-        Dict with all available fields, or None if not found.
-    """
-    import numpy as np
-
+    """Single CVE detail as dict, or None if not found."""
     col = ds.get_column("cve_id")
     indices = np.where(col == cve_id)[0]
     if len(indices) == 0:
@@ -467,318 +646,15 @@ def lookup(ds: VulnDataset, cve_id: str) -> dict[str, Any] | None:
     record: dict[str, Any] = {}
     for col_name in ds.columns:
         val = ds.get_column(col_name)[idx]
-        # Parse nested JSON for richer output
         if col_name in _NESTED_COLUMNS and isinstance(val, str):
             parsed = _parse_json_cell(val)
             record[col_name] = parsed if parsed is not None else val
         else:
             record[col_name] = _serialize_value(val)
-
     return record
-
-
-_NESTED_COLUMNS = frozenset({
-    "cvss_scores", "cwes", "cpes", "references",
-    "exploits", "epss_scores", "kev",
-})
-
-
-def _default_output_columns(df: pd.DataFrame) -> list[str]:
-    """Select a useful default column subset for search results."""
-    preferred = [
-        "cve_id", "description", "cvss_base_score", "cvss_base_severity",
-        "nvd_status", "nvd_published_at",
-    ]
-    # Add CWE/vendor columns if they exist under any naming convention
-    cwe_col = _find_cwe_column(df)
-    if cwe_col:
-        preferred.append(cwe_col)
-    vendor_col = _find_vendor_column(df)
-    if vendor_col:
-        preferred.append(vendor_col)
-    product_col = _find_product_column(df)
-    if product_col:
-        preferred.append(product_col)
-
-    return [c for c in preferred if c in df.columns]
-
-
-def _find_cwe_column(df: pd.DataFrame) -> str | None:
-    """Find the CWE ID column regardless of naming convention."""
-    for name in ("primary_cwe_id", "cwe_id"):
-        if name in df.columns:
-            return name
-    return None
-
-
-def _find_vendor_column(df: pd.DataFrame) -> str | None:
-    """Find the vendor column regardless of naming convention."""
-    for name in ("primary_vendor", "cpe_vendor"):
-        if name in df.columns:
-            return name
-    return None
-
-
-def _find_product_column(df: pd.DataFrame) -> str | None:
-    """Find the product column regardless of naming convention."""
-    for name in ("primary_product", "cpe_product"):
-        if name in df.columns:
-            return name
-    return None
-
-
-def _serialize_value(val: Any) -> Any:
-    """Convert a value to JSON-serializable form."""
-    if val is None:
-        return None
-    if isinstance(val, float) and (val != val):  # NaN check
-        return None
-    if isinstance(val, (str, int, float, bool)):
-        return val
-    if isinstance(val, datetime):
-        return val.isoformat()
-    # numpy/pandas types
-    type_name = type(val).__name__
-    if "int" in type_name or "float" in type_name:
-        return val.item() if hasattr(val, "item") else val
-    if "Timestamp" in type_name:
-        return val.isoformat()
-    return str(val)
-
-
-# ============================================================================
-# DataFrame Functions (return pandas types, for notebooks)
-# ============================================================================
 
 
 @_supports_fmt
 def status_distribution(ds: VulnDataset) -> dict[str, int]:
-    """NVD status counts.
-
-    Args:
-        ds: VulnDataset with nvd_status column.
-
-    Returns:
-        Dict mapping status values to their counts.
-    """
+    """NVD status counts."""
     return ds.get_status_distribution()
-
-
-def severity_distribution(df: pd.DataFrame) -> pd.Series:
-    """CVSS severity value counts.
-
-    Args:
-        df: DataFrame with cvss_base_severity column.
-
-    Returns:
-        Series with severity values as index and counts as values.
-
-    Raises:
-        KeyError: If cvss_base_severity column is missing.
-    """
-    if "cvss_base_severity" not in df.columns:
-        msg = "Column 'cvss_base_severity' not found. Use to_pandas() on a dataset with CVSS flatten applied."
-        raise KeyError(msg)
-    return df["cvss_base_severity"].value_counts()
-
-
-def top_values(df: pd.DataFrame, column: str, n: int = 10) -> pd.Series:
-    """Top N most frequent values for any column.
-
-    Args:
-        df: DataFrame to analyze.
-        column: Column name to count values from.
-        n: Number of top values to return.
-
-    Returns:
-        Series with values as index and counts as values, top N.
-
-    Raises:
-        KeyError: If column is not found.
-    """
-    if column not in df.columns:
-        msg = f"Column '{column}' not found. Available: {list(df.columns)}"
-        raise KeyError(msg)
-    return df[column].value_counts().head(n)
-
-
-def yearly_counts(df: pd.DataFrame) -> pd.Series:
-    """CVE counts per year, extracted from cve_id.
-
-    Args:
-        df: DataFrame with cve_id column.
-
-    Returns:
-        Series with years as index and counts as values, sorted by year.
-
-    Raises:
-        KeyError: If cve_id column is missing.
-    """
-    import pandas as pd_module
-
-    if "cve_id" not in df.columns:
-        msg = "Column 'cve_id' not found."
-        raise KeyError(msg)
-    years = df["cve_id"].str.extract(r"CVE-(\d{4})", expand=False)
-    years = pd_module.to_numeric(years, errors="coerce").dropna().astype(int)
-    return years.value_counts().sort_index()
-
-
-def monthly_counts(df: pd.DataFrame, year: int | None = None) -> pd.Series:
-    """CVE counts per month from nvd_published_at.
-
-    Args:
-        df: DataFrame with nvd_published_at column.
-        year: Optional year filter.
-
-    Returns:
-        Series with year-month as index, counts as values.
-
-    Raises:
-        KeyError: If nvd_published_at column is missing.
-    """
-    import pandas as pd_module
-
-    if "nvd_published_at" not in df.columns:
-        msg = "Column 'nvd_published_at' not found."
-        raise KeyError(msg)
-
-    dates = pd_module.to_datetime(df["nvd_published_at"], errors="coerce")
-    if year is not None:
-        dates = dates[dates.dt.year == year]
-
-    months = dates.dropna().dt.to_period("M")
-    return months.value_counts().sort_index()
-
-
-def inspect_nested(
-    ds: VulnDataset,
-    column: str,
-    field: str | None = None,
-    n: int = 10,
-) -> pd.Series:
-    """Parse a JSON column, extract values, return top N.
-
-    Args:
-        ds: VulnDataset with the nested JSON column.
-        column: Name of the JSON-encoded column.
-        field: Optional field name to extract from each nested object.
-        n: Number of top values to return.
-
-    Returns:
-        Series with extracted values as index and counts as values, top N.
-
-    Raises:
-        KeyError: If column is not found in dataset.
-    """
-    import pandas as pd_module
-
-    col_data = ds.get_column(column)
-
-    values: list[Any] = []
-    for cell in col_data:
-        parsed = _parse_json_cell(cell)
-        if parsed is None:
-            continue
-        if isinstance(parsed, list):
-            for item in parsed:
-                values.append(_extract_field(item, field))
-        else:
-            values.append(_extract_field(parsed, field))
-
-    if not values:
-        return pd_module.Series(dtype=object)
-
-    return pd_module.Series(values).value_counts().head(n)
-
-
-def find(
-    df: pd.DataFrame,
-    *,
-    severity: str | None = None,
-    min_score: float | None = None,
-    year: int | None = None,
-    status: str | None = None,
-    keyword: str | None = None,
-    cwe: str | None = None,
-    attack_vector: str | None = None,
-) -> pd.DataFrame:
-    """Filter CVEs by common criteria. All filters are AND-combined.
-
-    Args:
-        df: DataFrame to filter.
-        severity: CVSS severity level (e.g., "CRITICAL", "HIGH").
-        min_score: Minimum CVSS base score.
-        year: CVE year (extracted from cve_id).
-        status: NVD status (e.g., "analyzed", "modified").
-        keyword: Case-insensitive keyword search in description.
-        cwe: CWE ID to match (e.g., "CWE-79").
-        attack_vector: CVSS attack vector. Accepts full name or abbreviation,
-            case-insensitive. Valid values: NETWORK/N, ADJACENT/A, LOCAL/L,
-            PHYSICAL/P.
-
-    Returns:
-        Filtered DataFrame matching all criteria.
-    """
-    import pandas as pd_module
-
-    mask = pd_module.Series(True, index=df.index)
-
-    if severity is not None and "cvss_base_severity" in df.columns:
-        mask = mask & (df["cvss_base_severity"].str.upper() == severity.upper())
-
-    if min_score is not None and "cvss_base_score" in df.columns:
-        scores = pd_module.to_numeric(df["cvss_base_score"], errors="coerce")
-        mask = mask & (scores >= min_score)
-
-    if year is not None and "cve_id" in df.columns:
-        cve_years = df["cve_id"].str.extract(r"CVE-(\d{4})", expand=False)
-        mask = mask & (cve_years == str(year))
-
-    if status is not None and "nvd_status" in df.columns:
-        mask = mask & (df["nvd_status"] == status)
-
-    if keyword is not None and "description" in df.columns:
-        mask = mask & df["description"].str.contains(
-            re.escape(keyword), case=False, na=False
-        )
-
-    if cwe is not None:
-        cwe_col = _find_cwe_column(df)
-        if cwe_col is not None:
-            mask = mask & (df[cwe_col] == cwe)
-
-    if attack_vector is not None and "cvss_attack_vector" in df.columns:
-        mask = mask & (df["cvss_attack_vector"] == _normalize_attack_vector(attack_vector))
-
-    return df[mask]
-
-
-# ============================================================================
-# Internal Helpers
-# ============================================================================
-
-
-def _parse_json_cell(cell: Any) -> Any:
-    """Parse a single cell value that may be JSON-encoded or already parsed."""
-    if cell is None:
-        return None
-    if isinstance(cell, str):
-        if not cell or cell == "null" or cell == "[]":
-            return None
-        try:
-            return json.loads(cell)
-        except (json.JSONDecodeError, ValueError):
-            return None
-    if isinstance(cell, (dict, list)):
-        return cell if cell else None
-    return None
-
-
-def _extract_field(item: Any, field: str | None) -> Any:
-    """Extract a field from an item (dict or object)."""
-    if field is None:
-        return str(item) if not isinstance(item, str) else item
-    if isinstance(item, dict):
-        return item.get(field)
-    return getattr(item, field, None)
