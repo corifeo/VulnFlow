@@ -440,3 +440,45 @@ def test_pipeline_error_is_vulnflow_error():
     assert isinstance(err, VulnFlowError)
 
 
+def test_pipeline_multi_extract_transform_load(tmp_path):
+    """Full pipeline: 2 extractors → phased transforms → 2 loaders (Flow 6)."""
+    from vulnflow.extractors.nvd import NVDExtractor
+    from vulnflow.loaders.files import JSONLoader, ParquetLoader
+    from vulnflow.transforms.enrichers.kev import KEVEnricher
+    from vulnflow.transforms.flatten import KEVFlattenTransform
+
+    parquet_out = tmp_path / "archive.parquet"
+    json_out = tmp_path / "archive.json"
+
+    pipeline = VulnPipeline(
+        extractors=[
+            NVDExtractor("tests/fixtures/nvd_sample.json"),
+            NVDExtractor("tests/fixtures/nvd_sample.json"),
+        ],
+        transformers=[
+            KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+            KEVFlattenTransform(),
+        ],
+        loaders=[
+            ParquetLoader(parquet_out),
+            JSONLoader(json_out),
+        ],
+    )
+
+    result = pipeline.run()
+
+    # Extract: 2 extractors merge (same fixture → deduplicated by merge)
+    assert result.dataset is not None
+    assert len(result.dataset) > 0
+
+    # Transform: phased — KEVEnricher (phase 0) → KEVFlattenTransform (phase 1)
+    assert "kev" in result.dataset.columns
+    assert "is_kev" in result.dataset.columns
+    assert "KEVEnricher" in result.successful_stages
+    assert "KEVFlattenTransform" in result.successful_stages
+
+    # Load: both files written
+    assert parquet_out.exists()
+    assert json_out.exists()
+
+
