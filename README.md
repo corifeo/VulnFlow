@@ -3,9 +3,9 @@
 
 vulnflow is a high-performance data pipeline for ingesting, normalizing, and loading public vulnerability data.
 
-It is **not** a vulnerability management product.
-It does **not** prioritize vulnerabilities.
-It does **not** tell you what to fix.
+- It is **not** a vulnerability management product.
+- It does **not** prioritize vulnerabilities.
+- It does **not** tell you what to fix.
 
 vulnflow exists to make vulnerability data usable, fast, and boring.
 
@@ -82,10 +82,10 @@ from vulnflow import VulnDataset
 from vulnflow.helpers import CacheBuilder
 
 # Simplest - just get data into pandas
-df = VulnDataset.from_nvd("nvd-2024/*.json").to_pandas()
+df = VulnDataset.from_nvd("nvd-2024/*.json").transform().to_pandas()
 
-# Build entire NVD library with parallel extraction (CVSS flattened by default)
-dataset = CacheBuilder(years=[2024, 2025]).build(workers=4)
+# Build entire NVD library with concurrent extraction (CVSS flattened by default)
+dataset = CacheBuilder(years=[2024, 2025]).build()
 df = dataset.to_pandas()
 
 # CacheBuilder modes:
@@ -94,15 +94,12 @@ df = dataset.to_pandas()
 # CacheBuilder(exclude_years=[2002])    # All years except 2002
 # CacheBuilder(modified_only=True)      # Quick updates (Modified feed only)
 # CacheBuilder(recent_only=True)        # Recent feed only
+# CacheBuilder(quiet=True)             # Suppress progress bars
 
 # Build options:
-# .build(workers=4)                     # Extract + flatten CVSS (default)
-# .build(workers=4, cvss=False)         # Extract only, keep nested CVSS JSON
-
-# With enrichment and transforms
-dataset = VulnDataset.from_nvd("nvd-2024/*.json")
-dataset.transform()
-df = dataset.to_pandas()
+# .build()                              # Extract + flatten CVSS (default)
+# .build(cvss=False)                    # Extract only, keep nested CVSS JSON
+# .build(timeout=300.0)                 # Custom HTTP timeout per feed
 ```
 
 ### For Data Engineers (Production/ETL)
@@ -121,7 +118,7 @@ result = pipeline.run()
 # Compose pipelines
 extract = VulnPipeline(extractors=[NVDExtractor("nvd-2024/*.json")])
 enrich = VulnPipeline(transformers=[KEVEnricher()])
-full = extract.then(enrich)
+full = extract.merge(enrich)
 ```
 
 ## Features
