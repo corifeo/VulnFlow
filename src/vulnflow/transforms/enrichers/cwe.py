@@ -151,12 +151,13 @@ class CWEEnricher(BaseEnricher):
         Returns:
             Dict mapping CWE ID to metadata dict (fully denormalized)
         """
-        cwe_dir = self.cache_dir / "cwe"
-        cwe_dir.mkdir(parents=True, exist_ok=True)
-        cache_file = cwe_dir / "cwe_database.json"
+        mitre_dir = self.cache_dir / "mitre"
+        mitre_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = mitre_dir / "cwe_database.json"
+        capec_mapping_file = mitre_dir / "cwe_capec_mapping.json"
 
         # Use cached database if it exists and hasn't expired
-        if cache_file.exists():
+        if cache_file.exists() and capec_mapping_file.exists():
             age = time.time() - cache_file.stat().st_mtime
             if self.cache_ttl == 0 or age < self.cache_ttl:
                 logger.info(f"Using cached CWE database (age: {age:.0f}s)")
@@ -176,9 +177,13 @@ class CWEEnricher(BaseEnricher):
         cwe_db = self._parse_cwe_xml(xml_path)
         cache_file.write_text(json.dumps(cwe_db))
 
+        # Extract and cache CWE→CAPEC mapping
+        capec_mapping = self._extract_capec_mapping(xml_path)
+        capec_mapping_file.write_text(json.dumps(capec_mapping))
+
         # Clean up intermediate files
         for name in ("cwec_latest.xml.zip", "cwec_latest.xml"):
-            intermediate = cwe_dir / name
+            intermediate = mitre_dir / name
             if intermediate.exists():
                 intermediate.unlink()
 
@@ -191,16 +196,16 @@ class CWEEnricher(BaseEnricher):
         Returns:
             Path to extracted XML file
         """
-        cwe_dir = self.cache_dir / "cwe"
-        cwe_dir.mkdir(parents=True, exist_ok=True)
+        mitre_dir = self.cache_dir / "mitre"
+        mitre_dir.mkdir(parents=True, exist_ok=True)
 
         if self._http_fetcher is None:
             self._http_fetcher = HttpFetcher(
-                cache_dir=cwe_dir, timeout=self.timeout
+                cache_dir=mitre_dir, timeout=self.timeout
             )
 
         # Download zip file
-        zip_path = cwe_dir / "cwec_latest.xml.zip"
+        zip_path = mitre_dir / "cwec_latest.xml.zip"
         try:
             content, _fmt = await self._http_fetcher.fetch(str(self.source))
             zip_path.write_bytes(content)
@@ -209,7 +214,7 @@ class CWEEnricher(BaseEnricher):
             raise RuntimeError(f"Failed to download CWE database: {e}") from e
 
         # Extract XML
-        xml_path = cwe_dir / "cwec_latest.xml"
+        xml_path = mitre_dir / "cwec_latest.xml"
         with ZipFile(zip_path, "r") as zf:
             # CWE zip contains single XML file
             xml_name = zf.namelist()[0]
@@ -266,3 +271,24 @@ class CWEEnricher(BaseEnricher):
         for related in weakness.findall(".//{*}Related_Weakness[@Nature='ChildOf']"):
             return f"CWE-{related.get('CWE_ID')}"
         return None
+
+    def _extract_capec_mapping(self, xml_path: Path) -> dict[str, list[str]]:
+        """Extract CWE→CAPEC mapping from CWE XML.
+
+        Returns:
+            Dict mapping CWE ID to list of CAPEC IDs.
+            Only includes CWEs that have at least one CAPEC mapping.
+        """
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+        mapping: dict[str, list[str]] = {}
+        for weakness in root.findall(".//{*}Weakness"):
+            cwe_id = f"CWE-{weakness.get('ID')}"
+            capec_ids = [
+                f"CAPEC-{el.get('CAPEC_ID')}"
+                for el in weakness.findall(".//{*}Related_Attack_Pattern")
+                if el.get("CAPEC_ID")
+            ]
+            if capec_ids:
+                mapping[cwe_id] = capec_ids
+        return mapping

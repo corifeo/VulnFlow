@@ -7,9 +7,11 @@ Provides:
 - KEVFlattenTransform: Extract KEV fields
 - CPEFlattenTransform: Select primary CPE
 - CWEFlattenTransform: Select primary CWE
+- CAPECFlattenTransform: Select primary CAPEC
 """
 
 from vulnflow.transforms.flatten.base import BaseFlatten
+from vulnflow.transforms.flatten.capec import CAPECFlattenTransform
 from vulnflow.transforms.flatten.cpe import CPEFlattenTransform
 from vulnflow.transforms.flatten.cvss import CVSSFlattenTransform
 from vulnflow.transforms.flatten.cwe import CWEFlattenTransform
@@ -18,6 +20,7 @@ from vulnflow.transforms.flatten.kev import KEVFlattenTransform
 
 __all__ = [
     "BaseFlatten",
+    "CAPECFlattenTransform",
     "CPEFlattenTransform",
     "CVSSFlattenTransform",
     "CWEFlattenTransform",
