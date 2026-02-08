@@ -1,19 +1,12 @@
 """Graph utilities - Dependency resolution.
 
 Provides:
-- topological_sort: Sort transforms by dependencies using O(n²) algorithm
+- topological_sort: Sort transforms by dependencies (flat list)
+- build_phases: Group transforms into dependency-aware execution phases
 
 Layer: Utility
 Dependencies: None
-Used by: dataset, pipeline
-
-Implementation Notes:
-    Uses simple O(n²) greedy algorithm instead of Kahn's algorithm.
-    Trade-offs:
-    - Slower for large graphs (O(n²) vs O(n+e))
-    - Cannot identify independent transforms for parallel execution
-    - Lenient on missing dependencies (assumes satisfied)
-    - Good enough: typical usage has <10 transforms
+Used by: dataset, pipeline, executor
 """
 
 from __future__ import annotations
@@ -112,3 +105,70 @@ def topological_sort(transforms: list[Any]) -> list[Any]:
             remaining.remove(t)
 
     return result
+
+
+def build_phases(transforms: list[Any]) -> list[list[Any]]:
+    """Group transforms into dependency-aware execution phases.
+
+    Uses Kahn's algorithm with level grouping. Each phase contains
+    transforms whose dependencies are all satisfied by earlier phases.
+    Transforms within a phase are independent and can run concurrently.
+
+    Unlike topological_sort, this function:
+    - Returns grouped phases (not a flat list)
+    - Validates that all dependencies exist (strict)
+    - Enables concurrent execution within phases
+
+    Args:
+        transforms: Objects with 'name' and 'depends_on' attributes.
+
+    Returns:
+        List of phases, each a list of transforms.
+
+    Raises:
+        ValueError: If circular dependency or missing dependency found.
+    """
+    if not transforms:
+        return []
+
+    by_name = {t.name: t for t in transforms}
+    all_names = set(by_name.keys())
+
+    # Validate all dependencies exist
+    for t in transforms:
+        for dep in getattr(t, "depends_on", []):
+            if dep not in all_names:
+                raise ValueError(
+                    f"Transform '{t.name}' depends on '{dep}' not found "
+                    f"in transform list: {sorted(all_names)}"
+                )
+
+    phases: list[list[Any]] = []
+    satisfied: set[str] = set()
+
+    while satisfied != all_names:
+        ready = [
+            by_name[name]
+            for name in all_names - satisfied
+            if all(
+                dep in satisfied
+                for dep in getattr(by_name[name], "depends_on", [])
+            )
+        ]
+
+        if not ready:
+            remaining = sorted(all_names - satisfied)
+            dep_info = [
+                f"{n} waits for: {[d for d in getattr(by_name[n], 'depends_on', []) if d not in satisfied]}"
+                for n in remaining
+                if any(d not in satisfied for d in getattr(by_name[n], "depends_on", []))
+            ]
+            msg = f"Circular dependency detected among: {remaining}"
+            if dep_info:
+                msg += "\n  " + "\n  ".join(dep_info)
+            raise ValueError(msg)
+
+        phases.append(ready)
+        satisfied.update(t.name for t in ready)
+
+    return phases
