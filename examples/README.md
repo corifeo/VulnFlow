@@ -4,19 +4,20 @@
 
 **Quick exploration?** → [01-quick-exploration.ipynb](01-quick-exploration.ipynb)
 - NVD Modified feed (last 8 days, ~2-5K CVEs)
-- See what VulnFlow can do
+- Severity, critical CVEs, attack vectors
 
 **Recent analysis?** → [02-recent-analysis.ipynb](02-recent-analysis.ipynb)
 - Last 12 months (~50K CVEs)
-- Incremental cache + delta pattern
+- Monthly trends, score distributions, incremental updates
 
 **Complete library?** → [03-complete-library.ipynb](03-complete-library.ipynb)
-- Configurable range (default 2023-2025, or 2002-present)
-- Parallel extraction
+- Full NVD database (2002-present, ~330K CVEs)
+- Yearly trends, status breakdown
 
 **Copy-paste recipes?** → [04-cookbook.ipynb](04-cookbook.ipynb)
-- Filtering, aggregation, export patterns
-- Self-contained cells
+- Filtering, aggregation, vendor analysis
+- CWE/CPE exploration, CVSS impact analysis
+- Placeholder sections for EPSS, KEV, metadata, tags
 
 ---
 
@@ -40,7 +41,7 @@ Every notebook uses `CacheBuilder` - a one-line way to build vulnerability datas
 from vulnflow.helpers import CacheBuilder
 
 # All years (2002-present)
-ds = CacheBuilder().build(workers=4)
+ds = CacheBuilder().build()
 
 # Specific years
 ds = CacheBuilder(years=[2024, 2025]).build()
@@ -70,6 +71,4 @@ VulnDataset.merge([ds, delta]).to_parquet("data/library.parquet")
 
 **ImportError**: Run `uv sync` to update vulnflow.
 
-**Slow downloads**: Reduce workers: `.build(workers=2)`
-
-**KeyError on column**: Dataset may need transforms. Check notebook for `ds.transform()` calls.
+**KeyError on column**: Dataset may need transforms. Call `ds.transform()` before `to_pandas()`.
