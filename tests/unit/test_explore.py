@@ -397,6 +397,95 @@ class TestFind:
         result = find(sample_df, keyword="SQL")
         assert len(result) == 1
 
+    def test_filter_by_attack_vector_full_name(self) -> None:
+        """find() filters by attack_vector='NETWORK' -> matches 'N'."""
+        df = _make_df({
+            "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
+            "cvss_attack_vector": ["N", "L", "N"],
+        })
+        result = find(df, attack_vector="NETWORK")
+        assert len(result) == 2
+
+    def test_filter_by_attack_vector_abbreviation(self) -> None:
+        """find() filters by attack_vector='N' (abbreviation)."""
+        df = _make_df({
+            "cve_id": ["CVE-2024-0001", "CVE-2024-0002"],
+            "cvss_attack_vector": ["N", "L"],
+        })
+        result = find(df, attack_vector="N")
+        assert len(result) == 1
+
+    def test_filter_by_attack_vector_case_insensitive(self) -> None:
+        """find() attack_vector is case-insensitive."""
+        df = _make_df({
+            "cve_id": ["CVE-2024-0001", "CVE-2024-0002"],
+            "cvss_attack_vector": ["N", "L"],
+        })
+        result = find(df, attack_vector="network")
+        assert len(result) == 1
+
+    def test_filter_by_attack_vector_adjacent(self) -> None:
+        """find() attack_vector='ADJACENT' -> matches 'A'."""
+        df = _make_df({
+            "cve_id": ["CVE-2024-0001", "CVE-2024-0002"],
+            "cvss_attack_vector": ["A", "N"],
+        })
+        result = find(df, attack_vector="ADJACENT")
+        assert len(result) == 1
+        assert result.iloc[0]["cve_id"] == "CVE-2024-0001"
+
+    def test_combined_attack_vector_and_severity(self) -> None:
+        """find() combines attack_vector with severity using AND logic."""
+        df = _make_df({
+            "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
+            "cvss_attack_vector": ["N", "N", "L"],
+            "cvss_base_severity": ["CRITICAL", "HIGH", "CRITICAL"],
+        })
+        result = find(df, attack_vector="NETWORK", severity="CRITICAL")
+        assert len(result) == 1
+        assert result.iloc[0]["cve_id"] == "CVE-2024-0001"
+
+    def test_filter_by_attack_vector_missing_column(self) -> None:
+        """find() ignores attack_vector filter if column is missing."""
+        df = _make_df({
+            "cve_id": ["CVE-2024-0001", "CVE-2024-0002"],
+        })
+        result = find(df, attack_vector="NETWORK")
+        assert len(result) == 2
+
+
+# ============================================================================
+# Tests: search() with attack_vector
+# ============================================================================
+
+
+class TestSearchAttackVector:
+    def test_search_attack_vector_full_name(self) -> None:
+        """search() with attack_vector='NETWORK' filters correctly."""
+        ds = _make_dataset({
+            "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
+            "cvss_attack_vector": ["N", "L", "N"],
+            "cvss_base_severity": ["HIGH", "MEDIUM", "CRITICAL"],
+            "cvss_base_score": [7.5, 5.3, 9.8],
+            "description": ["vuln a", "vuln b", "vuln c"],
+            "nvd_status": ["analyzed", "analyzed", "analyzed"],
+        })
+        results = search(ds, attack_vector="NETWORK")
+        assert len(results) == 2
+
+    def test_search_attack_vector_abbreviation(self) -> None:
+        """search() with attack_vector='N' also works."""
+        ds = _make_dataset({
+            "cve_id": ["CVE-2024-0001", "CVE-2024-0002"],
+            "cvss_attack_vector": ["N", "L"],
+            "cvss_base_severity": ["HIGH", "MEDIUM"],
+            "cvss_base_score": [7.5, 5.3],
+            "description": ["vuln a", "vuln b"],
+            "nvd_status": ["analyzed", "analyzed"],
+        })
+        results = search(ds, attack_vector="N")
+        assert len(results) == 1
+
 
 # ============================================================================
 # Tests: helper functions
@@ -495,6 +584,54 @@ class TestDescribeSeverity:
         result = describe_severity(sample_dataset)
         serialized = json.dumps(result, default=str)
         assert isinstance(serialized, str)
+
+    def test_filter_by_attack_vector(self) -> None:
+        """describe_severity(attack_vector='NETWORK') returns only network CVEs."""
+        ds = _make_dataset({
+            "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
+            "cvss_base_severity": ["CRITICAL", "HIGH", "MEDIUM"],
+            "cvss_base_score": [9.8, 7.5, 5.3],
+            "cvss_attack_vector": ["N", "N", "L"],
+            "nvd_status": ["analyzed", "analyzed", "analyzed"],
+        })
+        result = describe_severity(ds, attack_vector="NETWORK")
+        assert result["total"] == 2
+        assert "CRITICAL" in result["overall"]
+        assert "HIGH" in result["overall"]
+        assert "MEDIUM" not in result["overall"]
+
+    def test_filter_by_min_score(self) -> None:
+        """describe_severity(min_score=9.0) returns only high-score CVEs."""
+        ds = _make_dataset({
+            "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
+            "cvss_base_severity": ["CRITICAL", "HIGH", "MEDIUM"],
+            "cvss_base_score": [9.8, 7.5, 5.3],
+            "nvd_status": ["analyzed", "analyzed", "analyzed"],
+        })
+        result = describe_severity(ds, min_score=9.0)
+        assert result["total"] == 1
+        assert result["overall"]["CRITICAL"] == 1
+        assert "HIGH" not in result["overall"]
+
+    def test_combined_attack_vector_and_min_score(self) -> None:
+        """describe_severity() with both filters uses AND logic."""
+        ds = _make_dataset({
+            "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
+            "cvss_base_severity": ["CRITICAL", "HIGH", "CRITICAL"],
+            "cvss_base_score": [9.8, 7.5, 9.1],
+            "cvss_attack_vector": ["N", "N", "L"],
+            "nvd_status": ["analyzed", "analyzed", "analyzed"],
+        })
+        result = describe_severity(ds, attack_vector="NETWORK", min_score=9.0)
+        assert result["total"] == 1
+        assert result["overall"]["CRITICAL"] == 1
+
+    def test_no_filter_regression(self, sample_dataset: VulnDataset) -> None:
+        """describe_severity() with no filters behaves the same as before."""
+        result = describe_severity(sample_dataset)
+        # to_pandas() filters out rejected status -> 4 records
+        assert result["total"] == 4
+        assert result["overall"]["HIGH"] == 2
 
 
 class TestDescribeYearly:
