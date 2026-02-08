@@ -122,7 +122,7 @@ class NVDExtractor(BaseExtractor):
         # Single-pass: Parse JSON → dataclasses → serialize inline
         with progress_bar(
             total=n,
-            desc="Parsing CVEs",
+            desc=f"Parsing {self.label}",
             unit="CVEs",
         ) as pbar:
             for i, vuln in enumerate(vulnerabilities):

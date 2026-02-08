@@ -182,7 +182,10 @@ class CacheBuilder:
                 transformers=transformers,
             )
 
-            result = pipeline.run(quiet=self._quiet)
+            result = pipeline.run(
+                quiet=self._quiet,
+                extract_desc="Extracting NVD Data",
+            )
             dataset = result.dataset
 
             if dataset is None:

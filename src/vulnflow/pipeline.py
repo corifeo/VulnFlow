@@ -51,6 +51,7 @@ class VulnPipeline:
         strict: bool = False,
         *,
         quiet: bool = False,
+        extract_desc: str | None = None,
     ) -> PipelineResult:
         """Execute pipeline stages: extract → transform → load.
 
@@ -77,7 +78,7 @@ class VulnPipeline:
             # Stage 1: Extract (concurrent via ThreadPoolExecutor)
             if dataset is None and self.extractors:
                 dataset, ext_succ, ext_fail, ext_err = PipelineExecutor.run_extractors(
-                    self.extractors
+                    self.extractors, desc=extract_desc
                 )
                 successful_stages.extend(ext_succ)
                 failed_stages.extend(ext_fail)
