@@ -6,7 +6,7 @@ construction. Supports multiple modes: all years, specific years, modified
 feed only, recent feed only.
 
 Layer: User-facing helpers
-Dependencies: pipeline, extractors.nvd, loaders.files
+Dependencies: pipeline, extractors.nvd
 Used by: Notebooks, user scripts
 """
 
@@ -43,7 +43,7 @@ class CacheBuilder:
 
     Example:
         >>> from vulnflow.helpers import CacheBuilder
-        >>> ds = CacheBuilder(years=[2024, 2025]).build(workers=2)
+        >>> ds = CacheBuilder(years=[2024, 2025]).build()
         >>> ds.to_parquet("data/library.parquet")
     """
 

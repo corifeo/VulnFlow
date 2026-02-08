@@ -477,8 +477,35 @@ def test_pipeline_multi_extract_transform_load(tmp_path):
     assert "KEVEnricher" in result.successful_stages
     assert "KEVFlattenTransform" in result.successful_stages
 
+    # No errors
+    assert result.errors == []
+
     # Load: both files written
     assert parquet_out.exists()
     assert json_out.exists()
+
+
+@pytest.mark.asyncio
+async def test_pipeline_run_from_async_context():
+    """pipeline.run() works from within a running event loop (e.g. Jupyter)."""
+    import asyncio
+
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    # Verify we are inside a running event loop
+    loop = asyncio.get_running_loop()
+    assert loop is not None
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+    )
+
+    # This would raise "asyncio.run() cannot be called from a running event loop"
+    # without the nest_asyncio guard in pipeline.run()
+    result = pipeline.run()
+
+    assert result.dataset is not None
+    assert len(result.dataset) > 0
+    assert result.errors == []
 
 

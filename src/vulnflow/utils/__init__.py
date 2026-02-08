@@ -6,7 +6,6 @@ Provides:
 - get_record_columns: Get VulnRecord field names
 - get_flattened_columns: Get flattened column names
 - is_async_transform: Check if object has async transform() method
-- partition_transforms: Separate async from sync transforms
 - is_url: Check if source is HTTP/HTTPS URL
 - detect_format: Detect content format from URL, headers, or content
 - HttpError: HTTP exception wrapper (prevents httpx leakage)
@@ -36,7 +35,7 @@ from vulnflow.utils.progress import (
     progress_bar,
 )
 from vulnflow.utils.schema import get_flattened_columns, get_record_columns
-from vulnflow.utils.transforms import is_async_transform, partition_transforms
+from vulnflow.utils.transforms import is_async_transform
 
 __all__ = [
     "parse_cpe23",
@@ -45,7 +44,6 @@ __all__ = [
     "get_record_columns",
     "get_flattened_columns",
     "is_async_transform",
-    "partition_transforms",
     "is_url",
     "detect_format",
     "HttpError",

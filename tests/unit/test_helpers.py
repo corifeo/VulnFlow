@@ -197,3 +197,12 @@ class TestCacheBuilderBuild:
 
         with pytest.raises((FileNotFoundError, OSError, RuntimeError)):
             builder.build()
+
+    def test_build_rejects_workers_param(self):
+        """build() does not accept workers parameter (removed in executor redesign)."""
+        import inspect
+
+        from vulnflow.helpers.builder import CacheBuilder
+
+        sig = inspect.signature(CacheBuilder.build)
+        assert "workers" not in sig.parameters

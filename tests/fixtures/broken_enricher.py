@@ -18,6 +18,7 @@ class BrokenEnricher:
     """Enricher that always raises EnricherError."""
 
     name: str = "BrokenEnricher"
+    depends_on: list[str] = []
 
     async def transform(self, dataset: VulnDataset) -> None:
         """Raise error immediately."""
