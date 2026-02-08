@@ -128,8 +128,8 @@ def test_cvss_flatten_parses_vector_string():
     assert ds.get_column("cvss_availability")[0] == "H"
 
 
-def test_cvss_flatten_skips_non_authoritative():
-    """CVSSFlattenTransform skips records with only Secondary (non-authoritative) scores."""
+def test_cvss_flatten_falls_back_to_secondary():
+    """CVSSFlattenTransform falls back to Secondary when no Primary exists."""
     from vulnflow.transforms.flatten.cvss import CVSSFlattenTransform
 
     ds = VulnDataset()
@@ -159,10 +159,60 @@ def test_cvss_flatten_skips_non_authoritative():
 
     CVSSFlattenTransform().transform(ds)
 
-    # Should skip Secondary scores and leave fields as None
-    assert ds.get_column("cvss_base_score")[0] is None
-    assert ds.get_column("cvss_source")[0] is None
-    assert ds.get_column("cvss_version")[0] is None
+    # Should fall back to first Secondary score (same version, first wins)
+    assert ds.get_column("cvss_base_score")[0] == 9.0
+    assert ds.get_column("cvss_source")[0] == "github"
+    assert ds.get_column("cvss_version")[0] == "3.1"
+
+
+def test_cvss_flatten_fallback_selects_highest_version():
+    """CVSSFlattenTransform fallback picks highest CVSS version among Secondary scores."""
+    from vulnflow.transforms.flatten.cvss import CVSSFlattenTransform
+
+    ds = VulnDataset()
+    ds._data = {
+        "cve_id": np.array(["CVE-2024-99999"]),
+        "cvss_scores": np.array(
+            [
+                vulnflow_json.dumps(
+                    [
+                        {
+                            "version": "2.0",
+                            "base_score": 7.5,
+                            "source": "cna_old",
+                            "is_authoritative": False,
+                        },
+                        {
+                            "version": "3.1",
+                            "base_score": 8.8,
+                            "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+                            "base_severity": "HIGH",
+                            "source": "cna_modern",
+                            "is_authoritative": False,
+                        },
+                        {
+                            "version": "3.0",
+                            "base_score": 9.0,
+                            "source": "adp_provider",
+                            "is_authoritative": False,
+                        },
+                    ]
+                )
+            ]
+        ),
+    }
+
+    CVSSFlattenTransform().transform(ds)
+
+    # Should pick version 3.1 (highest rank) over 3.0 and 2.0
+    assert ds.get_column("cvss_version")[0] == "3.1"
+    assert ds.get_column("cvss_base_score")[0] == 8.8
+    assert ds.get_column("cvss_source")[0] == "cna_modern"
+    assert ds.get_column("cvss_base_severity")[0] == "HIGH"
+    # Vector string should be parsed
+    assert ds.get_column("cvss_attack_vector")[0] == "N"
+    assert ds.get_column("cvss_attack_complexity")[0] == "L"
+    assert ds.get_column("cvss_privileges_required")[0] == "L"
 
 
 def test_cvss_flatten_prefers_primary_over_secondary():

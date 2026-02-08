@@ -3,13 +3,12 @@
 Layer: Transform/Flatten
 Dependencies: transforms.flatten.base
 
-Selects ONLY authoritative CVSS entries from the cvss_scores array:
-- is_authoritative=True (Primary type in NVD data)
-- Secondary scores from vendors (github, patchstack, etc.) are skipped
-- If no authoritative score exists, fields remain None
+Selects authoritative CVSS entries, falling back to best available Secondary:
+- is_authoritative=True (Primary type in NVD data) preferred
+- If no authoritative score exists, selects the highest-version Secondary score
 
 This ensures cvss_source reflects the data source (nvd, redhat, etc.),
-not vendor-provided Secondary scores included in NVD feeds.
+with CNA/ADP providers used as fallback when no Primary score exists.
 
 Extracts 15 scalar columns from the selected entry.
 """
@@ -17,7 +16,7 @@ Extracts 15 scalar columns from the selected entry.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -33,14 +32,21 @@ CVSS3_PATTERN = re.compile(
     r"CVSS:3\.[01]/AV:([NALP])/AC:([LH])/PR:([NLH])/UI:([NR])/S:([UC])/C:([NLH])/I:([NLH])/A:([NLH])"
 )
 
+_VERSION_RANK: dict[str, int] = {"4.0": 3, "3.1": 2, "3.0": 1, "2.0": 0}
+
+
+def _version_rank(entry: dict[str, Any]) -> int:
+    """Rank CVSS entry by version for fallback selection."""
+    return _VERSION_RANK.get(entry.get("version", ""), -1)
+
 
 @register_transform(default=True)
 class CVSSFlattenTransform(BaseFlatten):
     """Select authoritative CVSS score and extract components.
 
-    Selects ONLY authoritative (Primary) CVSS scores. Secondary vendor scores
-    (github, patchstack, etc.) are ignored. If no authoritative score exists,
-    all output fields remain None.
+    Selects authoritative (Primary) CVSS scores, falling back to the
+    highest-version Secondary score from CNA/ADP providers. If no
+    authoritative score exists, selects the highest-version Secondary score.
 
     Output columns (15):
     - cvss_version, cvss_base_score, cvss_base_severity, cvss_source
@@ -133,15 +139,18 @@ class CVSSFlattenTransform(BaseFlatten):
             if not scores:
                 continue
 
-            # Selection: only authoritative (Primary) scores from NVD
-            # Secondary scores from vendors (github, patchstack, etc.) are skipped
+            # Selection: prefer authoritative (Primary) score from NVD.
+            # Fallback: highest-version Secondary score from CNA/ADP providers.
             selected = None
+            fallback = None
             for s in scores:
                 if s.get("is_authoritative"):
                     selected = s
                     break
-
-            # If no authoritative score, skip this record (leave fields as None)
+                if fallback is None or _version_rank(s) > _version_rank(fallback):
+                    fallback = s
+            if selected is None:
+                selected = fallback
             if not selected:
                 continue
 
