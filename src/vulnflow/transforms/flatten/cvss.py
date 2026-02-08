@@ -32,6 +32,11 @@ CVSS3_PATTERN = re.compile(
     r"CVSS:3\.[01]/AV:([NALP])/AC:([LH])/PR:([NLH])/UI:([NR])/S:([UC])/C:([NLH])/I:([NLH])/A:([NLH])"
 )
 
+# CVSS 2.0 vector pattern
+CVSS2_PATTERN = re.compile(
+    r"AV:([NAL])/AC:([HML])/Au:([MSN])/C:([NPC])/I:([NPC])/A:([NPC])"
+)
+
 _VERSION_RANK: dict[str, int] = {"4.0": 3, "3.1": 2, "3.0": 1, "2.0": 0}
 
 
@@ -163,7 +168,7 @@ class CVSSFlattenTransform(BaseFlatten):
             out["cvss_exploitability_score"][i] = selected.get("exploitability_score")
             out["cvss_impact_score"][i] = selected.get("impact_score")
 
-            # Parse vector string
+            # Parse vector string (try v3 first, fall back to v2)
             vector = selected.get("vector_string", "")
             if vector:
                 match = CVSS3_PATTERN.match(vector)
@@ -176,6 +181,15 @@ class CVSSFlattenTransform(BaseFlatten):
                     out["cvss_confidentiality"][i] = match.group(6)
                     out["cvss_integrity"][i] = match.group(7)
                     out["cvss_availability"][i] = match.group(8)
+                else:
+                    v2_match = CVSS2_PATTERN.match(vector)
+                    if v2_match:
+                        out["cvss_attack_vector"][i] = v2_match.group(1)
+                        out["cvss_attack_complexity"][i] = v2_match.group(2)
+                        # v2 Au != v3 PR; leave PR, UI, S as None
+                        out["cvss_confidentiality"][i] = v2_match.group(4)
+                        out["cvss_integrity"][i] = v2_match.group(5)
+                        out["cvss_availability"][i] = v2_match.group(6)
 
         # Insert columns right after input_column (cvss_scores)
         dataset.insert_columns_after(self.input_column, out)
