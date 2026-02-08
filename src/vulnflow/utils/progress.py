@@ -96,6 +96,7 @@ class ProgressReporter:
         self._token: Token[bool] | None = None
         self._start_times: dict[str, float] = {}
         self._silent: bool = False
+        self._dot_count: int = 0
 
     def stage_started(self, name: str) -> None:
         """Record start time for this stage. No output."""
@@ -106,6 +107,8 @@ class ProgressReporter:
     ) -> None:
         """Print checkmark line with optional detail and duration, tick bar.
 
+        In quiet mode, prints a single "." per stage instead.
+
         Args:
             name: Stage name (must match a prior stage_started call).
             detail: Optional detail string (e.g., "1,555 CVEs").
@@ -115,7 +118,10 @@ class ProgressReporter:
             duration = self._elapsed(name)
         else:
             self._start_times.pop(name, None)
-        if not self._silent:
+        if self._silent:
+            print(".", end="", flush=True)  # noqa: T201
+            self._dot_count += 1
+        else:
             line = f"  \u2713 {name} ({self._format_inner(detail, duration)})"
             print(line)  # noqa: T201
         if self._bar is not None:
@@ -126,6 +132,8 @@ class ProgressReporter:
     ) -> None:
         """Print cross line with error and duration, tick bar.
 
+        In quiet mode, prints "!" per failed stage instead.
+
         Args:
             name: Stage name (must match a prior stage_started call).
             error: Optional error message.
@@ -135,7 +143,10 @@ class ProgressReporter:
             duration = self._elapsed(name)
         else:
             self._start_times.pop(name, None)
-        if not self._silent:
+        if self._silent:
+            print("!", end="", flush=True)  # noqa: T201
+            self._dot_count += 1
+        else:
             line = f"  \u2717 {name}"
             if error:
                 line += f" \u2014 {error}"
@@ -145,7 +156,10 @@ class ProgressReporter:
             self._bar.update(1)
 
     def summary(self, text: str) -> None:
-        """Print arrow summary line (no bar tick)."""
+        """Print arrow summary line (no bar tick).
+
+        Suppressed entirely in quiet mode (dots provide enough feedback).
+        """
         if not self._silent:
             print(f"  \u2192 {text}")  # noqa: T201
 
@@ -164,6 +178,8 @@ class ProgressReporter:
         return self
 
     def __exit__(self, *args: Any) -> None:
+        if self._dot_count > 0:
+            print(flush=True)  # noqa: T201  # Newline after dots
         if self._token is not None:
             _suppress_progress.reset(self._token)
             self._token = None

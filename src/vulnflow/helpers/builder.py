@@ -182,7 +182,7 @@ class CacheBuilder:
                 transformers=transformers,
             )
 
-            result = pipeline.run()
+            result = pipeline.run(quiet=self._quiet)
             dataset = result.dataset
 
             if dataset is None:
