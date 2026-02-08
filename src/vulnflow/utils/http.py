@@ -1,10 +1,10 @@
-"""HTTP Utilities - Async HTTP client with caching and format detection.
+"""HTTP Utilities - Async HTTP client with caching, retry, and format detection.
 
 Provides:
 - HttpError: Exception wrapper (prevents httpx from leaking to enrichers/extractors)
 - is_url: Check if source is HTTP/HTTPS URL
 - detect_format: Detect content format from URL, headers, or content
-- HttpFetcher: Async HTTP client with disk caching and gzip support
+- HttpFetcher: Async HTTP client with disk caching, gzip support, and retry
 
 Layer: Utility
 Dependencies: httpx (internal only, wrapped by HttpError)
@@ -115,12 +115,13 @@ def detect_format(
 
 
 class HttpFetcher:
-    """Async HTTP client with disk caching and gzip support.
+    """Async HTTP client with disk caching, retry, and gzip support.
 
     Features:
     - Automatic gzip decompression (.gz extension or magic bytes)
     - Disk-based caching with TTL
     - Hash-based cache filenames for URL safety
+    - Retry with exponential backoff for transient failures
     """
 
     GZIP_MAGIC = b"\x1f\x8b"
@@ -129,20 +130,30 @@ class HttpFetcher:
         self,
         cache_dir: Path | str = ".cache",
         timeout: float = 120.0,
+        retries: int = 3,
+        backoff_base: float = 1.0,
     ) -> None:
         """Initialize HTTP fetcher.
 
         Args:
             cache_dir: Directory for cached responses
             timeout: HTTP request timeout in seconds
+            retries: Maximum number of attempts for transient failures
+            backoff_base: Base delay in seconds for exponential backoff
         """
         self.cache_dir = Path(cache_dir)
         self.timeout = timeout
+        self._retries = retries
+        self._backoff_base = backoff_base
 
     async def fetch(
         self, url: str, cache_ttl: int | None = None
     ) -> tuple[bytes, ContentFormat]:
-        """Fetch URL with optional caching and auto-decompress gzip.
+        """Fetch URL with optional caching, retry, and auto-decompress gzip.
+
+        Retries on transient failures (connection errors, timeouts, 5xx
+        responses) with exponential backoff. Client errors (4xx) raise
+        immediately.
 
         Args:
             url: HTTP/HTTPS URL to fetch
@@ -156,37 +167,73 @@ class HttpFetcher:
         """
         import httpx
 
-        try:
-            # Check cache first
-            if cache_ttl is not None:
-                cached = self._read_cache(url, cache_ttl)
-                if cached is not None:
-                    content_type = None  # No header for cached content
-                    fmt = detect_format(url, content_type, cached)
-                    return cached, fmt
+        # Check cache first (no retry needed for local I/O)
+        if cache_ttl is not None:
+            cached = self._read_cache(url, cache_ttl)
+            if cached is not None:
+                content_type = None  # No header for cached content
+                fmt = detect_format(url, content_type, cached)
+                return cached, fmt
 
-            # Fetch from network (follow redirects)
-            async with httpx.AsyncClient(
-                timeout=self.timeout, follow_redirects=True
-            ) as client:
-                response = await client.get(url)
-                response.raise_for_status()
+        # Fetch from network with retry
+        last_exc: Exception | None = None
+        for attempt in range(self._retries):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout, follow_redirects=True
+                ) as client:
+                    response = await client.get(url)
+                    response.raise_for_status()
+                break  # Success
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                last_exc = exc
+                if attempt < self._retries - 1:
+                    wait = self._backoff_base * (2 ** attempt)
+                    logger.warning(
+                        "HTTP fetch attempt %d/%d failed for %s: %s. "
+                        "Retrying in %.1fs",
+                        attempt + 1,
+                        self._retries,
+                        url,
+                        exc,
+                        wait,
+                    )
+                    await asyncio.sleep(wait)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code >= 500 and attempt < self._retries - 1:
+                    last_exc = exc
+                    wait = self._backoff_base * (2 ** attempt)
+                    logger.warning(
+                        "HTTP fetch attempt %d/%d got %d for %s. "
+                        "Retrying in %.1fs",
+                        attempt + 1,
+                        self._retries,
+                        exc.response.status_code,
+                        url,
+                        wait,
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    # 4xx errors or last attempt for 5xx — raise immediately
+                    raise HttpError(
+                        f"Failed to fetch {url}: {exc}"
+                    ) from exc
+        else:
+            # All retries exhausted
+            raise HttpError(f"Failed to fetch {url}: {last_exc}") from last_exc
 
-            content = response.content
-            content_type = response.headers.get("content-type")
+        content = response.content
+        content_type = response.headers.get("content-type")
 
-            # Auto-decompress gzip
-            content = self._maybe_decompress(content, url)
+        # Auto-decompress gzip
+        content = self._maybe_decompress(content, url)
 
-            # Cache if TTL specified
-            if cache_ttl is not None:
-                self._write_cache(url, content)
+        # Cache if TTL specified
+        if cache_ttl is not None:
+            self._write_cache(url, content)
 
-            fmt = detect_format(url, content_type, content)
-            return content, fmt
-
-        except httpx.HTTPError as e:
-            raise HttpError(f"Failed to fetch {url}: {e}") from e
+        fmt = detect_format(url, content_type, content)
+        return content, fmt
 
     def fetch_sync(
         self, url: str, cache_ttl: int | None = None

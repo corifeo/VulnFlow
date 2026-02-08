@@ -1,6 +1,6 @@
 """
 HTTP Utilities - Tests for is_url, detect_format, HttpFetcher, and enricher/extractor HTTP integration
-Tests: URL detection, format detection, caching, decompression, mocked HTTP calls
+Tests: URL detection, format detection, caching, decompression, retry, mocked HTTP calls
 
 Layer: Utils/HTTP
 Dependencies: httpx, utils.http
@@ -14,12 +14,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from vulnflow.extractors.nvd import NVDExtractor
 from vulnflow.transforms.enrichers.epss import DEFAULT_EPSS_URL, EPSSEnricher
 from vulnflow.transforms.enrichers.kev import DEFAULT_KEV_URL, KEVEnricher
-from vulnflow.utils.http import HttpFetcher, detect_format, is_url
+from vulnflow.utils.http import HttpError, HttpFetcher, detect_format, is_url
 
 # =============================================================================
 # is_url() Tests
@@ -510,3 +511,238 @@ class TestHttpFetcherIntegration:
         # Verify cache file exists
         cache_path = fetcher._cache_path(url)
         assert cache_path.exists()
+
+
+# =============================================================================
+# HttpFetcher Retry Tests
+# =============================================================================
+
+
+def _make_response(
+    status_code: int = 200,
+    content: bytes = b'{"ok": true}',
+    content_type: str = "application/json",
+) -> httpx.Response:
+    """Build a fake httpx.Response for testing."""
+    response = httpx.Response(
+        status_code=status_code,
+        content=content,
+        headers={"content-type": content_type},
+        request=httpx.Request("GET", "https://example.com/data.json"),
+    )
+    return response
+
+
+class TestHttpFetcherRetry:
+    """Tests for HttpFetcher retry logic."""
+
+    def test_init_stores_retry_params(self, tmp_path: Path) -> None:
+        fetcher = HttpFetcher(
+            cache_dir=tmp_path, retries=5, backoff_base=2.0
+        )
+        assert fetcher._retries == 5
+        assert fetcher._backoff_base == 2.0
+
+    def test_init_default_retry_params(self) -> None:
+        fetcher = HttpFetcher()
+        assert fetcher._retries == 3
+        assert fetcher._backoff_base == 1.0
+
+    async def test_fetch_succeeds_on_first_attempt(self, tmp_path: Path) -> None:
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=3, backoff_base=0.0)
+        ok_response = _make_response(200, b'{"data": 1}')
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = ok_response
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            content, fmt = await fetcher.fetch("https://example.com/data.json")
+
+        assert content == b'{"data": 1}'
+        assert fmt == "json"
+        assert mock_client.get.call_count == 1
+
+    async def test_fetch_retries_on_connect_error(self, tmp_path: Path) -> None:
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=3, backoff_base=0.0)
+        ok_response = _make_response(200, b'{"ok": true}')
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.side_effect = [
+                httpx.ConnectError("Connection refused"),
+                ok_response,
+            ]
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            content, fmt = await fetcher.fetch("https://example.com/data.json")
+
+        assert content == b'{"ok": true}'
+        assert mock_client.get.call_count == 2
+
+    async def test_fetch_retries_on_timeout(self, tmp_path: Path) -> None:
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=3, backoff_base=0.0)
+        ok_response = _make_response(200, b'{"ok": true}')
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.side_effect = [
+                httpx.ReadTimeout("Read timed out"),
+                ok_response,
+            ]
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            content, fmt = await fetcher.fetch("https://example.com/data.json")
+
+        assert content == b'{"ok": true}'
+        assert mock_client.get.call_count == 2
+
+    async def test_fetch_retries_on_5xx_error(self, tmp_path: Path) -> None:
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=3, backoff_base=0.0)
+        error_response = _make_response(503, b"Service Unavailable")
+        ok_response = _make_response(200, b'{"ok": true}')
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            # First call returns 503, second call succeeds
+            mock_client.get.side_effect = [error_response, ok_response]
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            content, fmt = await fetcher.fetch("https://example.com/data.json")
+
+        assert content == b'{"ok": true}'
+        assert mock_client.get.call_count == 2
+
+    async def test_fetch_raises_immediately_on_4xx(self, tmp_path: Path) -> None:
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=3, backoff_base=0.0)
+        error_response = _make_response(404, b"Not Found")
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = error_response
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with pytest.raises(HttpError, match="Failed to fetch"):
+                await fetcher.fetch("https://example.com/data.json")
+
+        # Should not retry on 4xx
+        assert mock_client.get.call_count == 1
+
+    async def test_fetch_exhausts_retries_raises(self, tmp_path: Path) -> None:
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=3, backoff_base=0.0)
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.side_effect = httpx.ConnectError("Connection refused")
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with pytest.raises(HttpError, match="Failed to fetch"):
+                await fetcher.fetch("https://example.com/data.json")
+
+        assert mock_client.get.call_count == 3
+
+    async def test_fetch_retries_1_means_no_retry(self, tmp_path: Path) -> None:
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=1, backoff_base=0.0)
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.side_effect = httpx.ConnectError("Connection refused")
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with pytest.raises(HttpError):
+                await fetcher.fetch("https://example.com/data.json")
+
+        # retries=1 means one attempt total, no retries
+        assert mock_client.get.call_count == 1
+
+    async def test_fetch_5xx_on_last_attempt_raises(self, tmp_path: Path) -> None:
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=2, backoff_base=0.0)
+        error_response = _make_response(502, b"Bad Gateway")
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = error_response
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with pytest.raises(HttpError, match="Failed to fetch"):
+                await fetcher.fetch("https://example.com/data.json")
+
+        assert mock_client.get.call_count == 2
+
+    async def test_fetch_backoff_timing(self, tmp_path: Path) -> None:
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=3, backoff_base=0.01)
+        ok_response = _make_response(200, b'{"ok": true}')
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        ):
+            mock_client = AsyncMock()
+            mock_client.get.side_effect = [
+                httpx.ConnectError("fail 1"),
+                httpx.ConnectError("fail 2"),
+                ok_response,
+            ]
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            content, fmt = await fetcher.fetch("https://example.com/data.json")
+
+        assert content == b'{"ok": true}'
+        # Two failures before success: backoff_base * 2^0, backoff_base * 2^1
+        assert mock_sleep.call_count == 2
+        assert mock_sleep.call_args_list[0].args[0] == pytest.approx(0.01)
+        assert mock_sleep.call_args_list[1].args[0] == pytest.approx(0.02)
+
+    async def test_fetch_logs_warning_on_retry(self, tmp_path: Path) -> None:
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=2, backoff_base=0.0)
+        ok_response = _make_response(200, b'{"ok": true}')
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("vulnflow.utils.http.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.get.side_effect = [
+                httpx.ConnectError("Connection refused"),
+                ok_response,
+            ]
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            await fetcher.fetch("https://example.com/data.json")
+
+        mock_logger.warning.assert_called_once()
+        call_args = mock_logger.warning.call_args.args
+        # logger.warning uses %-formatting: format_str, attempt+1, retries, url, exc, wait
+        assert "HTTP fetch attempt" in call_args[0]
+        assert call_args[1] == 1  # attempt + 1
+        assert call_args[2] == 2  # retries
