@@ -93,6 +93,27 @@ def test_dataset_transform_applies_transforms():
     assert "mock_column" in dataset.columns
 
 
+def test_dataset_transform_quiet_suppresses_output(
+    capsys: pytest.CaptureFixture[str],
+):
+    """VulnDataset.transform(quiet=True) produces no progress output."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    class MockTransform:
+        name = "mock_quiet"
+        depends_on: list[str] = []
+
+        def transform(self, ds: VulnDataset) -> None:
+            ds.set_column("quiet_col", np.array(["Q"] * len(ds), dtype=object))
+
+    dataset.transform([MockTransform()], quiet=True)
+
+    captured = capsys.readouterr()
+    assert "\u2713" not in captured.out
+    assert "mock_quiet" not in captured.out
+    assert "quiet_col" in dataset.columns
+
+
 def test_dataset_transform_sorts_by_dependencies():
     """dataset.transform() sorts transforms by depends_on."""
     execution_order = []

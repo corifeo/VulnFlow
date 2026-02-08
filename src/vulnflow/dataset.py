@@ -181,7 +181,12 @@ class VulnDataset:
 
         self._data = new_data
 
-    def transform(self, transforms: list[object] | None = None) -> VulnDataset:
+    def transform(
+        self,
+        transforms: list[object] | None = None,
+        *,
+        quiet: bool = False,
+    ) -> VulnDataset:
         """Apply transforms and enrichers to dataset (modifies in place).
 
         Uses dependency-aware phased execution: transforms are grouped into
@@ -194,48 +199,58 @@ class VulnDataset:
         Args:
             transforms: List of transform/enricher instances. If None, uses registered defaults
                        (both enrichers and transforms).
+            quiet: Suppress all progress output (for programmatic use).
 
         Returns:
             Self for method chaining
         """
         from vulnflow.executor import PipelineExecutor
+        from vulnflow.utils.progress import _suppress_progress
 
-        if transforms is None:
-            from vulnflow.registry import Registry
+        suppress_token = None
+        if quiet:
+            suppress_token = _suppress_progress.set(True)
 
-            transforms = Registry.get_default_transforms()
+        try:
+            if transforms is None:
+                from vulnflow.registry import Registry
 
-        if not transforms:
+                transforms = Registry.get_default_transforms()
+
+            if not transforms:
+                return self
+
+            with ProgressReporter(
+                "Transforming dataset",
+                total=len(transforms),
+                unit="transforms",
+            ) as rpt:
+                # Handle Jupyter/IPython event loops
+                try:
+                    asyncio.get_running_loop()
+                    import nest_asyncio  # type: ignore[import-untyped]
+
+                    nest_asyncio.apply()
+                    successful, _failed, _errors = asyncio.run(
+                        PipelineExecutor.run_transforms(
+                            self, transforms, strict=True, reporter=rpt
+                        )
+                    )
+                except RuntimeError:
+                    successful, _failed, _errors = asyncio.run(
+                        PipelineExecutor.run_transforms(
+                            self, transforms, strict=True, reporter=rpt
+                        )
+                    )
+
+            # Record provenance for successful transforms
+            for t_name in successful:
+                self._record_provenance(transform=t_name)
+
             return self
-
-        with ProgressReporter(
-            "Transforming dataset",
-            total=len(transforms),
-            unit="transforms",
-        ) as rpt:
-            # Handle Jupyter/IPython event loops
-            try:
-                asyncio.get_running_loop()
-                import nest_asyncio  # type: ignore[import-untyped]
-
-                nest_asyncio.apply()
-                successful, _failed, _errors = asyncio.run(
-                    PipelineExecutor.run_transforms(
-                        self, transforms, strict=True, reporter=rpt
-                    )
-                )
-            except RuntimeError:
-                successful, _failed, _errors = asyncio.run(
-                    PipelineExecutor.run_transforms(
-                        self, transforms, strict=True, reporter=rpt
-                    )
-                )
-
-        # Record provenance for successful transforms
-        for t_name in successful:
-            self._record_provenance(transform=t_name)
-
-        return self
+        finally:
+            if suppress_token is not None:
+                _suppress_progress.reset(suppress_token)
 
     @classmethod
     def from_nvd(cls, path: str | Path) -> VulnDataset:

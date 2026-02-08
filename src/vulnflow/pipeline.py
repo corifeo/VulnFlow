@@ -49,68 +49,81 @@ class VulnPipeline:
         self,
         dataset: VulnDataset | None = None,
         strict: bool = False,
+        *,
+        quiet: bool = False,
     ) -> PipelineResult:
         """Execute pipeline stages: extract → transform → load.
 
         Args:
             dataset: Optional pre-existing dataset (skips extraction)
             strict: If True, raise on transformer errors. If False, collect errors.
+            quiet: Suppress all progress output (for programmatic use).
 
         Returns:
             PipelineResult with dataset, metadata, and errors
         """
-        start_time = time.time()
-        errors: list[Exception] = []
-        successful_stages: list[str] = []
-        failed_stages: list[str] = []
+        from vulnflow.utils.progress import _suppress_progress
 
-        # Stage 1: Extract (concurrent via ThreadPoolExecutor)
-        if dataset is None and self.extractors:
-            dataset, ext_succ, ext_fail, ext_err = PipelineExecutor.run_extractors(
-                self.extractors
-            )
-            successful_stages.extend(ext_succ)
-            failed_stages.extend(ext_fail)
-            errors.extend(ext_err)
+        suppress_token = None
+        if quiet:
+            suppress_token = _suppress_progress.set(True)
 
-        # Stage 2: Transform (phased via build_phases)
-        if self.transformers and dataset is not None:
-            try:
-                asyncio.get_running_loop()
-                import nest_asyncio  # type: ignore[import-untyped]
+        try:
+            start_time = time.time()
+            errors: list[Exception] = []
+            successful_stages: list[str] = []
+            failed_stages: list[str] = []
 
-                nest_asyncio.apply()
-            except RuntimeError:
-                pass  # No running loop — normal case
-            t_succ, t_fail, t_err = asyncio.run(
-                PipelineExecutor.run_transforms(
-                    dataset, self.transformers, strict
+            # Stage 1: Extract (concurrent via ThreadPoolExecutor)
+            if dataset is None and self.extractors:
+                dataset, ext_succ, ext_fail, ext_err = PipelineExecutor.run_extractors(
+                    self.extractors
                 )
+                successful_stages.extend(ext_succ)
+                failed_stages.extend(ext_fail)
+                errors.extend(ext_err)
+
+            # Stage 2: Transform (phased via build_phases)
+            if self.transformers and dataset is not None:
+                try:
+                    asyncio.get_running_loop()
+                    import nest_asyncio  # type: ignore[import-untyped]
+
+                    nest_asyncio.apply()
+                except RuntimeError:
+                    pass  # No running loop — normal case
+                t_succ, t_fail, t_err = asyncio.run(
+                    PipelineExecutor.run_transforms(
+                        dataset, self.transformers, strict
+                    )
+                )
+                successful_stages.extend(t_succ)
+                failed_stages.extend(t_fail)
+                errors.extend(t_err)
+
+            # Stage 3: Load
+            loader_outputs: dict[str, Any] = {}
+            if self.loaders and dataset is not None:
+                loader_outputs, load_succ, load_fail, load_err = (
+                    PipelineExecutor.run_loaders(dataset, self.loaders)
+                )
+                successful_stages.extend(load_succ)
+                failed_stages.extend(load_fail)
+                errors.extend(load_err)
+
+            duration = time.time() - start_time
+
+            return PipelineResult(
+                dataset=dataset,
+                loader_outputs=loader_outputs,
+                errors=errors,
+                successful_stages=successful_stages,
+                failed_stages=failed_stages,
+                duration=duration,
             )
-            successful_stages.extend(t_succ)
-            failed_stages.extend(t_fail)
-            errors.extend(t_err)
-
-        # Stage 3: Load
-        loader_outputs: dict[str, Any] = {}
-        if self.loaders and dataset is not None:
-            loader_outputs, load_succ, load_fail, load_err = (
-                PipelineExecutor.run_loaders(dataset, self.loaders)
-            )
-            successful_stages.extend(load_succ)
-            failed_stages.extend(load_fail)
-            errors.extend(load_err)
-
-        duration = time.time() - start_time
-
-        return PipelineResult(
-            dataset=dataset,
-            loader_outputs=loader_outputs,
-            errors=errors,
-            successful_stages=successful_stages,
-            failed_stages=failed_stages,
-            duration=duration,
-        )
+        finally:
+            if suppress_token is not None:
+                _suppress_progress.reset(suppress_token)
 
     def merge(self, other: VulnPipeline) -> VulnPipeline:
         """Merge pipeline stages horizontally by type (immutable).
