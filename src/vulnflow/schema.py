@@ -29,6 +29,18 @@ class CWEEntry:
 
 
 @dataclass
+class CAPECEntry:
+    """CAPEC attack pattern classification."""
+
+    id: str  # "CAPEC-86"
+    name: str | None = None  # "XSS via HTTP Headers"
+    abstraction: str | None = None  # "Meta"|"Standard"|"Detailed"
+    status: str | None = None  # "Draft"|"Stable"|"Deprecated"
+    likelihood_of_attack: str | None = None  # "High"|"Medium"|"Low"
+    typical_severity: str | None = None  # "Very High"|"High"|"Medium"|"Low"|"Very Low"
+
+
+@dataclass
 class CPEEntry:
     """CPE product identification."""
 

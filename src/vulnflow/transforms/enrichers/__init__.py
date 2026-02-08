@@ -5,6 +5,7 @@ Provides:
 - KEVEnricher: CISA KEV catalog enrichment (BulkEnricher pattern)
 - EPSSEnricher: FIRST EPSS score enrichment (BulkEnricher pattern)
 - CWEEnricher: MITRE CWE database enrichment (BulkEnricher pattern)
+- CAPECEnricher: MITRE CAPEC attack pattern enrichment (BulkEnricher pattern)
 - APIEnricher: Base class for per-CVE API enrichers
 - ExploitDBEnricher: ExploitDB enrichment (APIEnricher pattern)
 
@@ -16,6 +17,7 @@ Used by: dataset.enrich()
 from __future__ import annotations
 
 from vulnflow.transforms.enrichers.api_base import APIEnricher
+from vulnflow.transforms.enrichers.capec import CAPECEnricher
 from vulnflow.transforms.enrichers.cwe import CWEEnricher
 from vulnflow.transforms.enrichers.epss import EPSSEnricher
 from vulnflow.transforms.enrichers.exploit import ExploitDBEnricher
@@ -25,6 +27,7 @@ __all__ = [
     "KEVEnricher",
     "EPSSEnricher",
     "CWEEnricher",
+    "CAPECEnricher",
     "APIEnricher",
     "ExploitDBEnricher",
 ]
