@@ -143,7 +143,7 @@ class TestCacheBuilderBuild:
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
 
-        ds = builder.build(epss=False, kev=False)
+        ds = builder.build(epss=False, kev=False, cpe=False, cwe=False)
 
         assert len(ds) > 0
 
@@ -154,7 +154,7 @@ class TestCacheBuilderBuild:
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
 
-        ds = builder.build(epss=False, kev=False)
+        ds = builder.build(epss=False, kev=False, cpe=False, cwe=False)
 
         # Default behavior: CVSSFlattenTransform adds 15 scalar columns
         assert "cvss_base_score" in ds.columns
@@ -169,7 +169,7 @@ class TestCacheBuilderBuild:
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
 
-        ds = builder.build(cvss=False, epss=False, kev=False)
+        ds = builder.build(cvss=False, epss=False, kev=False, cpe=False, cwe=False)
 
         # With cvss=False, only cvss_scores exists (nested JSON)
         assert "cvss_scores" in ds.columns
@@ -182,7 +182,7 @@ class TestCacheBuilderBuild:
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
 
-        ds = builder.build(cvss=True, epss=False, kev=False)
+        ds = builder.build(cvss=True, epss=False, kev=False, cpe=False, cwe=False)
 
         # CVSSFlattenTransform adds 15 scalar columns
         assert "cvss_base_score" in ds.columns
@@ -216,7 +216,7 @@ class TestCacheBuilderBuild:
 
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
-        ds = builder.build(kev=False)
+        ds = builder.build(kev=False, cwe=False)
 
         assert "epss_probability" in ds.columns
         assert "epss_percentile" in ds.columns
@@ -230,7 +230,7 @@ class TestCacheBuilderBuild:
 
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
-        ds = builder.build(epss=False)
+        ds = builder.build(epss=False, cwe=False)
 
         assert "is_kev" in ds.columns
         assert "kev_date_added" in ds.columns
@@ -241,7 +241,7 @@ class TestCacheBuilderBuild:
 
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
-        ds = builder.build(epss=False, kev=False)
+        ds = builder.build(epss=False, kev=False, cpe=False, cwe=False)
 
         assert "epss_probability" not in ds.columns
 
@@ -251,6 +251,53 @@ class TestCacheBuilderBuild:
 
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
-        ds = builder.build(epss=False, kev=False)
+        ds = builder.build(epss=False, kev=False, cpe=False, cwe=False)
 
         assert "is_kev" not in ds.columns
+
+    def test_build_default_flattens_cpe(self, nvd_sample_path):
+        """build() flattens CPE vendor/product columns by default."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024])
+        builder._urls = [str(nvd_sample_path)]
+        ds = builder.build(epss=False, kev=False, cwe=False)
+
+        assert "cpe_vendor" in ds.columns
+        assert "cpe_product" in ds.columns
+
+    def test_build_cpe_false_skips(self, nvd_sample_path):
+        """build(cpe=False) skips CPE flattening."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024])
+        builder._urls = [str(nvd_sample_path)]
+        ds = builder.build(epss=False, kev=False, cpe=False, cwe=False)
+
+        assert "cpe_vendor" not in ds.columns
+
+    def test_build_default_enriches_cwe(self, nvd_sample_path, monkeypatch):
+        """build() enriches with CWE by default."""
+        from vulnflow.helpers.builder import CacheBuilder
+        from vulnflow.transforms.enrichers import cwe as cwe_mod
+
+        monkeypatch.setattr(
+            cwe_mod, "DEFAULT_CWE_URL", "tests/fixtures/cwe_sample.xml"
+        )
+
+        builder = CacheBuilder(years=[2024])
+        builder._urls = [str(nvd_sample_path)]
+        ds = builder.build(epss=False, kev=False)
+
+        assert "cwe_id" in ds.columns
+        assert "cwe_name" in ds.columns
+
+    def test_build_cwe_false_skips(self, nvd_sample_path):
+        """build(cwe=False) skips CWE enrichment."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024])
+        builder._urls = [str(nvd_sample_path)]
+        ds = builder.build(epss=False, kev=False, cpe=False, cwe=False)
+
+        assert "cwe_id" not in ds.columns
