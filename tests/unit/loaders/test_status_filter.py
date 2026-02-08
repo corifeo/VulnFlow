@@ -55,26 +55,26 @@ def test_defaults_include_analyzed_modified() -> None:
     assert _NVD_STATUS_DEFAULTS["modified"] is True
 
 
-def test_defaults_exclude_awaiting_rejected_deferred() -> None:
-    """Default excludes awaiting, rejected, deferred."""
-    assert _NVD_STATUS_DEFAULTS["awaiting"] is False
+def test_defaults_exclude_only_rejected() -> None:
+    """Default excludes only rejected."""
+    assert _NVD_STATUS_DEFAULTS["awaiting"] is True
     assert _NVD_STATUS_DEFAULTS["rejected"] is False
-    assert _NVD_STATUS_DEFAULTS["deferred"] is False
+    assert _NVD_STATUS_DEFAULTS["deferred"] is True
 
 
 def test_mask_with_defaults() -> None:
-    """_build_status_mask with defaults keeps analyzed/modified only."""
+    """_build_status_mask with defaults keeps all except rejected."""
     ds = _dataset_with_statuses(
         ["analyzed", "awaiting", "modified", "rejected", "deferred"]
     )
     mask = _build_status_mask(ds)
-    assert mask.tolist() == [True, False, True, False, False]
+    assert mask.tolist() == [True, True, True, False, True]
 
 
 def test_mask_include_all() -> None:
-    """Passing all=True keeps everything."""
+    """Passing rejected=True keeps everything."""
     ds = _dataset_with_statuses(["analyzed", "rejected", "deferred"])
-    mask = _build_status_mask(ds, rejected=True, deferred=True)
+    mask = _build_status_mask(ds, rejected=True)
     assert mask.all()
 
 
@@ -111,10 +111,10 @@ def test_mask_dtype_is_bool() -> None:
 
 
 def test_mask_single_override() -> None:
-    """Override a single kwarg."""
+    """Override a single kwarg to exclude a default-included status."""
     ds = _dataset_with_statuses(["awaiting", "analyzed"])
-    mask = _build_status_mask(ds, awaiting=True)
-    assert mask.tolist() == [True, True]
+    mask = _build_status_mask(ds, awaiting=False)
+    assert mask.tolist() == [False, True]
 
 
 def test_mask_none_status_always_included() -> None:
@@ -145,18 +145,18 @@ def test_mask_all_none_statuses() -> None:
 
 
 def test_pandas_loader_filters_by_default() -> None:
-    """PandasLoader with defaults excludes awaiting rows."""
-    ds = _dataset_with_statuses(["analyzed", "awaiting", "modified"])
+    """PandasLoader with defaults keeps all except rejected."""
+    ds = _dataset_with_statuses(["analyzed", "awaiting", "modified", "rejected"])
     df = ds.to_pandas()
     assert isinstance(df, pd.DataFrame)
-    assert len(df) == 2
-    assert set(df["cve_id"].tolist()) == {"CVE-2024-0000", "CVE-2024-0002"}
+    assert len(df) == 3
+    assert "rejected" not in df["nvd_status"].tolist()
 
 
 def test_pandas_loader_include_all_statuses() -> None:
     """PandasLoader with all statuses enabled keeps all rows."""
     ds = _dataset_with_statuses(["analyzed", "awaiting", "rejected"])
-    df = ds.to_pandas(awaiting=True, rejected=True)
+    df = ds.to_pandas(rejected=True)
     assert len(df) == 3
 
 
@@ -174,17 +174,17 @@ def test_pandas_loader_no_nvd_status_keeps_all() -> None:
 
 
 def test_polars_loader_filters_by_default() -> None:
-    """PolarsLoader with defaults excludes awaiting rows."""
-    ds = _dataset_with_statuses(["analyzed", "awaiting", "modified"])
+    """PolarsLoader with defaults keeps all except rejected."""
+    ds = _dataset_with_statuses(["analyzed", "awaiting", "modified", "rejected"])
     df = ds.to_polars()
     assert isinstance(df, pl.DataFrame)
-    assert len(df) == 2
+    assert len(df) == 3
 
 
 def test_polars_loader_include_all_statuses() -> None:
     """PolarsLoader with all statuses enabled keeps all rows."""
     ds = _dataset_with_statuses(["analyzed", "awaiting", "rejected"])
-    df = ds.to_polars(awaiting=True, rejected=True)
+    df = ds.to_polars(rejected=True)
     assert len(df) == 3
 
 
@@ -245,20 +245,19 @@ def test_to_json_has_no_status_kwargs() -> None:
 
 
 def test_nvd_fixture_default_filter() -> None:
-    """NVD sample fixture: default DataFrame filter excludes awaiting+rejected."""
+    """NVD sample fixture: default DataFrame filter excludes only rejected."""
     ds = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
     # Fixture has 5 records: analyzed, awaiting, modified, analyzed(pre-2017), rejected(pre-2017)
     assert len(ds) == 5
 
     df = ds.to_pandas()
-    # awaiting and rejected excluded by default → 3 remain (analyzed, modified, analyzed)
-    assert len(df) == 3
-    assert "awaiting" not in df["nvd_status"].tolist()
+    # only rejected excluded by default → 4 remain
+    assert len(df) == 4
     assert "rejected" not in df["nvd_status"].tolist()
 
 
 def test_nvd_fixture_all_statuses() -> None:
     """NVD sample fixture: include all statuses keeps 5 records."""
     ds = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
-    df = ds.to_pandas(awaiting=True, rejected=True, deferred=True)
+    df = ds.to_pandas(rejected=True)
     assert len(df) == 5

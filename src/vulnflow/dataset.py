@@ -335,9 +335,9 @@ class VulnDataset:
         *,
         analyzed: bool = True,
         modified: bool = True,
-        awaiting: bool = False,
+        awaiting: bool = True,
         rejected: bool = False,
-        deferred: bool = False,
+        deferred: bool = True,
     ) -> PandasDataFrame:
         """Export dataset to pandas DataFrame.
 
@@ -346,9 +346,9 @@ class VulnDataset:
                            for full data fidelity. Default False excludes nested columns.
             analyzed: Include rows with NVD status 'analyzed' (default True)
             modified: Include rows with NVD status 'modified' (default True)
-            awaiting: Include rows with NVD status 'awaiting' (default False)
+            awaiting: Include rows with NVD status 'awaiting' (default True)
             rejected: Include rows with NVD status 'rejected' (default False)
-            deferred: Include rows with NVD status 'deferred' (default False)
+            deferred: Include rows with NVD status 'deferred' (default True)
 
         Returns:
             Pandas DataFrame
@@ -371,9 +371,9 @@ class VulnDataset:
         *,
         analyzed: bool = True,
         modified: bool = True,
-        awaiting: bool = False,
+        awaiting: bool = True,
         rejected: bool = False,
-        deferred: bool = False,
+        deferred: bool = True,
     ) -> PolarsDataFrame:
         """Export dataset to polars DataFrame.
 
@@ -382,9 +382,9 @@ class VulnDataset:
                            for full data fidelity. Default False excludes nested columns.
             analyzed: Include rows with NVD status 'analyzed' (default True)
             modified: Include rows with NVD status 'modified' (default True)
-            awaiting: Include rows with NVD status 'awaiting' (default False)
+            awaiting: Include rows with NVD status 'awaiting' (default True)
             rejected: Include rows with NVD status 'rejected' (default False)
-            deferred: Include rows with NVD status 'deferred' (default False)
+            deferred: Include rows with NVD status 'deferred' (default True)
 
         Returns:
             Polars DataFrame

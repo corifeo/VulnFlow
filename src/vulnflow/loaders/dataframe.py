@@ -49,9 +49,9 @@ NESTED_COLUMNS = frozenset(
 _NVD_STATUS_DEFAULTS: dict[str, bool] = {
     "analyzed": True,
     "modified": True,
-    "awaiting": False,
+    "awaiting": True,
     "rejected": False,
-    "deferred": False,
+    "deferred": True,
 }
 
 
@@ -60,9 +60,9 @@ def _build_status_mask(
     *,
     analyzed: bool = True,
     modified: bool = True,
-    awaiting: bool = False,
+    awaiting: bool = True,
     rejected: bool = False,
-    deferred: bool = False,
+    deferred: bool = True,
 ) -> np.ndarray:
     """Build boolean mask based on NVD status values.
 
@@ -114,8 +114,8 @@ class PandasLoader:
     By default, excludes nested JSON columns for cleaner DataFrames (lossy).
     Set include_nested=True for full data fidelity on round-trip.
 
-    Filters rows by NVD status (analysis path). Default excludes awaiting,
-    rejected, and deferred rows.
+    Filters rows by NVD status (analysis path). Default excludes only
+    rejected rows.
     """
 
     format: str = "pandas"
@@ -127,8 +127,8 @@ class PandasLoader:
             include_nested: If True, include nested JSON columns for full fidelity.
                            Default False excludes nested columns (lossy by default).
             **status_kwargs: Override NVD status filters (analyzed, modified,
-                            awaiting, rejected, deferred). Defaults exclude
-                            awaiting, rejected, and deferred rows.
+                            awaiting, rejected, deferred). Default excludes
+                            only rejected rows.
         """
         self.include_nested = include_nested
         self._status_kwargs = {
@@ -165,8 +165,8 @@ class PolarsLoader:
     By default, excludes nested JSON columns for cleaner DataFrames (lossy).
     Set include_nested=True for full data fidelity on round-trip.
 
-    Filters rows by NVD status (analysis path). Default excludes awaiting,
-    rejected, and deferred rows.
+    Filters rows by NVD status (analysis path). Default excludes only
+    rejected rows.
     """
 
     format: str = "polars"
@@ -178,8 +178,8 @@ class PolarsLoader:
             include_nested: If True, include nested JSON columns for full fidelity.
                            Default False excludes nested columns (lossy by default).
             **status_kwargs: Override NVD status filters (analyzed, modified,
-                            awaiting, rejected, deferred). Defaults exclude
-                            awaiting, rejected, and deferred rows.
+                            awaiting, rejected, deferred). Default excludes
+                            only rejected rows.
         """
         self.include_nested = include_nested
         self._status_kwargs = {

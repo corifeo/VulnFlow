@@ -22,12 +22,12 @@ from vulnflow.transforms.inferences.events import EventInference
 
 def test_notebook_01_quick_start():
     """Notebook 01: Quick start one-liner works."""
-    # One-liner: NVD → pandas DataFrame (default filters exclude awaiting+rejected)
+    # One-liner: NVD → pandas DataFrame (default filters exclude only rejected)
     df = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").to_pandas()
 
     # 5 total: analyzed, awaiting, modified, analyzed(pre-2017), rejected(pre-2017)
-    # Default DataFrame filter excludes awaiting + rejected → 3
-    assert len(df) == 3
+    # Default DataFrame filter excludes only rejected → 4
+    assert len(df) == 4
     assert "cve_id" in df.columns
     assert "description" in df.columns
 
@@ -111,5 +111,5 @@ def test_notebook_03_cache_enriched():
         # Verify all transforms preserved
         assert "cvd_state" in df.columns
         assert "v_timestamp" in df.columns
-        # Default filter: 3 of 5 (analyzed, modified, analyzed)
-        assert len(df) == 3
+        # Default filter: 4 of 5 (only rejected excluded)
+        assert len(df) == 4
