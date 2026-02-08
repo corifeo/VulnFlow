@@ -21,9 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from vulnflow.utils.graph import topological_sort
 from vulnflow.utils.progress import ProgressReporter
-from vulnflow.utils.transforms import partition_transforms
 
 if TYPE_CHECKING:
     from pandas import DataFrame as PandasDataFrame
@@ -186,9 +184,10 @@ class VulnDataset:
     def transform(self, transforms: list[object] | None = None) -> VulnDataset:
         """Apply transforms and enrichers to dataset (modifies in place).
 
-        Handles both:
-        - Sync transforms (with sync transform() method)
-        - Async enrichers (with async transform() method) - run concurrently via asyncio.gather()
+        Uses dependency-aware phased execution: transforms are grouped into
+        phases by build_phases(). Within each phase, async transforms run
+        via gather() and sync transforms run via to_thread(). A barrier
+        separates each phase.
 
         Shows progress bar during execution (auto-detects Jupyter vs terminal).
 
@@ -199,64 +198,42 @@ class VulnDataset:
         Returns:
             Self for method chaining
         """
+        from vulnflow.executor import PipelineExecutor
 
         if transforms is None:
             from vulnflow.registry import Registry
 
-            # Get all default transforms (enrichers, inferences, computed)
             transforms = Registry.get_default_transforms()
 
-        # Sort by dependencies
-        transforms = topological_sort(transforms)
-
-        # Separate async from sync
-        async_transforms, sync_transforms = partition_transforms(transforms)
-
-        # All transforms for progress bar
-        all_transforms = async_transforms + sync_transforms
+        if not transforms:
+            return self
 
         with ProgressReporter(
             "Transforming dataset",
-            total=len(all_transforms),
+            total=len(transforms),
             unit="transforms",
         ) as rpt:
-            # Run async concurrently
-            if async_transforms:
+            # Handle Jupyter/IPython event loops
+            try:
+                asyncio.get_running_loop()
+                import nest_asyncio  # type: ignore[import-untyped]
 
-                async def run_all() -> None:
-                    for t in async_transforms:
-                        rpt.stage_started(t.name)  # type: ignore[attr-defined]
-                    try:
-                        await asyncio.gather(
-                            *[t.transform(self) for t in async_transforms]  # type: ignore[attr-defined]
-                        )
-                        for t in async_transforms:
-                            rpt.stage_completed(t.name)  # type: ignore[attr-defined]
-                    except Exception as exc:
-                        for t in async_transforms:
-                            rpt.stage_failed(t.name, error=str(exc))  # type: ignore[attr-defined]
-                        raise
+                nest_asyncio.apply()
+                successful, _failed, _errors = asyncio.run(
+                    PipelineExecutor.run_transforms(
+                        self, transforms, strict=True, reporter=rpt
+                    )
+                )
+            except RuntimeError:
+                successful, _failed, _errors = asyncio.run(
+                    PipelineExecutor.run_transforms(
+                        self, transforms, strict=True, reporter=rpt
+                    )
+                )
 
-                # Handle Jupyter/IPython event loops
-                try:
-                    asyncio.get_running_loop()
-                    import nest_asyncio  # type: ignore[import-untyped]
-
-                    nest_asyncio.apply()
-                    asyncio.run(run_all())
-                except RuntimeError:
-                    asyncio.run(run_all())
-
-            # Run sync sequentially
-            for t in sync_transforms:
-                t_name: str = t.name  # type: ignore[attr-defined]
-                rpt.stage_started(t_name)
-                t.transform(self)  # type: ignore[attr-defined]
-                rpt.stage_completed(t_name)
-
-        # Record provenance for all transforms
-        for t in all_transforms:
-            self._record_provenance(transform=t.name)  # type: ignore[attr-defined]
+        # Record provenance for successful transforms
+        for t_name in successful:
+            self._record_provenance(transform=t_name)
 
         return self
 

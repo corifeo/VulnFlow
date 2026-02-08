@@ -145,10 +145,14 @@ def test_build_phases_detects_circular_dependency():
         build_phases([_T("a", ["b"]), _T("b", ["a"])])
 
 
-def test_build_phases_detects_missing_dependency():
-    """Missing dependency raises ValueError."""
-    with pytest.raises(ValueError, match="depends on .* not found"):
-        build_phases([_T("a", ["nonexistent"])])
+def test_build_phases_handles_missing_dependency():
+    """Missing dependency treated as already satisfied (lenient)."""
+    phases = build_phases([_T("a", ["nonexistent"]), _T("b", ["a"])])
+
+    # "nonexistent" not in list → assumed satisfied → "a" goes in phase 0
+    assert len(phases) == 2
+    assert phases[0][0].name == "a"
+    assert phases[1][0].name == "b"
 
 
 def test_build_phases_empty_list():

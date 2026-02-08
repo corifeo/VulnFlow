@@ -114,10 +114,8 @@ def build_phases(transforms: list[Any]) -> list[list[Any]]:
     transforms whose dependencies are all satisfied by earlier phases.
     Transforms within a phase are independent and can run concurrently.
 
-    Unlike topological_sort, this function:
-    - Returns grouped phases (not a flat list)
-    - Validates that all dependencies exist (strict)
-    - Enables concurrent execution within phases
+    Dependencies on transforms not in the provided list are treated as
+    already satisfied (lenient on missing external deps, like topological_sort).
 
     Args:
         transforms: Objects with 'name' and 'depends_on' attributes.
@@ -126,22 +124,13 @@ def build_phases(transforms: list[Any]) -> list[list[Any]]:
         List of phases, each a list of transforms.
 
     Raises:
-        ValueError: If circular dependency or missing dependency found.
+        ValueError: If circular dependency found among provided transforms.
     """
     if not transforms:
         return []
 
     by_name = {t.name: t for t in transforms}
     all_names = set(by_name.keys())
-
-    # Validate all dependencies exist
-    for t in transforms:
-        for dep in getattr(t, "depends_on", []):
-            if dep not in all_names:
-                raise ValueError(
-                    f"Transform '{t.name}' depends on '{dep}' not found "
-                    f"in transform list: {sorted(all_names)}"
-                )
 
     phases: list[list[Any]] = []
     satisfied: set[str] = set()
@@ -151,7 +140,7 @@ def build_phases(transforms: list[Any]) -> list[list[Any]]:
             by_name[name]
             for name in all_names - satisfied
             if all(
-                dep in satisfied
+                dep in satisfied or dep not in all_names
                 for dep in getattr(by_name[name], "depends_on", [])
             )
         ]
@@ -159,9 +148,12 @@ def build_phases(transforms: list[Any]) -> list[list[Any]]:
         if not ready:
             remaining = sorted(all_names - satisfied)
             dep_info = [
-                f"{n} waits for: {[d for d in getattr(by_name[n], 'depends_on', []) if d not in satisfied]}"
+                f"{n} waits for: {[d for d in getattr(by_name[n], 'depends_on', []) if d not in satisfied and d in all_names]}"
                 for n in remaining
-                if any(d not in satisfied for d in getattr(by_name[n], "depends_on", []))
+                if any(
+                    d not in satisfied and d in all_names
+                    for d in getattr(by_name[n], "depends_on", [])
+                )
             ]
             msg = f"Circular dependency detected among: {remaining}"
             if dep_info:
