@@ -8,9 +8,7 @@ Dependencies: None for URL tests, pipeline for integration tests
 
 from __future__ import annotations
 
-import tempfile
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 
@@ -145,7 +143,7 @@ class TestCacheBuilderBuild:
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
 
-        ds = builder.build(workers=1)
+        ds = builder.build()
 
         assert len(ds) > 0
 
@@ -156,7 +154,7 @@ class TestCacheBuilderBuild:
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
 
-        ds = builder.build(workers=1)
+        ds = builder.build()
 
         # Default behavior: CVSSFlattenTransform adds 15 scalar columns
         assert "cvss_base_score" in ds.columns
@@ -171,7 +169,7 @@ class TestCacheBuilderBuild:
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
 
-        ds = builder.build(workers=1, cvss=False)
+        ds = builder.build(cvss=False)
 
         # With cvss=False, only cvss_scores exists (nested JSON)
         assert "cvss_scores" in ds.columns
@@ -184,50 +182,18 @@ class TestCacheBuilderBuild:
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
 
-        ds = builder.build(workers=1, cvss=True)
+        ds = builder.build(cvss=True)
 
         # CVSSFlattenTransform adds 15 scalar columns
         assert "cvss_base_score" in ds.columns
         assert "cvss_base_severity" in ds.columns
 
-    def test_build_cleans_temp_dir_on_success(self, nvd_sample_path):
-        """Temp directory is cleaned up after successful build."""
-        import glob
-        import shutil
-
+    def test_build_failure_raises(self):
+        """build() raises when extraction fails."""
         from vulnflow.helpers.builder import CacheBuilder
-
-        # Clean up any leftover temp directories from previous runs
-        temp_root = tempfile.gettempdir()
-        for old_dir in glob.glob(str(Path(temp_root) / "vulnflow_cache_*")):
-            shutil.rmtree(old_dir, ignore_errors=True)
-
-        builder = CacheBuilder(years=[2024])
-        builder._urls = [str(nvd_sample_path)]
-
-        builder.build(workers=1)
-
-        # No vulnflow_cache_ dirs should remain in system temp
-        leftover = glob.glob(str(Path(temp_root) / "vulnflow_cache_*"))
-        assert len(leftover) == 0
-
-    def test_build_cleans_temp_dir_on_failure(self):
-        """Temp directory is cleaned up even when build fails."""
-        import glob
-        import shutil
-
-        from vulnflow.helpers.builder import CacheBuilder
-
-        # Clean up any leftover temp directories from previous runs
-        temp_root = tempfile.gettempdir()
-        for old_dir in glob.glob(str(Path(temp_root) / "vulnflow_cache_*")):
-            shutil.rmtree(old_dir, ignore_errors=True)
 
         builder = CacheBuilder(modified_only=True)
         builder._urls = ["/nonexistent/file.json"]
 
-        with pytest.raises(RuntimeError, match="All .* feeds failed"):
-            builder.build(workers=1)
-
-        leftover = glob.glob(str(Path(temp_root) / "vulnflow_cache_*"))
-        assert len(leftover) == 0
+        with pytest.raises((FileNotFoundError, OSError, RuntimeError)):
+            builder.build()

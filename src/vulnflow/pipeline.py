@@ -23,7 +23,6 @@ from vulnflow.extractors.base import BaseExtractor
 from vulnflow.loaders.base import BaseLoader
 from vulnflow.registry import Registry
 from vulnflow.transforms.base import BaseTransform
-from vulnflow.utils.transforms import partition_transforms
 
 
 @dataclass
@@ -50,30 +49,22 @@ class VulnPipeline:
         self,
         dataset: VulnDataset | None = None,
         strict: bool = False,
-        parallel: bool = False,
-        workers: int = 4,
     ) -> PipelineResult:
         """Execute pipeline stages: extract → transform → load.
 
         Args:
             dataset: Optional pre-existing dataset (skips extraction)
             strict: If True, raise on transformer errors. If False, collect errors.
-            parallel: If True, run extract→load pairs in parallel (Pattern 1).
-                      Requires len(extractors) == len(loaders) and no transforms.
-            workers: Max parallel workers when parallel=True (default 4)
 
         Returns:
             PipelineResult with dataset, metadata, and errors
         """
-        if parallel:
-            return self._run_parallel(workers=workers)
-
         start_time = time.time()
         errors: list[Exception] = []
         successful_stages: list[str] = []
         failed_stages: list[str] = []
 
-        # Stage 1: Extract
+        # Stage 1: Extract (concurrent via ThreadPoolExecutor)
         if dataset is None and self.extractors:
             dataset, ext_succ, ext_fail, ext_err = PipelineExecutor.run_extractors(
                 self.extractors
@@ -82,29 +73,16 @@ class VulnPipeline:
             failed_stages.extend(ext_fail)
             errors.extend(ext_err)
 
-        # Stage 2: Transform (enrichers + transforms)
+        # Stage 2: Transform (phased via build_phases)
         if self.transformers and dataset is not None:
-            async_transforms, sync_transforms = partition_transforms(self.transformers)
-
-            # Run async concurrently
-            if async_transforms:
-                async_succ, async_fail, async_err = asyncio.run(
-                    PipelineExecutor.run_async_transforms(
-                        dataset, async_transforms, strict
-                    )
+            t_succ, t_fail, t_err = asyncio.run(
+                PipelineExecutor.run_transforms(
+                    dataset, self.transformers, strict
                 )
-                successful_stages.extend(async_succ)
-                failed_stages.extend(async_fail)
-                errors.extend(async_err)
-
-            # Run sync sequentially
-            if sync_transforms:
-                sync_succ, sync_fail, sync_err = PipelineExecutor.run_sync_transforms(
-                    dataset, sync_transforms, strict
-                )
-                successful_stages.extend(sync_succ)
-                failed_stages.extend(sync_fail)
-                errors.extend(sync_err)
+            )
+            successful_stages.extend(t_succ)
+            failed_stages.extend(t_fail)
+            errors.extend(t_err)
 
         # Stage 3: Load
         loader_outputs: dict[str, Any] = {}
@@ -125,42 +103,6 @@ class VulnPipeline:
             successful_stages=successful_stages,
             failed_stages=failed_stages,
             duration=duration,
-        )
-
-    def _run_parallel(self, workers: int = 4) -> PipelineResult:
-        """Execute Pattern 1: parallel Extract→Load mini-pipelines.
-
-        Validates pipeline structure for parallel execution:
-        - At least one extractor must exist
-        - Number of extractors must equal number of loaders (1:1 pairing)
-        - No transforms allowed (apply after merging)
-
-        Args:
-            workers: Max parallel workers (default 4)
-
-        Returns:
-            PipelineResult with merged dataset and metadata
-
-        Raises:
-            PipelineError: If pipeline structure is invalid for parallel execution
-        """
-        from vulnflow.exceptions import PipelineError
-
-        if not self.extractors:
-            raise PipelineError("Parallel execution requires at least one extractor")
-        if len(self.extractors) != len(self.loaders):
-            raise PipelineError(
-                f"Parallel execution requires equal extractors and loaders: "
-                f"got {len(self.extractors)} extractors, {len(self.loaders)} loaders"
-            )
-        if self.transformers:
-            raise PipelineError(
-                "Parallel execution requires no transforms. "
-                "Apply transforms after merging: dataset.transform([...])"
-            )
-
-        return PipelineExecutor.run_parallel(
-            self.extractors, self.loaders, workers=workers
         )
 
     def merge(self, other: VulnPipeline) -> VulnPipeline:

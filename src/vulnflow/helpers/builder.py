@@ -14,14 +14,13 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
-import tempfile
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
+    from vulnflow.extractors.base import BaseExtractor
+    from vulnflow.transforms.base import BaseTransform
 
 logger = logging.getLogger(__name__)
 
@@ -136,33 +135,28 @@ class CacheBuilder:
 
     def build(
         self,
-        workers: int = 4,
         timeout: float = 120.0,
         cvss: bool = True,
     ) -> VulnDataset:
-        """Build vulnerability dataset with parallel extraction.
+        """Build vulnerability dataset with concurrent extraction.
+
+        Uses ThreadPoolExecutor for concurrent feed extraction (no subprocess
+        overhead). Optionally applies CVSSFlattenTransform after extraction.
 
         Args:
-            workers: Number of parallel worker processes.
             timeout: HTTP timeout in seconds per feed.
             cvss: Apply CVSSFlattenTransform to extract scalar CVSS columns (default: True).
 
         Returns:
             Merged VulnDataset with all extracted records.
-
-        Raises:
-            RuntimeError: If all feeds fail and no parquet files are produced.
         """
-        from vulnflow.dataset import VulnDataset
         from vulnflow.extractors.nvd import NVDExtractor
-        from vulnflow.loaders.files import ParquetLoader
         from vulnflow.pipeline import VulnPipeline
         from vulnflow.utils.progress import _suppress_progress
 
         logger.info(
-            "Building library from %d feeds with %d workers",
+            "Building library from %d feeds",
             len(self._urls),
-            workers,
         )
 
         # Suppress progress output when quiet mode is enabled
@@ -172,59 +166,32 @@ class CacheBuilder:
             os.environ["TQDM_DISABLE"] = "1"
             suppress_token = _suppress_progress.set(True)
 
-        temp_dir = Path(tempfile.mkdtemp(prefix="vulnflow_cache_"))
         try:
-            # Parallel extract -> temp parquets
-            temp_paths = [
-                temp_dir / f"part_{i}.parquet" for i in range(len(self._urls))
+            extractors: list[BaseExtractor] = [
+                NVDExtractor(url, timeout=timeout) for url in self._urls
             ]
+            transformers: list[BaseTransform] = []
 
-            pipeline = VulnPipeline(
-                extractors=[NVDExtractor(url, timeout=timeout) for url in self._urls],
-                loaders=[ParquetLoader(p) for p in temp_paths],
-            )
-
-            pipeline.run(parallel=True, workers=workers)
-
-            # Check which temp files actually exist (some workers may have failed)
-            existing_paths = [p for p in temp_paths if p.exists()]
-            missing_paths = [p for p in temp_paths if not p.exists()]
-
-            if missing_paths:
-                failed_feeds = [
-                    self._urls[i]
-                    for i, p in enumerate(temp_paths)
-                    if not p.exists()
-                ]
-                logger.warning(
-                    "%d feed(s) produced no output: %s",
-                    len(missing_paths),
-                    ", ".join(failed_feeds),
-                )
-
-            if not existing_paths:
-                raise RuntimeError(
-                    f"All {len(temp_paths)} feeds failed; no data to merge"
-                )
-
-            # Merge temp parquets (only existing files)
-            logger.info(
-                "Merging %d of %d parquet files",
-                len(existing_paths),
-                len(temp_paths),
-            )
-            merged = VulnDataset.from_parquet([str(p) for p in existing_paths])
-
-            # Apply CVSS flatten transform by default
             if cvss:
                 from vulnflow.transforms.flatten import CVSSFlattenTransform
 
-                logger.info("Applying CVSSFlattenTransform")
-                transform = CVSSFlattenTransform()
-                transform.transform(merged)
+                transformers.append(CVSSFlattenTransform())
 
-            logger.info("Library built: %d records", len(merged))
-            return merged
+            pipeline = VulnPipeline(
+                extractors=extractors,
+                transformers=transformers,
+            )
+
+            result = pipeline.run()
+            dataset = result.dataset
+
+            if dataset is None:
+                raise RuntimeError(
+                    f"All {len(self._urls)} feeds failed; no data extracted"
+                )
+
+            logger.info("Library built: %d records", len(dataset))
+            return dataset
 
         finally:
             # Restore progress suppression state
@@ -235,7 +202,6 @@ class CacheBuilder:
                     os.environ.pop("TQDM_DISABLE", None)
                 else:
                     os.environ["TQDM_DISABLE"] = old_tqdm_disable
-            shutil.rmtree(temp_dir, ignore_errors=True)
 
     @classmethod
     def feed_url(cls, feed: int | str) -> str:
