@@ -143,3 +143,84 @@ def test_reporter_tracks_duration() -> None:
             rpt.stage_completed("Slow")
     finally:
         os.environ.pop("TQDM_DISABLE", None)
+
+
+# =============================================================================
+# Quiet Mode (Dot Progress) Tests
+# =============================================================================
+
+
+def test_reporter_quiet_mode_prints_dots(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """ProgressReporter prints '.' per stage when _suppress_progress is set."""
+    token = _suppress_progress.set(True)
+    try:
+        with ProgressReporter("Testing", total=3, unit="items") as rpt:
+            rpt.stage_started("A")
+            rpt.stage_completed("A", detail="100 records")
+            rpt.stage_started("B")
+            rpt.stage_completed("B")
+            rpt.stage_started("C")
+            rpt.stage_completed("C")
+    finally:
+        _suppress_progress.reset(token)
+
+    captured = capsys.readouterr()
+    assert captured.out == "...\n"
+
+
+def test_reporter_quiet_mode_prints_bang_on_failure(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """ProgressReporter prints '!' for failed stages in quiet mode."""
+    token = _suppress_progress.set(True)
+    try:
+        with ProgressReporter("Testing", total=3, unit="items") as rpt:
+            rpt.stage_started("A")
+            rpt.stage_completed("A")
+            rpt.stage_started("B")
+            rpt.stage_failed("B", error="timeout")
+            rpt.stage_started("C")
+            rpt.stage_completed("C")
+    finally:
+        _suppress_progress.reset(token)
+
+    captured = capsys.readouterr()
+    assert captured.out == ".!.\n"
+
+
+def test_reporter_quiet_mode_suppresses_summary(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """ProgressReporter.summary() is suppressed in quiet mode."""
+    token = _suppress_progress.set(True)
+    try:
+        with ProgressReporter("Testing", total=1, unit="items") as rpt:
+            rpt.stage_started("A")
+            rpt.stage_completed("A")
+            rpt.summary("55,034 CVEs total")
+    finally:
+        _suppress_progress.reset(token)
+
+    captured = capsys.readouterr()
+    assert "CVEs" not in captured.out
+    assert captured.out == ".\n"
+
+
+def test_reporter_quiet_mode_no_unicode(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Quiet mode output contains no Unicode — safe for cp1252 consoles."""
+    token = _suppress_progress.set(True)
+    try:
+        with ProgressReporter("Testing", total=2, unit="items") as rpt:
+            rpt.stage_started("A")
+            rpt.stage_completed("A")
+            rpt.stage_started("B")
+            rpt.stage_failed("B", error="crash")
+    finally:
+        _suppress_progress.reset(token)
+
+    captured = capsys.readouterr()
+    assert captured.out.isascii()
