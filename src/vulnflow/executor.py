@@ -49,6 +49,7 @@ class PipelineExecutor:
     @staticmethod
     def run_extractors(
         extractors: list[BaseExtractor],
+        desc: str | None = None,
     ) -> tuple[VulnDataset, list[str], list[str], list[Exception]]:
         """Execute extractors concurrently and merge results.
 
@@ -80,7 +81,10 @@ class PipelineExecutor:
         total_records = 0
 
         with ProgressReporter(
-            "Extracting data", total=len(extractors), unit="extractors"
+            desc or "Extracting data",
+            total=len(extractors),
+            unit="feeds",
+            bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}]",
         ) as rpt:
             if len(extractors) == 1:
                 # Single extractor: run directly (no thread overhead)

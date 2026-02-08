@@ -31,6 +31,7 @@ from vulnflow.utils.http import (
     is_url,
 )
 from vulnflow.utils.progress import (
+    ProgressMode,
     ProgressReporter,
     progress_bar,
 )
@@ -49,6 +50,7 @@ __all__ = [
     "HttpError",
     "HttpFetcher",
     "ContentFormat",
+    "ProgressMode",
     "ProgressReporter",
     "progress_bar",
     "json",

@@ -6,6 +6,7 @@ Auto-detects Jupyter vs terminal environment.
 Provides:
 - progress_bar: Factory function with VulnFlow defaults
 - ProgressReporter: Manages tqdm bar + log lines for a pipeline phase
+- ProgressMode: Enum controlling reporter output style (QUIET/BAR/LOG)
 - _SuppressedProgress: Silent proxy returned when progress is suppressed
 - _suppress_progress: ContextVar controlling suppression
 
@@ -17,6 +18,11 @@ Configuration via environment variable:
     - 'detailed': Full stats (rate, ETA, percentage, bar, counter)
     - 'simple': Minimal display (counter only, no bar or rate)
     - 'default': Balanced version (current behavior)
+
+    Set VULNFLOW_PROGRESS_MODE to override mode detection:
+    - 'quiet': dots only (./!)
+    - 'bar': tqdm bars only, no text lines
+    - 'log': text lines only, no tqdm bars
 
 Example (Jupyter notebook):
     >>> import os
@@ -40,8 +46,10 @@ Example (disabling in tests):
 from __future__ import annotations
 
 import os
+import sys
 import time as _time
 from contextvars import ContextVar, Token
+from enum import Enum
 from typing import Any
 
 from tqdm.auto import tqdm as _tqdm
@@ -49,6 +57,52 @@ from tqdm.auto import tqdm as _tqdm
 _suppress_progress: ContextVar[bool] = ContextVar(
     "_suppress_progress", default=False
 )
+
+
+class ProgressMode(Enum):
+    """Controls ProgressReporter output style.
+
+    QUIET: dots only (./!) — for programmatic use
+    BAR: tqdm bars only, no text lines — for notebooks/interactive
+    LOG: text lines only (✓/✗/→), no tqdm bars — for CI/piped output
+    """
+
+    QUIET = "quiet"
+    BAR = "bar"
+    LOG = "log"
+
+
+def _is_notebook() -> bool:
+    """Detect if running inside a Jupyter/IPython notebook."""
+    try:
+        from IPython import get_ipython  # type: ignore[attr-defined]
+
+        shell = get_ipython()  # type: ignore[no-untyped-call]
+        if shell is None:
+            return False
+        return type(shell).__name__ == "ZMQInteractiveShell"
+    except ImportError:
+        return False
+
+
+def _detect_mode() -> ProgressMode:
+    """Resolve the progress mode using priority order.
+
+    1. _suppress_progress ContextVar is True → QUIET
+    2. VULNFLOW_PROGRESS_MODE env var → explicit override
+    3. Auto-detect: notebook/tty → BAR, otherwise → LOG
+    """
+    if _suppress_progress.get(False):
+        return ProgressMode.QUIET
+
+    env_mode = os.getenv("VULNFLOW_PROGRESS_MODE", "").lower()
+    if env_mode in ("quiet", "bar", "log"):
+        return ProgressMode(env_mode)
+
+    if _is_notebook() or (hasattr(sys.stdout, "isatty") and sys.stdout.isatty()):
+        return ProgressMode.BAR
+
+    return ProgressMode.LOG
 
 
 class _SuppressedProgress:
@@ -71,10 +125,16 @@ class _SuppressedProgress:
 
 
 class ProgressReporter:
-    """Manages tqdm bar + log lines for a pipeline phase.
+    """Manages progress feedback for a pipeline phase.
 
-    Creates one tqdm bar for the phase. Prints log lines per stage.
-    Suppresses inner progress_bar() calls via ContextVar.
+    Adapts output based on ProgressMode:
+    - QUIET: dots (./!) per stage, inner bars suppressed
+    - BAR: outer tqdm bar + inner bars visible, no text lines
+    - LOG: text lines (✓/✗/→) per stage, inner bars suppressed
+
+    In LOG/QUIET mode, suppresses inner progress_bar() calls via ContextVar
+    and TQDM_DISABLE env var (belt-and-suspenders for thread context
+    propagation issues). In BAR mode, inner bars flow through naturally.
 
     # TODO: Unicode characters (U+2713, U+2717, U+2192, U+2014) crash on
     # Windows cp1252 consoles. Replace with encoding-aware constants that
@@ -88,15 +148,23 @@ class ProgressReporter:
             rpt.stage_completed("NVD-2023", detail=f"{len(ds):,} CVEs")
     """
 
-    def __init__(self, desc: str, total: int, unit: str) -> None:
+    def __init__(
+        self,
+        desc: str,
+        total: int,
+        unit: str,
+        bar_format: str | None = None,
+    ) -> None:
         self._desc = desc
         self._total = total
         self._unit = unit
+        self._bar_format = bar_format
         self._bar: _tqdm[Any] | None = None
         self._token: Token[bool] | None = None
         self._start_times: dict[str, float] = {}
-        self._silent: bool = False
+        self._mode: ProgressMode = ProgressMode.LOG
         self._dot_count: int = 0
+        self._old_tqdm_disable: str | None = None
 
     def stage_started(self, name: str) -> None:
         """Record start time for this stage. No output."""
@@ -105,9 +173,11 @@ class ProgressReporter:
     def stage_completed(
         self, name: str, detail: str = "", duration: float | None = None
     ) -> None:
-        """Print checkmark line with optional detail and duration, tick bar.
+        """Report stage completion. Output depends on mode.
 
-        In quiet mode, prints a single "." per stage instead.
+        QUIET: prints "." per stage.
+        BAR: updates bar counter only.
+        LOG: prints "✓ name (detail, Xs)".
 
         Args:
             name: Stage name (must match a prior stage_started call).
@@ -118,21 +188,25 @@ class ProgressReporter:
             duration = self._elapsed(name)
         else:
             self._start_times.pop(name, None)
-        if self._silent:
+
+        if self._mode is ProgressMode.QUIET:
             print(".", end="", flush=True)  # noqa: T201
             self._dot_count += 1
-        else:
+        elif self._mode is ProgressMode.BAR:
+            if self._bar is not None:
+                self._bar.update(1)
+        else:  # LOG
             line = f"  \u2713 {name} ({self._format_inner(detail, duration)})"
             print(line)  # noqa: T201
-        if self._bar is not None:
-            self._bar.update(1)
 
     def stage_failed(
         self, name: str, error: str = "", duration: float | None = None
     ) -> None:
-        """Print cross line with error and duration, tick bar.
+        """Report stage failure. Output depends on mode.
 
-        In quiet mode, prints "!" per failed stage instead.
+        QUIET: prints "!" per failed stage.
+        BAR: writes failure via tqdm.write() and updates bar.
+        LOG: prints "✗ name — error (Xs)".
 
         Args:
             name: Stage name (must match a prior stage_started call).
@@ -143,46 +217,67 @@ class ProgressReporter:
             duration = self._elapsed(name)
         else:
             self._start_times.pop(name, None)
-        if self._silent:
+
+        fail_line = f"  \u2717 {name}"
+        if error:
+            fail_line += f" \u2014 {error}"
+        fail_line += f" ({duration:.1f}s)"
+
+        if self._mode is ProgressMode.QUIET:
             print("!", end="", flush=True)  # noqa: T201
             self._dot_count += 1
-        else:
-            line = f"  \u2717 {name}"
-            if error:
-                line += f" \u2014 {error}"
-            line += f" ({duration:.1f}s)"
-            print(line)  # noqa: T201
-        if self._bar is not None:
-            self._bar.update(1)
+        elif self._mode is ProgressMode.BAR:
+            _tqdm.write(fail_line)
+            if self._bar is not None:
+                self._bar.update(1)
+        else:  # LOG
+            print(fail_line)  # noqa: T201
 
     def summary(self, text: str) -> None:
         """Print arrow summary line (no bar tick).
 
-        Suppressed entirely in quiet mode (dots provide enough feedback).
+        Only prints in LOG mode. Suppressed in QUIET (dots suffice)
+        and BAR (the bar itself is the summary).
         """
-        if not self._silent:
+        if self._mode is ProgressMode.LOG:
             print(f"  \u2192 {text}")  # noqa: T201
 
     def __enter__(self) -> ProgressReporter:
-        # Capture outer suppression state before we set our own flag.
-        # The reporter suppresses inner progress_bar() calls, but its own
-        # print statements should only be suppressed when an outer caller
-        # (e.g. CacheBuilder quiet mode) set _suppress_progress first.
-        self._silent = _suppress_progress.get(False)
-        self._bar = progress_bar(
-            total=self._total,
-            desc=self._desc,
-            unit=self._unit,
-        )
-        self._token = _suppress_progress.set(True)
+        self._mode = _detect_mode()
+
+        if self._mode is ProgressMode.BAR:
+            # BAR mode: outer bar + inner bars visible, no text.
+            # Don't suppress inner progress_bar() calls — let them render.
+            bar_kwargs: dict[str, Any] = {}
+            if self._bar_format is not None:
+                bar_kwargs["bar_format"] = self._bar_format
+            self._bar = progress_bar(
+                total=self._total,
+                desc=self._desc,
+                unit=self._unit,
+                **bar_kwargs,
+            )
+        else:
+            # LOG/QUIET: suppress inner bars via ContextVar + TQDM_DISABLE.
+            # Belt-and-suspenders: ContextVar may not propagate to threads.
+            self._old_tqdm_disable = os.environ.get("TQDM_DISABLE")
+            os.environ["TQDM_DISABLE"] = "1"
+            self._token = _suppress_progress.set(True)
+
         return self
 
     def __exit__(self, *args: Any) -> None:
-        if self._dot_count > 0:
-            print(flush=True)  # noqa: T201  # Newline after dots
-        if self._token is not None:
-            _suppress_progress.reset(self._token)
-            self._token = None
+        if self._mode is not ProgressMode.BAR:
+            # Restore TQDM_DISABLE env var
+            if self._old_tqdm_disable is None:
+                os.environ.pop("TQDM_DISABLE", None)
+            else:
+                os.environ["TQDM_DISABLE"] = self._old_tqdm_disable
+
+            if self._token is not None:
+                _suppress_progress.reset(self._token)
+                self._token = None
+
         if self._bar is not None:
             self._bar.close()
             self._bar = None
@@ -210,6 +305,9 @@ def progress_bar(
     Auto-detects Jupyter vs terminal using tqdm.auto.
     Style controlled by VULNFLOW_PROGRESS_STYLE environment variable.
 
+    Returns _SuppressedProgress (silent proxy) when suppressed via
+    _suppress_progress ContextVar or TQDM_DISABLE env var.
+
     Args:
         iterable: Iterable to wrap (optional)
         total: Total iterations if not wrapping iterable
@@ -233,6 +331,11 @@ def progress_bar(
         ...         pbar.update(1)
     """
     if _suppress_progress.get(False):
+        return _SuppressedProgress()  # type: ignore[return-value]
+
+    # Belt-and-suspenders: also check env var for threads that don't
+    # inherit ContextVar. Prevents tqdm.notebook widget leaks.
+    if os.environ.get("TQDM_DISABLE") == "1":
         return _SuppressedProgress()  # type: ignore[return-value]
 
     style = os.getenv("VULNFLOW_PROGRESS_STYLE", "default").lower()
