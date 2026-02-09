@@ -140,6 +140,7 @@ class NVDExtractor(BaseExtractor):
             total=n,
             desc=f"Parsing {self.label}",
             unit="CVEs",
+            mininterval=0.5,
         ) as pbar:
             for i, vuln in enumerate(vulnerabilities):
                 cve_data = vuln.get("cve", {})
