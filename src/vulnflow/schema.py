@@ -26,6 +26,10 @@ class CWEEntry:
     category_id: str | None = None  # "CWE-913"
     category_name: str | None = None  # "Improper Control of Dynamically-Managed Code Resources"
     abstraction_level: str | None = None  # "Category"|"Class"|"Base"|"Variant"|"Compound"
+    likelihood_of_exploit: str | None = None  # "High"|"Medium"|"Low"
+    consequences: list[dict[str, list[str]]] | None = None  # [{"scopes": [...], "impacts": [...]}]
+    applicable_platforms: list[str] | None = None  # ["Java", "C", "Linux"]
+    modes_of_introduction: list[str] | None = None  # ["Design", "Implementation"]
 
 
 @dataclass
@@ -38,6 +42,9 @@ class CAPECEntry:
     status: str | None = None  # "Draft"|"Stable"|"Deprecated"
     likelihood_of_attack: str | None = None  # "High"|"Medium"|"Low"
     typical_severity: str | None = None  # "Very High"|"High"|"Medium"|"Low"|"Very Low"
+    skills_required: list[str] | None = None  # ["Low", "Medium"]
+    consequences: list[dict[str, list[str]]] | None = None  # [{"scopes": [...], "impacts": [...]}]
+    attack_techniques: list[str] | None = None  # ["1110", "1548.001"]
 
 
 @dataclass
