@@ -16,7 +16,7 @@ import time
 import xml.etree.ElementTree as ET
 from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -78,7 +78,7 @@ class CAPECEnricher(BaseEnricher):
         self.cache_ttl = cache_ttl
         self.cache_dir = Path(cache_dir)
         self.timeout = timeout
-        self._cache: dict[str, dict[str, str | list[str] | None]] | None = None
+        self._cache: dict[str, dict[str, Any]] | None = None
         self._cache_time: float = 0.0
         self._http_fetcher: HttpFetcher | None = None
 
@@ -128,11 +128,11 @@ class CAPECEnricher(BaseEnricher):
                 if metadata:
                     entry = CAPECEntry(
                         id=capec_id,
-                        name=metadata.get("name"),  # type: ignore[arg-type]
-                        abstraction=metadata.get("abstraction"),  # type: ignore[arg-type]
-                        status=metadata.get("status"),  # type: ignore[arg-type]
-                        likelihood_of_attack=metadata.get("likelihood_of_attack"),  # type: ignore[arg-type]
-                        typical_severity=metadata.get("typical_severity"),  # type: ignore[arg-type]
+                        name=metadata.get("name"),
+                        abstraction=metadata.get("abstraction"),
+                        status=metadata.get("status"),
+                        likelihood_of_attack=metadata.get("likelihood_of_attack"),
+                        typical_severity=metadata.get("typical_severity"),
                     )
                 else:
                     entry = CAPECEntry(id=capec_id)
@@ -146,7 +146,7 @@ class CAPECEnricher(BaseEnricher):
 
     def _build_cwe_to_capec_mapping(
         self,
-        capec_db: dict[str, dict[str, str | list[str] | None]],
+        capec_db: dict[str, dict[str, Any]],
     ) -> dict[str, set[str]]:
         """Build merged CWE→CAPEC mapping from both data sources.
 
@@ -186,7 +186,7 @@ class CAPECEnricher(BaseEnricher):
 
     async def _get_cached_capec_db(
         self,
-    ) -> dict[str, dict[str, str | list[str] | None]]:
+    ) -> dict[str, dict[str, Any]]:
         """Get CAPEC database from cache or load fresh (async)."""
         now = time.time()
         expired = self.cache_ttl > 0 and now - self._cache_time > self.cache_ttl
@@ -197,7 +197,7 @@ class CAPECEnricher(BaseEnricher):
 
     async def _load_capec_database(
         self,
-    ) -> dict[str, dict[str, str | list[str] | None]]:
+    ) -> dict[str, dict[str, Any]]:
         """Load CAPEC database from cache or source.
 
         Returns:
@@ -212,7 +212,7 @@ class CAPECEnricher(BaseEnricher):
             age = time.time() - cache_file.stat().st_mtime
             if self.cache_ttl == 0 or age < self.cache_ttl:
                 logger.info(f"Using cached CAPEC database (age: {age:.0f}s)")
-                cached_db: dict[str, dict[str, str | list[str] | None]] = json.loads(
+                cached_db: dict[str, dict[str, Any]] = json.loads(
                     cache_file.read_text()
                 )
                 return cached_db
@@ -259,7 +259,7 @@ class CAPECEnricher(BaseEnricher):
     def _parse_capec_xml(
         self,
         xml_path: Path,
-    ) -> dict[str, dict[str, str | list[str] | None]]:
+    ) -> dict[str, dict[str, Any]]:
         """Parse CAPEC XML and extract attack pattern metadata.
 
         Args:
@@ -275,7 +275,7 @@ class CAPECEnricher(BaseEnricher):
             logger.error(f"Failed to parse CAPEC XML file {xml_path}: {e}")
             raise ValueError(f"Invalid CAPEC XML format: {e}") from e
 
-        capec_db: dict[str, dict[str, str | list[str] | None]] = {}
+        capec_db: dict[str, dict[str, Any]] = {}
         for attack_pattern in root.findall(".//{*}Attack_Pattern"):
             capec_id = f"CAPEC-{attack_pattern.get('ID')}"
 
@@ -290,6 +290,22 @@ class CAPECEnricher(BaseEnricher):
                 if el.get("CWE_ID")
             ]
 
+            # Extract consequences (scopes + impacts per consequence)
+            consequences: list[dict[str, list[str]]] = []
+            for cons_el in attack_pattern.findall(".//{*}Consequence"):
+                scopes = [
+                    s.text
+                    for s in cons_el.findall("{*}Scope")
+                    if s.text
+                ]
+                impacts = [
+                    s.text
+                    for s in cons_el.findall("{*}Impact")
+                    if s.text
+                ]
+                if scopes or impacts:
+                    consequences.append({"scopes": scopes, "impacts": impacts})
+
             capec_db[capec_id] = {
                 "name": attack_pattern.get("Name"),
                 "abstraction": attack_pattern.get("Abstraction"),
@@ -301,6 +317,7 @@ class CAPECEnricher(BaseEnricher):
                     severity_el.text if severity_el is not None else None
                 ),
                 "related_cwes": related_cwes,
+                "consequences": consequences,
             }
 
         return capec_db

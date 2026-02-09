@@ -142,6 +142,7 @@ class CacheBuilder:
         cpe: bool = True,
         cwe: bool = True,
         capec: bool = True,
+        stride: bool = False,
     ) -> VulnDataset:
         """Build vulnerability dataset with concurrent extraction.
 
@@ -157,6 +158,7 @@ class CacheBuilder:
             cpe: Flatten CPE vendor/product/version columns (default: True).
             cwe: Enrich with CWE weakness names and categories (default: True).
             capec: Enrich with CAPEC attack patterns (default: True).
+            stride: Infer STRIDE threat categories (default: False).
 
         Returns:
             Merged VulnDataset with all extracted records.
@@ -222,6 +224,24 @@ class CacheBuilder:
                     transformers.append(CWEEnricher())
 
                 transformers.extend([CAPECEnricher(), CAPECFlattenTransform()])
+
+            if stride:
+                from vulnflow.transforms.flatten.stride import STRIDEFlattenTransform
+                from vulnflow.transforms.inferences.stride import STRIDEInference
+
+                # Auto-enable CAPEC chain if not already included
+                if not capec:
+                    from vulnflow.transforms.enrichers.capec import CAPECEnricher
+                    from vulnflow.transforms.flatten import CAPECFlattenTransform
+
+                    if not cwe:
+                        from vulnflow.transforms.enrichers.cwe import CWEEnricher
+
+                        transformers.append(CWEEnricher())
+
+                    transformers.extend([CAPECEnricher(), CAPECFlattenTransform()])
+
+                transformers.extend([STRIDEInference(), STRIDEFlattenTransform()])
 
             pipeline = VulnPipeline(
                 extractors=extractors,

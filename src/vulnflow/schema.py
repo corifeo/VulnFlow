@@ -41,6 +41,16 @@ class CAPECEntry:
 
 
 @dataclass
+class STRIDEThreat:
+    """STRIDE threat classification with provenance."""
+
+    category: str  # "spoofing"|"tampering"|"repudiation"|"info_disclosure"|"dos"|"elevation"
+    confidence: float  # 0.0-1.0
+    source: str  # "capec_consequences"|"cwe_mapping"|"cvss_impact"|"description"|"cvss_vector"
+    capec_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
 class CPEEntry:
     """CPE product identification."""
 
