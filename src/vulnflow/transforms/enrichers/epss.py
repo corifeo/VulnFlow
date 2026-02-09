@@ -11,8 +11,6 @@ Used by: dataset.transform(), pipeline
 
 from __future__ import annotations
 
-import csv
-import io
 import logging
 import re
 import time
@@ -21,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import polars as pl
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -224,33 +223,39 @@ class EPSSEnricher(BaseEnricher):
         Returns:
             Dict mapping CVE ID to EPSS entry dict
         """
-        epss_data: dict[str, dict[str, Any]] = {}
-
         # Split content into lines
         all_lines = content.splitlines(keepends=True)
 
-        # Extract date from header comment
-        # Format: #model_version:vX,score_date:YYYY-MM-DDTHH:MM:SSZ
+        # Extract date from header comment lines
+        # Format varies: single line (#model_version:vX,score_date:YYYY-MM-DD)
+        # or separate lines (#score_date:YYYY-MM-DD)
         score_date: datetime | None = None
         header_lines = [line for line in all_lines if line.startswith("#")]
-        if header_lines:
-            date_match = re.search(r"score_date:(\d{4}-\d{2}-\d{2})", header_lines[0])
+        for header_line in header_lines:
+            date_match = re.search(r"score_date:(\d{4}-\d{2}-\d{2})", header_line)
             if date_match:
                 score_date = datetime.strptime(date_match.group(1), "%Y-%m-%d")
                 score_date = score_date.replace(tzinfo=UTC)
+                break
 
         # Filter out comment lines before CSV parsing
         data_lines = [line for line in all_lines if not line.startswith("#")]
-        reader = csv.DictReader(io.StringIO("".join(data_lines)))
+        data_bytes = "".join(data_lines).encode("utf-8")
 
-        for row in reader:
-            cve_id = row["cve"]
+        # Parse with Polars (5-10x faster than csv.DictReader for 314k rows)
+        df = pl.read_csv(data_bytes, columns=["cve", "epss", "percentile"])
 
-            epss_data[cve_id] = {
-                "probability": float(row["epss"]),
-                "percentile": float(row["percentile"]),
-                "date": score_date,  # Use date from header
-                "model": 3,  # Current EPSS model version
+        # Build lookup dict from columns
+        cves = df["cve"].to_list()
+        probabilities = df["epss"].to_list()
+        percentiles = df["percentile"].to_list()
+
+        return {
+            cves[i]: {
+                "probability": probabilities[i],
+                "percentile": percentiles[i],
+                "date": score_date,
+                "model": 3,
             }
-
-        return epss_data
+            for i in range(len(cves))
+        }
