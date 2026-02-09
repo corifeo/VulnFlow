@@ -106,8 +106,6 @@ class NVDExtractor(BaseExtractor):
             FileNotFoundError: If NVD JSON file doesn't exist
             httpx.HTTPError: On network or HTTP errors for URLs
         """
-        from dataclasses import asdict
-
         from vulnflow.dataset import VulnDataset
         from vulnflow.utils.progress import progress_bar
 
@@ -172,24 +170,24 @@ class NVDExtractor(BaseExtractor):
 
                 # CVSS scores
                 cvss_entries = self._parse_cvss(cve_data.get("metrics", {}))
-                cvss_dicts = [asdict(entry) for entry in cvss_entries]
+                cvss_dicts = [entry.to_dict() for entry in cvss_entries]
                 arrays["cvss_scores"][i] = (
                     json.dumps(cvss_dicts) if cvss_dicts else "[]"
                 )
 
                 # CWEs
                 cwe_entries = self._parse_cwes(cve_data.get("weaknesses", []))
-                cwe_dicts = [asdict(entry) for entry in cwe_entries]
+                cwe_dicts = [entry.to_dict() for entry in cwe_entries]
                 arrays["cwes"][i] = json.dumps(cwe_dicts) if cwe_dicts else "[]"
 
                 # CPEs
                 cpe_entries = self._parse_cpes(cve_data.get("configurations", []))
-                cpe_dicts = [asdict(entry) for entry in cpe_entries]
+                cpe_dicts = [entry.to_dict() for entry in cpe_entries]
                 arrays["cpes"][i] = json.dumps(cpe_dicts) if cpe_dicts else "[]"
 
                 # References
                 ref_entries = self._parse_references(cve_data.get("references", []))
-                ref_dicts = [asdict(entry) for entry in ref_entries]
+                ref_dicts = [entry.to_dict() for entry in ref_entries]
                 arrays["references"][i] = json.dumps(ref_dicts) if ref_dicts else "[]"
 
                 # Empty fields (not in NVD)
