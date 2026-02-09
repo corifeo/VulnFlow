@@ -141,13 +141,13 @@ class CacheBuilder:
         kev: bool = True,
         cpe: bool = True,
         cwe: bool = True,
-        capec: bool = True,
+        capec: bool = False,
         stride: bool = False,
     ) -> VulnDataset:
         """Build vulnerability dataset with concurrent extraction.
 
         Uses ThreadPoolExecutor for concurrent feed extraction (no subprocess
-        overhead). Enriches with EPSS/KEV/CWE/CAPEC by default (bulk downloads,
+        overhead). Enriches with EPSS/KEV/CWE by default (bulk downloads,
         cached locally).
 
         Args:
@@ -157,7 +157,7 @@ class CacheBuilder:
             kev: Enrich with CISA KEV catalog data (default: True).
             cpe: Flatten CPE vendor/product/version columns (default: True).
             cwe: Enrich with CWE weakness names and categories (default: True).
-            capec: Enrich with CAPEC attack patterns (default: True).
+            capec: Enrich with CAPEC attack patterns (default: False).
             stride: Infer STRIDE threat categories (default: False).
 
         Returns:
@@ -250,7 +250,8 @@ class CacheBuilder:
 
             result = pipeline.run(
                 quiet=self._quiet,
-                extract_desc="Extracting NVD Data",
+                extract_desc="Processing NVD feeds",
+                transform_desc="Enriching & transforming",
             )
             dataset = result.dataset
 

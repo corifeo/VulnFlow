@@ -221,7 +221,7 @@ class VulnDataset:
                 return self
 
             with ProgressReporter(
-                "Transforming dataset",
+                "Enriching & transforming",
                 total=len(transforms),
                 unit="transforms",
             ) as rpt:

@@ -97,8 +97,8 @@ def test_reporter_log_mode_stage_lifecycle(
         os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
 
     captured = capsys.readouterr()
-    assert "\u2713 StageA (100 records," in captured.out
-    assert "\u2713 StageB (" in captured.out
+    assert "+ StageA (100 records," in captured.out
+    assert "+ StageB (" in captured.out
     assert "100 records" not in captured.out.split("StageB")[1]
 
 
@@ -115,7 +115,7 @@ def test_reporter_log_mode_stage_failed(
         os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
 
     captured = capsys.readouterr()
-    assert "\u2717 BadStage" in captured.out
+    assert "x BadStage" in captured.out
     assert "timeout after 30s" in captured.out
 
 
@@ -133,7 +133,7 @@ def test_reporter_log_mode_summary_line(
         os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
 
     captured = capsys.readouterr()
-    assert "\u2192 55,034 CVEs total" in captured.out
+    assert "> 55,034 CVEs total" in captured.out
 
 
 def test_reporter_log_mode_suppresses_inner_progress_bars() -> None:
@@ -255,7 +255,7 @@ def test_reporter_quiet_mode_no_unicode(
 def test_reporter_bar_mode_no_text_output(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """BAR mode does not print ✓ text lines to stdout."""
+    """BAR mode produces no + glyph text output even with detail."""
     os.environ["VULNFLOW_PROGRESS_MODE"] = "bar"
     os.environ.pop("TQDM_DISABLE", None)
     try:
@@ -268,11 +268,29 @@ def test_reporter_bar_mode_no_text_output(
         os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
 
     captured = capsys.readouterr()
-    assert "\u2713" not in captured.out
+    assert "+" not in captured.out
+
+
+def test_reporter_bar_mode_sets_postfix_on_detail() -> None:
+    """BAR mode sets postfix with compact format when detail is non-empty."""
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "bar"
+    os.environ.pop("TQDM_DISABLE", None)
+    try:
+        with ProgressReporter("Testing", total=1, unit="items") as rpt:
+            mock_bar = MagicMock()
+            rpt._bar = mock_bar
+
+            rpt.stage_started("A")
+            rpt.stage_completed("A", detail="100 records", duration=1.5)
+
+        mock_bar.set_postfix_str.assert_any_call("100 records in 1.5s")
+        mock_bar.update.assert_called_with(1)
+    finally:
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
 
 
 def test_reporter_bar_mode_updates_bar() -> None:
-    """BAR mode calls bar.update() on completion (no set_postfix_str)."""
+    """BAR mode calls bar.update() and set_postfix_str() on completion."""
     os.environ["VULNFLOW_PROGRESS_MODE"] = "bar"
     os.environ.pop("TQDM_DISABLE", None)
     try:
@@ -281,10 +299,10 @@ def test_reporter_bar_mode_updates_bar() -> None:
             rpt._bar = mock_bar
 
             rpt.stage_started("A")
-            rpt.stage_completed("A", detail="100 records")
+            rpt.stage_completed("A", detail="100 records", duration=2.0)
 
         mock_bar.update.assert_called_with(1)
-        mock_bar.set_postfix_str.assert_not_called()
+        mock_bar.set_postfix_str.assert_any_call("100 records in 2.0s")
     finally:
         os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
 
@@ -304,29 +322,45 @@ def test_reporter_bar_mode_failure_writes_error() -> None:
 
             # tqdm.write called for failure + summary is separate
             written = mock_write.call_args_list[0][0][0]
-            assert "\u2717 Bad" in written
+            assert "x Bad" in written
             assert "timeout" in written
             mock_bar.update.assert_called_with(1)
     finally:
         os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
 
 
-def test_reporter_bar_mode_suppresses_summary(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """BAR mode suppresses summary (bar is the summary)."""
+def test_reporter_bar_mode_summary_sets_postfix() -> None:
+    """BAR mode summary sets postfix on the bar."""
     os.environ["VULNFLOW_PROGRESS_MODE"] = "bar"
     os.environ.pop("TQDM_DISABLE", None)
     try:
         with ProgressReporter("Testing", total=1, unit="items") as rpt:
+            mock_bar = MagicMock()
+            rpt._bar = mock_bar
+
             rpt.stage_started("A")
             rpt.stage_completed("A")
             rpt.summary("55,034 CVEs total")
+
+        mock_bar.set_postfix_str.assert_any_call("55,034 CVEs total")
     finally:
         os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
 
-    captured = capsys.readouterr()
-    assert "CVEs" not in captured.out
+
+def test_reporter_bar_mode_started_sets_postfix() -> None:
+    """BAR mode stage_started sets postfix to stage name."""
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "bar"
+    os.environ.pop("TQDM_DISABLE", None)
+    try:
+        with ProgressReporter("Testing", total=1, unit="items") as rpt:
+            mock_bar = MagicMock()
+            rpt._bar = mock_bar
+
+            rpt.stage_started("A")
+
+        mock_bar.set_postfix_str.assert_any_call("A")
+    finally:
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
 
 
 def test_reporter_bar_mode_does_not_suppress_inner_bars() -> None:
@@ -472,3 +506,29 @@ def test_quiet_mode_suppresses_via_tqdm_disable_in_threads() -> None:
         assert isinstance(bar, _SuppressedProgress)
     finally:
         os.environ.pop("TQDM_DISABLE", None)
+
+
+# =============================================================================
+# ProgressReporter — Postfix Clearing Tests
+# =============================================================================
+
+
+def test_reporter_bar_exit_clears_postfix() -> None:
+    """BAR mode __exit__ clears postfix before closing bar."""
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "bar"
+    os.environ.pop("TQDM_DISABLE", None)
+    try:
+        with ProgressReporter("Testing", total=1, unit="items") as rpt:
+            mock_bar = MagicMock()
+            rpt._bar = mock_bar
+
+            rpt.stage_started("A")
+            rpt.stage_completed("A", detail="100 records", duration=1.0)
+
+        # __exit__ should clear postfix then close
+        calls = [c[0] for c in mock_bar.set_postfix_str.call_args_list]
+        # Last set_postfix_str call should be ("",) to clear stale postfix
+        assert calls[-1] == ("",)
+        mock_bar.close.assert_called_once()
+    finally:
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)

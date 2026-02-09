@@ -12,7 +12,7 @@ import gzip
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -217,6 +217,31 @@ class TestHttpFetcher:
 
         fetcher._write_cache("https://example.com/data.json", b"content")
         assert cache_dir.exists()
+
+    async def test_fetch_decompress_false_skips_decompression(
+        self, tmp_path: Path
+    ) -> None:
+        original = b"test content for gzip"
+        compressed = gzip.compress(original)
+        ok_response = _make_response(200, compressed)
+
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=1)
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = ok_response
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            content, fmt = await fetcher.fetch(
+                "https://example.com/data.json.gz", decompress=False
+            )
+
+        # Should return compressed bytes, not decompressed
+        assert content == compressed
+        assert content != original
 
 
 # =============================================================================
@@ -428,14 +453,18 @@ class TestNVDExtractorHTTP:
         assert vulns[0]["cve"]["id"] == "CVE-2021-44228"
         assert vulns[1]["cve"]["id"] == "CVE-2023-12345"
 
-    def test_nvd_load_from_url_mocked(self, nvd_json_content: bytes) -> None:
+    def test_nvd_fetch_raw_from_url_mocked(self, nvd_json_content: bytes) -> None:
         with patch.object(HttpFetcher, "fetch_sync") as mock_fetch:
             mock_fetch.return_value = (nvd_json_content, "json")
 
             extractor = NVDExtractor("https://example.com/nvd.json")
-            content = extractor._load_from_url("https://example.com/nvd.json")
+            content = extractor._fetch_raw()
 
             assert content == nvd_json_content
+            # Verify decompress=False is passed
+            mock_fetch.assert_called_once()
+            _, kwargs = mock_fetch.call_args
+            assert kwargs.get("decompress") is False
 
     def test_nvd_extract_from_url_mocked(self, nvd_json_content: bytes) -> None:
         with patch.object(HttpFetcher, "fetch_sync") as mock_fetch:
@@ -448,13 +477,30 @@ class TestNVDExtractorHTTP:
             cve_ids = dataset.get_column("cve_id")
             assert cve_ids[0] == "CVE-2021-44228"
 
+    def test_nvd_extract_populates_timings(self, nvd_json_content: bytes) -> None:
+        with patch.object(HttpFetcher, "fetch_sync") as mock_fetch:
+            mock_fetch.return_value = (nvd_json_content, "json")
+
+            extractor = NVDExtractor("https://example.com/nvd.json")
+            extractor.extract()
+
+            assert hasattr(extractor, "_timings")
+            timings = extractor._timings
+            assert "download" in timings
+            assert "decompress" in timings
+            assert "json" in timings
+            assert "populate" in timings
+            assert all(isinstance(v, float) for v in timings.values())
+            assert all(v >= 0 for v in timings.values())
+
     def test_nvd_load_gzip_file(self, tmp_path: Path, nvd_json_content: bytes) -> None:
         # Create gzipped file
         gz_path = tmp_path / "nvd.json.gz"
         gz_path.write_bytes(gzip.compress(nvd_json_content))
 
         extractor = NVDExtractor(str(gz_path))
-        content = extractor._load_from_file(gz_path)
+        raw = extractor._fetch_raw()
+        content = extractor._decompress(raw)
 
         assert content == nvd_json_content
 
@@ -746,3 +792,92 @@ class TestHttpFetcherRetry:
         assert "HTTP fetch attempt" in call_args[0]
         assert call_args[1] == 1  # attempt + 1
         assert call_args[2] == 2  # retries
+
+
+# =============================================================================
+# HttpFetcher Streaming Progress Tests
+# =============================================================================
+
+
+class TestHttpFetcherStreamingProgress:
+    """Tests for HttpFetcher streaming download with progress bar."""
+
+    async def test_fetch_with_progress_uses_streaming(self, tmp_path: Path) -> None:
+        """When progress_desc is non-empty, fetch() uses client.stream() instead of .get()."""
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=1)
+        body = b'{"data": 1}'
+
+        # Build a mock streaming response
+        mock_stream_response = MagicMock()
+        mock_stream_response.raise_for_status = MagicMock()
+        mock_stream_response.headers = {
+            "content-length": str(len(body)),
+            "content-type": "application/json",
+        }
+        mock_stream_response.aiter_bytes = lambda chunk_size: _async_iter([body])
+
+        # stream() must return a sync context manager (not a coroutine),
+        # whose __aenter__/__aexit__ are async.
+        stream_ctx = MagicMock()
+        stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream_response)
+        stream_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.stream = MagicMock(return_value=stream_ctx)
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            content, fmt = await fetcher.fetch(
+                "https://example.com/data.json", progress_desc="Downloading test"
+            )
+
+        assert content == body
+        assert fmt == "json"
+        mock_client.stream.assert_called_once_with("GET", "https://example.com/data.json")
+        mock_client.get.assert_not_called()
+
+    async def test_fetch_without_progress_uses_get(self, tmp_path: Path) -> None:
+        """Default progress_desc='' uses client.get() (regression guard)."""
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=1)
+        ok_response = _make_response(200, b'{"data": 1}')
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = ok_response
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            content, fmt = await fetcher.fetch("https://example.com/data.json")
+
+        assert content == b'{"data": 1}'
+        mock_client.get.assert_called_once()
+
+    async def test_fetch_sync_passes_progress_desc(self, tmp_path: Path) -> None:
+        """fetch_sync() forwards progress_desc to fetch()."""
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=1)
+
+        with patch.object(fetcher, "fetch", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = (b"data", "json")
+
+            fetcher.fetch_sync(
+                "https://example.com/data.json",
+                progress_desc="Downloading test",
+            )
+
+        mock_fetch.assert_called_once_with(
+            "https://example.com/data.json",
+            None,
+            decompress=True,
+            progress_desc="Downloading test",
+        )
+
+
+async def _async_iter(items: list[bytes]) -> None:  # type: ignore[return]
+    """Helper: create an async iterator from a list of items."""
+    for item in items:
+        yield item  # type: ignore[misc]
