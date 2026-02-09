@@ -17,6 +17,7 @@ Used by: dataset.to_pandas(), to_polars()
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -103,6 +104,100 @@ def _build_status_mask(
 
 
 # ============================================================================
+# Date range filtering (DataFrame loaders only)
+# ============================================================================
+
+
+def _parse_date(value: str | datetime) -> datetime:
+    """Parse a date string or pass through a datetime.
+
+    Args:
+        value: ISO date string (YYYY-MM-DD) or datetime
+
+    Returns:
+        Timezone-aware (UTC) datetime
+    """
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt
+
+
+def _build_date_mask(
+    dataset: VulnDataset,
+    *,
+    start: str | datetime | None = None,
+    end: str | datetime | None = None,
+) -> np.ndarray:
+    """Build boolean mask based on date range for nvd_published_at.
+
+    Returns a boolean array where True means "include this row".
+    If start/end are both None the mask is all-True (no-op).
+    If the dataset has no ``nvd_published_at`` column the mask is all-True.
+
+    Args:
+        dataset: VulnDataset to filter
+        start: Inclusive lower bound (>=). ISO string or datetime.
+        end: Exclusive upper bound (<). ISO string or datetime.
+
+    Returns:
+        Boolean numpy array (dtype=bool), same length as dataset
+    """
+    n = len(dataset)
+    if start is None and end is None:
+        return np.ones(n, dtype=bool)
+
+    dates = dataset.get_column_or_none("nvd_published_at")
+    if dates is None:
+        return np.ones(n, dtype=bool)
+
+    # Handle datetime64 arrays (from Parquet round-trip)
+    if np.issubdtype(dates.dtype, np.datetime64):
+        mask = np.ones(n, dtype=bool)
+        if start is not None:
+            dt_start = _parse_date(start)
+            np_start = np.datetime64(dt_start.replace(tzinfo=None), "ms")
+            mask &= dates >= np_start
+        if end is not None:
+            dt_end = _parse_date(end)
+            np_end = np.datetime64(dt_end.replace(tzinfo=None), "ms")
+            mask &= dates < np_end
+        return mask
+
+    # Handle object arrays (Python datetime from NVD extractor)
+    parsed_start: datetime | None = _parse_date(start) if start is not None else None
+    parsed_end: datetime | None = _parse_date(end) if end is not None else None
+
+    mask = np.empty(n, dtype=bool)
+    for i in range(n):
+        val = dates[i]
+        if val is None:
+            mask[i] = False
+            continue
+        # Make naive datetimes UTC-aware for comparison
+        if isinstance(val, datetime) and val.tzinfo is None:
+            val = val.replace(tzinfo=UTC)
+        ok = True
+        if parsed_start is not None:
+            # Ensure both are aware or both naive for comparison
+            cmp_start = parsed_start
+            if val.tzinfo is not None and cmp_start.tzinfo is None:
+                cmp_start = cmp_start.replace(tzinfo=UTC)
+            ok = ok and val >= cmp_start
+        if parsed_end is not None:
+            cmp_end = parsed_end
+            if val.tzinfo is not None and cmp_end.tzinfo is None:
+                cmp_end = cmp_end.replace(tzinfo=UTC)
+            ok = ok and val < cmp_end
+        mask[i] = ok
+    return mask
+
+
+# ============================================================================
 # DataFrame Loaders
 # ============================================================================
 
@@ -120,17 +215,28 @@ class PandasLoader:
 
     format: str = "pandas"
 
-    def __init__(self, include_nested: bool = False, **status_kwargs: bool) -> None:
+    def __init__(
+        self,
+        include_nested: bool = False,
+        *,
+        start: str | datetime | None = None,
+        end: str | datetime | None = None,
+        **status_kwargs: bool,
+    ) -> None:
         """Initialize loader.
 
         Args:
             include_nested: If True, include nested JSON columns for full fidelity.
                            Default False excludes nested columns (lossy by default).
+            start: Inclusive lower bound (>=) for nvd_published_at. ISO string or datetime.
+            end: Exclusive upper bound (<) for nvd_published_at. ISO string or datetime.
             **status_kwargs: Override NVD status filters (analyzed, modified,
                             awaiting, rejected, deferred). Default excludes
                             only rejected rows.
         """
         self.include_nested = include_nested
+        self._start = start
+        self._end = end
         self._status_kwargs = {
             k: status_kwargs.get(k, v) for k, v in _NVD_STATUS_DEFAULTS.items()
         }
@@ -146,7 +252,9 @@ class PandasLoader:
         """
         import pandas as pd
 
-        mask = _build_status_mask(dataset, **self._status_kwargs)
+        mask = _build_status_mask(dataset, **self._status_kwargs) & _build_date_mask(
+            dataset, start=self._start, end=self._end
+        )
         if not self.include_nested:
             data = {
                 k: v[mask] for k, v in dataset._data.items() if k not in NESTED_COLUMNS
@@ -171,17 +279,28 @@ class PolarsLoader:
 
     format: str = "polars"
 
-    def __init__(self, include_nested: bool = False, **status_kwargs: bool) -> None:
+    def __init__(
+        self,
+        include_nested: bool = False,
+        *,
+        start: str | datetime | None = None,
+        end: str | datetime | None = None,
+        **status_kwargs: bool,
+    ) -> None:
         """Initialize loader.
 
         Args:
             include_nested: If True, include nested JSON columns for full fidelity.
                            Default False excludes nested columns (lossy by default).
+            start: Inclusive lower bound (>=) for nvd_published_at. ISO string or datetime.
+            end: Exclusive upper bound (<) for nvd_published_at. ISO string or datetime.
             **status_kwargs: Override NVD status filters (analyzed, modified,
                             awaiting, rejected, deferred). Default excludes
                             only rejected rows.
         """
         self.include_nested = include_nested
+        self._start = start
+        self._end = end
         self._status_kwargs = {
             k: status_kwargs.get(k, v) for k, v in _NVD_STATUS_DEFAULTS.items()
         }
@@ -197,7 +316,9 @@ class PolarsLoader:
         """
         import polars as pl
 
-        mask = _build_status_mask(dataset, **self._status_kwargs)
+        mask = _build_status_mask(dataset, **self._status_kwargs) & _build_date_mask(
+            dataset, start=self._start, end=self._end
+        )
         if not self.include_nested:
             data = {
                 k: v[mask].tolist()
