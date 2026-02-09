@@ -280,6 +280,7 @@ class HttpFetcher:
             unit="B",
             unit_scale=True,
             unit_divisor=1024,
+            mininterval=0.5,
         ) as pbar:
             chunks: list[bytes] = []
             async for chunk in response.aiter_bytes(chunk_size=65536):
