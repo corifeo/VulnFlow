@@ -459,6 +459,120 @@ def test_run_loaders_uses_name_attribute():
 
 
 # =============================================================================
+# Extractor Timing Detail Tests
+# =============================================================================
+
+
+def test_extractor_detail_includes_timing_breakdown():
+    """_extractor_detail() returns detail and breakdown with sub-timings >= 0.1s."""
+    from vulnflow.executor import _extractor_detail
+
+    class FakeExtractor:
+        _timings = {"download": 10.5, "decompress": 1.2, "json": 0.04, "populate": 4.6}
+
+    ext = FakeExtractor()
+    detail, breakdown = _extractor_detail(ext, 38951)
+
+    assert detail == "38,951 CVEs"
+    assert "download 10.5s" in breakdown
+    assert "decompress 1.2s" in breakdown
+    assert "populate 4.6s" in breakdown
+    # json 0.04s is below threshold, should be omitted
+    assert "json" not in breakdown
+
+
+def test_extractor_detail_no_timings():
+    """_extractor_detail() falls back to count-only when no _timings."""
+    from vulnflow.executor import _extractor_detail
+
+    class FakeExtractor:
+        pass
+
+    ext = FakeExtractor()
+    detail, breakdown = _extractor_detail(ext, 1000)
+
+    assert detail == "1,000 CVEs"
+    assert breakdown == ""
+
+
+def test_extractor_detail_all_sub_timings_below_threshold():
+    """_extractor_detail() omits breakdown when all sub-timings < 0.1s."""
+    from vulnflow.executor import _extractor_detail
+
+    class FakeExtractor:
+        _timings = {"download": 0.05, "decompress": 0.01, "json": 0.02, "populate": 0.03}
+
+    ext = FakeExtractor()
+    detail, breakdown = _extractor_detail(ext, 500)
+
+    assert detail == "500 CVEs"
+    assert breakdown == ""
+
+
+def test_nvd_extractor_timings_flow_through_executor(nvd_sample_path: Path):
+    """NVDExtractor._timings flows through to executor detail string."""
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    ext = NVDExtractor(str(nvd_sample_path))
+    dataset, successful, failed, errors = PipelineExecutor.run_extractors([ext])
+
+    assert len(dataset) == 5
+    assert hasattr(ext, "_timings")
+    assert "populate" in ext._timings
+
+
+# =============================================================================
+# Transform Timing Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_run_transforms_reports_individual_durations():
+    """run_transforms() passes individual durations to reporter."""
+    reported_durations: dict[str, float] = {}
+
+    class MockReporter:
+        def stage_started(self, name: str) -> None:
+            pass
+
+        def stage_completed(
+            self,
+            name: str,
+            detail: str = "",
+            duration: float | None = None,
+            breakdown: str = "",
+        ) -> None:
+            reported_durations[name] = duration  # type: ignore[assignment]
+
+    class SlowTransform:
+        name = "slow"
+        depends_on: list[str] = []
+
+        async def transform(self, dataset: VulnDataset) -> None:
+            await asyncio.sleep(0.1)
+
+    class FastTransform:
+        name = "fast"
+        depends_on: list[str] = []
+
+        async def transform(self, dataset: VulnDataset) -> None:
+            pass
+
+    dataset = VulnDataset()
+    reporter = MockReporter()
+    successful, failed, errors = await PipelineExecutor.run_transforms(
+        dataset, [SlowTransform(), FastTransform()], strict=True, reporter=reporter  # type: ignore[arg-type]
+    )
+
+    assert "slow" in reported_durations
+    assert "fast" in reported_durations
+    assert reported_durations["slow"] is not None
+    assert reported_durations["fast"] is not None
+    # slow should take significantly longer than fast
+    assert reported_durations["slow"] > reported_durations["fast"]
+
+
+# =============================================================================
 # Provenance Tests
 # =============================================================================
 

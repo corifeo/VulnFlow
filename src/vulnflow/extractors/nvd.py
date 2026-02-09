@@ -14,6 +14,7 @@ from __future__ import annotations
 import gzip
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -95,6 +96,9 @@ class NVDExtractor(BaseExtractor):
         Single-pass conversion: JSON → dataclasses → columnar storage.
         Uses dataclasses.asdict() for type-safe serialization.
 
+        Populates self._timings with per-phase durations (download,
+        decompress, json, populate) for progress reporting.
+
         Returns:
             VulnDataset with columnar storage populated
 
@@ -107,13 +111,27 @@ class NVDExtractor(BaseExtractor):
         from vulnflow.dataset import VulnDataset
         from vulnflow.utils.progress import progress_bar
 
-        content = self._load_content()
+        timings: dict[str, float] = {}
+
+        t0 = perf_counter()
+        raw = self._fetch_raw()
+        timings["download"] = perf_counter() - t0
+
+        t0 = perf_counter()
+        content = self._decompress(raw)
+        timings["decompress"] = perf_counter() - t0
+
+        t0 = perf_counter()
         vulnerabilities = self._parse_content(content)
+        timings["json"] = perf_counter() - t0
 
         # Empty dataset
         n = len(vulnerabilities)
         if n == 0:
+            self._timings = timings
             return VulnDataset()
+
+        t0 = perf_counter()
 
         # Pre-allocate columnar arrays
         record_cols = get_record_columns()
@@ -183,69 +201,55 @@ class NVDExtractor(BaseExtractor):
 
                 pbar.update(1)
 
+        timings["populate"] = perf_counter() - t0
+
         # Build dataset
         dataset = VulnDataset()
         dataset._data = arrays
         dataset._record_provenance(extractor=self.provenance_label)
+        self._timings = timings
         return dataset
 
-    def _load_content(self) -> bytes:
-        """Load content from file or URL.
+    def _fetch_raw(self) -> bytes:
+        """Fetch raw bytes without decompression.
 
-        Handles:
-        - Local files (with gzip support for .gz extension)
-        - HTTP/HTTPS URLs (with automatic gzip decompression)
+        For URLs, uses HttpFetcher with decompress=False to allow
+        separate timing of download vs decompression.
 
         Returns:
-            Raw or decompressed content bytes
+            Raw content bytes (may be gzip-compressed)
 
         Raises:
             FileNotFoundError: If local file doesn't exist
-            httpx.HTTPError: On network or HTTP errors
+            HttpError: On network or HTTP errors for URLs
         """
         if is_url(self.path):
-            return self._load_from_url(self.path)
-        else:
-            return self._load_from_file(Path(self.path))
+            fetcher = HttpFetcher(
+                cache_dir=self.cache_dir or Path(".cache/nvd"),
+                timeout=self.timeout,
+            )
+            content, _ = fetcher.fetch_sync(
+                self.path,
+                self.cache_ttl,
+                decompress=False,
+                progress_desc=f"Downloading {self.label}",
+            )
+            return content
+        return Path(self.path).read_bytes()
 
-    def _load_from_file(self, path: Path) -> bytes:
-        """Load content from local file.
-
-        Args:
-            path: Path to file (supports .gz extension)
-
-        Returns:
-            File content bytes (decompressed if .gz)
-
-        Raises:
-            FileNotFoundError: If file doesn't exist
-        """
-        content = path.read_bytes()
-
-        # Auto-decompress gzip by extension or magic bytes
-        if path.suffix.lower() == ".gz" or content[:2] == b"\x1f\x8b":
-            content = gzip.decompress(content)
-
-        return content
-
-    def _load_from_url(self, url: str) -> bytes:
-        """Load content from HTTP/HTTPS URL.
+    @staticmethod
+    def _decompress(raw: bytes) -> bytes:
+        """Decompress gzip if detected by magic bytes.
 
         Args:
-            url: URL to fetch
+            raw: Raw content bytes (possibly gzip-compressed)
 
         Returns:
-            Response content bytes (auto-decompressed if gzip)
-
-        Raises:
-            httpx.HTTPError: On network or HTTP errors
+            Decompressed content, or original bytes if not gzip
         """
-        fetcher = HttpFetcher(
-            cache_dir=self.cache_dir or Path(".cache/nvd"),
-            timeout=self.timeout,
-        )
-        content, _ = fetcher.fetch_sync(url, self.cache_ttl)
-        return content
+        if raw[:2] == b"\x1f\x8b":
+            return gzip.decompress(raw)
+        return raw
 
     def _parse_content(self, content: bytes) -> list[dict[str, Any]]:
         """Parse content into list of vulnerability dicts.

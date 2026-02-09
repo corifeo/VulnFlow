@@ -211,7 +211,9 @@ class CWEEnricher(BaseEnricher):
         # Download zip file
         zip_path = mitre_dir / "cwec_latest.xml.zip"
         try:
-            content, _fmt = await self._http_fetcher.fetch(str(self.source))
+            content, _fmt = await self._http_fetcher.fetch(
+                str(self.source), progress_desc="Downloading CWE database"
+            )
             zip_path.write_bytes(content)
         except Exception as e:
             logger.error(f"Failed to download CWE XML from {self.source}: {e}")

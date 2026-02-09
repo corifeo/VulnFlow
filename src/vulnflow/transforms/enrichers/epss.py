@@ -203,7 +203,9 @@ class EPSSEnricher(BaseEnricher):
 
         try:
             # HttpFetcher auto-decompresses gzip
-            content, _ = await self._http_fetcher.fetch(url, self.cache_ttl)
+            content, _ = await self._http_fetcher.fetch(
+                url, self.cache_ttl, progress_desc="Downloading EPSS scores"
+            )
             return self._parse_epss_csv(content.decode("utf-8"))
 
         except HttpError as e:

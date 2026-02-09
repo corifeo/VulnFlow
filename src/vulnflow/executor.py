@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any, cast
 
@@ -41,6 +42,21 @@ def get_stage_name(obj: Any) -> str:
     if label is not None:
         return cast(str, label)
     return cast(str, getattr(obj, "name", obj.__class__.__name__))
+
+
+def _extractor_detail(ext: Any, count: int) -> tuple[str, str]:
+    """Build detail and breakdown from extractor timings.
+
+    Returns:
+        (detail, breakdown) -- detail is always "N CVEs",
+        breakdown is sub-timings >= 0.1s joined by ", " (may be empty).
+    """
+    detail = f"{count:,} CVEs"
+    timings: dict[str, float] | None = getattr(ext, "_timings", None)
+    if timings:
+        parts = [f"{k} {v:.1f}s" for k, v in timings.items() if v >= 0.1]
+        return detail, ", ".join(parts)
+    return detail, ""
 
 
 class PipelineExecutor:
@@ -81,10 +97,10 @@ class PipelineExecutor:
         total_records = 0
 
         with ProgressReporter(
-            desc or "Extracting data",
+            desc or "Processing feeds",
             total=len(extractors),
             unit="feeds",
-            bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}]",
+            bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}{postfix}]",
         ) as rpt:
             if len(extractors) == 1:
                 # Single extractor: run directly (no thread overhead)
@@ -97,7 +113,10 @@ class PipelineExecutor:
                     total_records += count
                     datasets.append(ds)
                     successful.append(ext_name)
-                    rpt.stage_completed(ext_name, detail=f"{count:,} CVEs")
+                    detail, breakdown = _extractor_detail(ext, count)
+                    rpt.stage_completed(
+                        ext_name, detail=detail, breakdown=breakdown
+                    )
                 except Exception as e:
                     failed.append(ext_name)
                     errors.append(e)
@@ -123,8 +142,9 @@ class PipelineExecutor:
                             total_records += count
                             datasets.append(ds)
                             successful.append(ext_name)
+                            detail, breakdown = _extractor_detail(ext, count)
                             rpt.stage_completed(
-                                ext_name, detail=f"{count:,} CVEs"
+                                ext_name, detail=detail, breakdown=breakdown
                             )
                         except Exception as e:
                             failed.append(ext_name)
@@ -169,6 +189,11 @@ class PipelineExecutor:
 
         phases = build_phases(transforms)
 
+        async def _timed(coro: Any) -> float:
+            start = time.perf_counter()
+            await coro
+            return time.perf_counter() - start
+
         for phase in phases:
             phase_tasks: list[tuple[str, Any]] = []
 
@@ -186,11 +211,15 @@ class PipelineExecutor:
 
             if strict:
                 try:
-                    await asyncio.gather(*[task for _, task in phase_tasks])
-                    for t_name, _ in phase_tasks:
+                    durations = await asyncio.gather(
+                        *[_timed(task) for _, task in phase_tasks]
+                    )
+                    for (t_name, _), dur in zip(
+                        phase_tasks, durations, strict=True
+                    ):
                         successful.append(t_name)
                         if reporter is not None:
-                            reporter.stage_completed(t_name)
+                            reporter.stage_completed(t_name, duration=dur)
                 except Exception as e:
                     for t_name, _ in phase_tasks:
                         failed.append(t_name)
@@ -199,7 +228,7 @@ class PipelineExecutor:
                     raise
             else:
                 results = await asyncio.gather(
-                    *[task for _, task in phase_tasks],
+                    *[_timed(task) for _, task in phase_tasks],
                     return_exceptions=True,
                 )
                 for (t_name, _), result in zip(
@@ -216,7 +245,9 @@ class PipelineExecutor:
                     else:
                         successful.append(t_name)
                         if reporter is not None:
-                            reporter.stage_completed(t_name)
+                            reporter.stage_completed(
+                                t_name, duration=cast(float, result)
+                            )
 
         return successful, failed, errors
 

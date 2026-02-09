@@ -187,7 +187,9 @@ class KEVEnricher(BaseEnricher):
             )
 
         try:
-            content, fmt = await self._http_fetcher.fetch(url, self.cache_ttl)
+            content, fmt = await self._http_fetcher.fetch(
+                url, self.cache_ttl, progress_desc="Downloading KEV catalog"
+            )
 
             if fmt == "json":
                 return self._parse_kev_json(content)

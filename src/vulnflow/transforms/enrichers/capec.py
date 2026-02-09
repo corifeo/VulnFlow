@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_CAPEC_URL = "https://capec.mitre.org/data/xml/capec_latest.xml"
 
 
-@register_transform(default=True)
+@register_transform(default=False)
 class CAPECEnricher(BaseEnricher):
     """Enrich vulnerabilities with CAPEC attack patterns via CWE mapping.
 
@@ -133,6 +133,9 @@ class CAPECEnricher(BaseEnricher):
                         status=metadata.get("status"),
                         likelihood_of_attack=metadata.get("likelihood_of_attack"),
                         typical_severity=metadata.get("typical_severity"),
+                        skills_required=metadata.get("skills_required") or None,
+                        consequences=metadata.get("consequences") or None,
+                        attack_techniques=metadata.get("attack_techniques") or None,
                     )
                 else:
                     entry = CAPECEntry(id=capec_id)
@@ -233,7 +236,7 @@ class CAPECEnricher(BaseEnricher):
                 logger.warning(f"Failed to download CAPEC XML: {e}")
                 return {}
 
-        cache_file.write_text(json.dumps(capec_db))
+        cache_file.write_text(json.dumps(capec_db, indent=True))
         logger.info(f"Cached {len(capec_db)} CAPEC entries")
         return capec_db
 
@@ -252,7 +255,9 @@ class CAPECEnricher(BaseEnricher):
             )
 
         xml_path = mitre_dir / "capec_latest.xml"
-        content, _fmt = await self._http_fetcher.fetch(str(self.source))
+        content, _fmt = await self._http_fetcher.fetch(
+            str(self.source), progress_desc="Downloading CAPEC database"
+        )
         xml_path.write_bytes(content)
         return xml_path
 
@@ -290,6 +295,13 @@ class CAPECEnricher(BaseEnricher):
                 if el.get("CWE_ID")
             ]
 
+            # Extract skills required (Level attribute from each Skill element)
+            skills_required: list[str] = [
+                el.get("Level", "")
+                for el in attack_pattern.findall(".//{*}Skill")
+                if el.get("Level")
+            ]
+
             # Extract consequences (scopes + impacts per consequence)
             consequences: list[dict[str, list[str]]] = []
             for cons_el in attack_pattern.findall(".//{*}Consequence"):
@@ -306,6 +318,15 @@ class CAPECEnricher(BaseEnricher):
                 if scopes or impacts:
                     consequences.append({"scopes": scopes, "impacts": impacts})
 
+            # Extract ATT&CK technique IDs (Entry_ID from ATTACK taxonomy)
+            attack_techniques: list[str] = [
+                entry_id_el.text
+                for tm in attack_pattern.findall(".//{*}Taxonomy_Mapping")
+                if tm.get("Taxonomy_Name") == "ATTACK"
+                for entry_id_el in tm.findall("{*}Entry_ID")
+                if entry_id_el.text
+            ]
+
             capec_db[capec_id] = {
                 "name": attack_pattern.get("Name"),
                 "abstraction": attack_pattern.get("Abstraction"),
@@ -317,7 +338,9 @@ class CAPECEnricher(BaseEnricher):
                     severity_el.text if severity_el is not None else None
                 ),
                 "related_cwes": related_cwes,
+                "skills_required": skills_required,
                 "consequences": consequences,
+                "attack_techniques": attack_techniques,
             }
 
         return capec_db

@@ -18,7 +18,10 @@ import hashlib
 import logging
 import time
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +150,11 @@ class HttpFetcher:
         self._backoff_base = backoff_base
 
     async def fetch(
-        self, url: str, cache_ttl: int | None = None
+        self,
+        url: str,
+        cache_ttl: int | None = None,
+        decompress: bool = True,
+        progress_desc: str = "",
     ) -> tuple[bytes, ContentFormat]:
         """Fetch URL with optional caching, retry, and auto-decompress gzip.
 
@@ -158,9 +165,14 @@ class HttpFetcher:
         Args:
             url: HTTP/HTTPS URL to fetch
             cache_ttl: Cache time-to-live in seconds. None disables caching.
+            decompress: If True (default), auto-decompress gzip content.
+                If False, return raw bytes without decompression.
+            progress_desc: Description for download progress bar. Empty string
+                disables streaming progress (default). When set, uses httpx
+                streaming with a tqdm progress bar.
 
         Returns:
-            Tuple of (decompressed content bytes, detected format)
+            Tuple of (content bytes, detected format)
 
         Raises:
             HttpError: On network or HTTP errors (wraps httpx exceptions)
@@ -171,19 +183,31 @@ class HttpFetcher:
         if cache_ttl is not None:
             cached = self._read_cache(url, cache_ttl)
             if cached is not None:
-                content_type = None  # No header for cached content
-                fmt = detect_format(url, content_type, cached)
+                fmt = detect_format(url, None, cached)
                 return cached, fmt
 
         # Fetch from network with retry
+        content = b""
+        content_type: str | None = None
         last_exc: Exception | None = None
         for attempt in range(self._retries):
             try:
                 async with httpx.AsyncClient(
                     timeout=self.timeout, follow_redirects=True
                 ) as client:
-                    response = await client.get(url)
-                    response.raise_for_status()
+                    if progress_desc:
+                        async with client.stream("GET", url) as response:
+                            response.raise_for_status()
+                            content, content_type = (
+                                await self._read_with_progress(
+                                    response, progress_desc
+                                )
+                            )
+                    else:
+                        response = await client.get(url)
+                        response.raise_for_status()
+                        content = response.content
+                        content_type = response.headers.get("content-type")
                 break  # Success
             except (httpx.ConnectError, httpx.TimeoutException) as exc:
                 last_exc = exc
@@ -222,11 +246,9 @@ class HttpFetcher:
             # All retries exhausted
             raise HttpError(f"Failed to fetch {url}: {last_exc}") from last_exc
 
-        content = response.content
-        content_type = response.headers.get("content-type")
-
         # Auto-decompress gzip
-        content = self._maybe_decompress(content, url)
+        if decompress:
+            content = self._maybe_decompress(content, url)
 
         # Cache if TTL specified
         if cache_ttl is not None:
@@ -235,8 +257,43 @@ class HttpFetcher:
         fmt = detect_format(url, content_type, content)
         return content, fmt
 
+    async def _read_with_progress(
+        self, response: httpx.Response, desc: str
+    ) -> tuple[bytes, str | None]:
+        """Read streaming response with tqdm progress bar.
+
+        Args:
+            response: httpx streaming response
+            desc: Description for the progress bar
+
+        Returns:
+            Tuple of (content bytes, content-type header value)
+        """
+        from vulnflow.utils.progress import progress_bar
+
+        total = int(response.headers.get("content-length", 0))
+        content_type = response.headers.get("content-type")
+
+        with progress_bar(
+            total=total or None,
+            desc=desc,
+            unit="B",
+            unit_scale=True,
+            unit_divisor=1024,
+        ) as pbar:
+            chunks: list[bytes] = []
+            async for chunk in response.aiter_bytes(chunk_size=65536):
+                chunks.append(chunk)
+                pbar.update(len(chunk))
+
+        return b"".join(chunks), content_type
+
     def fetch_sync(
-        self, url: str, cache_ttl: int | None = None
+        self,
+        url: str,
+        cache_ttl: int | None = None,
+        decompress: bool = True,
+        progress_desc: str = "",
     ) -> tuple[bytes, ContentFormat]:
         """Synchronous wrapper for fetch().
 
@@ -246,9 +303,13 @@ class HttpFetcher:
         Args:
             url: HTTP/HTTPS URL to fetch
             cache_ttl: Cache time-to-live in seconds. None disables caching.
+            decompress: If True (default), auto-decompress gzip content.
+                If False, return raw bytes without decompression.
+            progress_desc: Description for download progress bar. Empty string
+                disables streaming progress (default).
 
         Returns:
-            Tuple of (decompressed content bytes, detected format)
+            Tuple of (content bytes, detected format)
 
         Raises:
             HttpError: On network or HTTP errors (wraps httpx exceptions)
@@ -261,7 +322,14 @@ class HttpFetcher:
             nest_asyncio.apply()
         except RuntimeError:
             pass  # No loop running, asyncio.run() will work fine
-        return asyncio.run(self.fetch(url, cache_ttl))
+        return asyncio.run(
+            self.fetch(
+                url,
+                cache_ttl,
+                decompress=decompress,
+                progress_desc=progress_desc,
+            )
+        )
 
     def _maybe_decompress(self, content: bytes, url: str) -> bytes:
         """Decompress gzip content if detected.

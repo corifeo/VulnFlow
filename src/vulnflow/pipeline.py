@@ -52,6 +52,7 @@ class VulnPipeline:
         *,
         quiet: bool = False,
         extract_desc: str | None = None,
+        transform_desc: str | None = None,
     ) -> PipelineResult:
         """Execute pipeline stages: extract → transform → load.
 
@@ -93,11 +94,20 @@ class VulnPipeline:
                     nest_asyncio.apply()
                 except RuntimeError:
                     pass  # No running loop — normal case
-                t_succ, t_fail, t_err = asyncio.run(
-                    PipelineExecutor.run_transforms(
-                        dataset, self.transformers, strict
+
+                from vulnflow.utils.progress import ProgressReporter
+
+                with ProgressReporter(
+                    transform_desc or "Enriching & transforming",
+                    total=len(self.transformers),
+                    unit="steps",
+                    bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}{postfix}]",
+                ) as rpt:
+                    t_succ, t_fail, t_err = asyncio.run(
+                        PipelineExecutor.run_transforms(
+                            dataset, self.transformers, strict, reporter=rpt
+                        )
                     )
-                )
                 successful_stages.extend(t_succ)
                 failed_stages.extend(t_fail)
                 errors.extend(t_err)

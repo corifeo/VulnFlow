@@ -64,8 +64,8 @@ def test_pipeline_run_quiet_suppresses_output(capsys: pytest.CaptureFixture[str]
     result = pipeline.run(quiet=True)
 
     captured = capsys.readouterr()
-    assert "\u2713" not in captured.out
-    assert "\u2192" not in captured.out
+    assert "+" not in captured.out
+    assert ">" not in captured.out
     assert result.dataset is not None
     assert len(result.dataset) > 0
 
