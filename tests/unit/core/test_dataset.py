@@ -8,9 +8,11 @@ Dependencies: schema
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from vulnflow.dataset import VulnDataset
@@ -109,7 +111,7 @@ def test_dataset_transform_quiet_suppresses_output(
     dataset.transform([MockTransform()], quiet=True)
 
     captured = capsys.readouterr()
-    assert "\u2713" not in captured.out
+    assert "+" not in captured.out
     assert "mock_quiet" not in captured.out
     assert "quiet_col" in dataset.columns
 
@@ -403,3 +405,218 @@ class TestProvenance:
         extractors = loaded.provenance["extractors"]
         assert "NVDExtractor(test.json)" in extractors
         assert any("ParquetExtractor(" in e for e in extractors)
+
+
+class TestFilter:
+    """Tests for VulnDataset.filter() boolean mask selection."""
+
+    def _make_dataset(self) -> VulnDataset:
+        """Create a small dataset for filter tests."""
+        ds = VulnDataset()
+        ds.set_column("cve_id", np.array(["CVE-1", "CVE-2", "CVE-3"], dtype=object))
+        ds.set_column("score", np.array([3.0, 7.5, 9.0]))
+        ds._record_provenance(extractor="test")
+        ds._record_provenance(transform="mock_transform")
+        return ds
+
+    def test_filter_returns_new_dataset(self) -> None:
+        """filter() returns a new VulnDataset, not self."""
+        ds = self._make_dataset()
+        mask = np.array([True, True, True])
+        result = ds.filter(mask)
+        assert result is not ds
+
+    def test_filter_selects_matching_rows(self) -> None:
+        """filter() selects only rows where mask is True."""
+        ds = self._make_dataset()
+        mask = np.array([False, True, True])
+        result = ds.filter(mask)
+        assert len(result) == 2
+        assert list(result.get_column("cve_id")) == ["CVE-2", "CVE-3"]
+        assert list(result.get_column("score")) == [7.5, 9.0]
+
+    def test_filter_all_true_returns_full_copy(self) -> None:
+        """filter(all-True) preserves all rows."""
+        ds = self._make_dataset()
+        mask = np.ones(len(ds), dtype=bool)
+        result = ds.filter(mask)
+        assert len(result) == 3
+        assert list(result.get_column("cve_id")) == ["CVE-1", "CVE-2", "CVE-3"]
+
+    def test_filter_all_false_returns_empty(self) -> None:
+        """filter(all-False) returns 0-row dataset with columns preserved."""
+        ds = self._make_dataset()
+        mask = np.zeros(len(ds), dtype=bool)
+        result = ds.filter(mask)
+        assert len(result) == 0
+        assert result.columns == ["cve_id", "score"]
+
+    def test_filter_preserves_all_columns(self) -> None:
+        """filter() preserves column names and order."""
+        ds = self._make_dataset()
+        mask = np.array([True, False, True])
+        result = ds.filter(mask)
+        assert result.columns == ds.columns
+
+    def test_filter_copies_provenance(self) -> None:
+        """filter() carries over provenance from source dataset."""
+        ds = self._make_dataset()
+        mask = np.array([True, True, False])
+        result = ds.filter(mask)
+        assert "test" in result.provenance["extractors"]
+        assert "mock_transform" in result.provenance["transforms"]
+
+    def test_filter_provenance_is_deep_copy(self) -> None:
+        """filter() provenance is independent from source."""
+        ds = self._make_dataset()
+        mask = np.array([True, True, True])
+        result = ds.filter(mask)
+        # Mutating result's internal provenance should not affect source
+        result._provenance["extractors"].append("injected")
+        assert "injected" not in ds.provenance["extractors"]
+
+    def test_filter_wrong_type_raises_typeerror(self) -> None:
+        """filter() rejects non-ndarray input."""
+        ds = self._make_dataset()
+        with pytest.raises(TypeError):
+            ds.filter([True, True, True])  # type: ignore[arg-type]
+
+    def test_filter_wrong_dtype_raises_valueerror(self) -> None:
+        """filter() rejects non-boolean array."""
+        ds = self._make_dataset()
+        with pytest.raises(ValueError, match="boolean"):
+            ds.filter(np.array([1, 0, 1]))
+
+    def test_filter_wrong_length_raises_valueerror(self) -> None:
+        """filter() rejects mask with wrong length."""
+        ds = self._make_dataset()
+        with pytest.raises(ValueError, match="length"):
+            ds.filter(np.array([True, False]))
+
+
+def _utc(year: int, month: int, day: int) -> datetime:
+    """Shorthand for UTC-aware datetime."""
+    return datetime(year, month, day, tzinfo=UTC)
+
+
+class TestCountBy:
+    """Tests for VulnDataset.count_by() period aggregation."""
+
+    def _make_dataset(
+        self,
+        dates: list[datetime | None],
+        statuses: list[str] | None = None,
+    ) -> VulnDataset:
+        """Create a dataset with given dates and optional statuses."""
+        ds = VulnDataset()
+        n = len(dates)
+        ds.set_column(
+            "cve_id",
+            np.array([f"CVE-2024-{i:04d}" for i in range(n)], dtype=object),
+        )
+        ds.set_column("nvd_published_at", np.array(dates, dtype=object))
+        if statuses is not None:
+            ds.set_column("nvd_status", np.array(statuses, dtype=object))
+        return ds
+
+    def test_count_by_month_returns_dataframe(self) -> None:
+        """count_by('month') returns a pandas DataFrame with correct columns."""
+        ds = self._make_dataset([_utc(2024, 1, 15), _utc(2024, 2, 20)])
+        result = ds.count_by("month")
+        assert isinstance(result, pd.DataFrame)
+        assert list(result.columns) == ["month", "count"]
+
+    def test_count_by_month_groups_correctly(self) -> None:
+        """count_by('month') groups and counts correctly."""
+        ds = self._make_dataset([
+            _utc(2024, 1, 10),
+            _utc(2024, 1, 20),
+            _utc(2024, 2, 5),
+        ])
+        result = ds.count_by("month")
+        assert len(result) == 2
+        assert result.iloc[0]["month"] == "2024-01"
+        assert result.iloc[0]["count"] == 2
+        assert result.iloc[1]["month"] == "2024-02"
+        assert result.iloc[1]["count"] == 1
+
+    def test_count_by_year(self) -> None:
+        """count_by('year') groups by year."""
+        ds = self._make_dataset([
+            _utc(2023, 6, 1),
+            _utc(2024, 1, 1),
+            _utc(2024, 6, 1),
+        ])
+        result = ds.count_by("year")
+        assert list(result.columns) == ["year", "count"]
+        assert result.iloc[0]["year"] == "2023"
+        assert result.iloc[0]["count"] == 1
+        assert result.iloc[1]["year"] == "2024"
+        assert result.iloc[1]["count"] == 2
+
+    def test_count_by_quarter(self) -> None:
+        """count_by('quarter') groups by quarter."""
+        ds = self._make_dataset([
+            _utc(2024, 1, 15),
+            _utc(2024, 4, 10),
+            _utc(2024, 4, 20),
+        ])
+        result = ds.count_by("quarter")
+        assert list(result.columns) == ["quarter", "count"]
+        assert result.iloc[0]["quarter"] == "2024-Q1"
+        assert result.iloc[1]["quarter"] == "2024-Q2"
+        assert result.iloc[1]["count"] == 2
+
+    def test_count_by_excludes_rejected_by_default(self) -> None:
+        """count_by() excludes rejected rows by default."""
+        ds = self._make_dataset(
+            [_utc(2024, 1, 1), _utc(2024, 1, 2)],
+            statuses=["analyzed", "rejected"],
+        )
+        result = ds.count_by("month")
+        assert result.iloc[0]["count"] == 1
+
+    def test_count_by_includes_rejected_when_requested(self) -> None:
+        """count_by(rejected=True) includes rejected rows."""
+        ds = self._make_dataset(
+            [_utc(2024, 1, 1), _utc(2024, 1, 2)],
+            statuses=["analyzed", "rejected"],
+        )
+        result = ds.count_by("month", rejected=True)
+        assert result.iloc[0]["count"] == 2
+
+    def test_count_by_with_date_range(self) -> None:
+        """count_by() respects start/end date filtering."""
+        ds = self._make_dataset([
+            _utc(2024, 1, 1),
+            _utc(2024, 6, 1),
+            _utc(2024, 12, 1),
+        ])
+        result = ds.count_by("month", start="2024-06-01", end="2024-12-01")
+        assert len(result) == 1
+        assert result.iloc[0]["month"] == "2024-06"
+
+    def test_count_by_empty_result(self) -> None:
+        """count_by() with no matching rows returns empty DataFrame with correct columns."""
+        ds = self._make_dataset([_utc(2024, 1, 1)])
+        result = ds.count_by("month", start="2025-01-01")
+        assert isinstance(result, pd.DataFrame)
+        assert list(result.columns) == ["month", "count"]
+        assert len(result) == 0
+
+    def test_count_by_invalid_period_raises(self) -> None:
+        """count_by() raises ValueError for invalid period."""
+        ds = self._make_dataset([_utc(2024, 1, 1)])
+        with pytest.raises(ValueError, match="period"):
+            ds.count_by("hourly")
+
+    def test_count_by_sorted_by_period(self) -> None:
+        """count_by() returns results sorted chronologically."""
+        ds = self._make_dataset([
+            _utc(2024, 12, 1),
+            _utc(2024, 1, 1),
+            _utc(2024, 6, 1),
+        ])
+        result = ds.count_by("month")
+        periods = list(result["month"])
+        assert periods == sorted(periods)

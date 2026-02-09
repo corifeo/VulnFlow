@@ -35,6 +35,52 @@ def _get_version() -> str:
     return __version__
 
 
+_VALID_PERIODS = frozenset({"year", "quarter", "month", "week", "day"})
+
+
+def _extract_period_keys(dates: np.ndarray, period: str) -> np.ndarray:
+    """Convert datetime array to string period keys.
+
+    Handles both Python datetime objects and numpy datetime64 values.
+
+    Args:
+        dates: Array of datetime objects (after mask applied, no Nones)
+        period: One of 'year', 'quarter', 'month', 'week', 'day'
+
+    Returns:
+        Object array of string keys (e.g. '2024-01', '2024-Q1')
+    """
+    n = len(dates)
+    keys = np.empty(n, dtype=object)
+
+    for i in range(n):
+        val = dates[i]
+        # Convert datetime64 to Python datetime if needed
+        if isinstance(val, np.datetime64):
+            # Convert to timestamp then to datetime
+            ts = (val - np.datetime64("1970-01-01T00:00:00", "ms")) / np.timedelta64(
+                1, "ms"
+            )
+            dt = datetime.fromtimestamp(float(ts) / 1000.0, tz=UTC)
+        else:
+            dt = val
+
+        if period == "year":
+            keys[i] = f"{dt.year}"
+        elif period == "quarter":
+            q = (dt.month - 1) // 3 + 1
+            keys[i] = f"{dt.year}-Q{q}"
+        elif period == "month":
+            keys[i] = f"{dt.year}-{dt.month:02d}"
+        elif period == "week":
+            iso_year, iso_week, _ = dt.isocalendar()
+            keys[i] = f"{iso_year}-W{iso_week:02d}"
+        else:  # day
+            keys[i] = f"{dt.year}-{dt.month:02d}-{dt.day:02d}"
+
+    return keys
+
+
 class VulnDataset:
     """Columnar storage for vulnerability records.
 
@@ -329,6 +375,84 @@ class VulnDataset:
 
         return merged
 
+    def filter(self, mask: np.ndarray) -> VulnDataset:
+        """Return new dataset containing only rows where mask is True.
+
+        Args:
+            mask: Boolean numpy array, same length as dataset
+
+        Returns:
+            New VulnDataset with selected rows and copied provenance
+
+        Raises:
+            TypeError: If mask is not a numpy ndarray
+            ValueError: If mask dtype is not bool or length doesn't match
+        """
+        if not isinstance(mask, np.ndarray):
+            msg = f"mask must be a numpy ndarray, got {type(mask).__name__}"
+            raise TypeError(msg)
+        if mask.dtype != np.bool_:
+            msg = f"mask must be boolean dtype, got {mask.dtype}"
+            raise ValueError(msg)
+        if len(mask) != len(self):
+            msg = f"mask length mismatch: expected {len(self)}, got {len(mask)}"
+            raise ValueError(msg)
+
+        result = VulnDataset()
+        for col_name, col_data in self._data.items():
+            result._data[col_name] = col_data[mask]
+        result._provenance = copy.deepcopy(self._provenance)
+        return result
+
+    def count_by(
+        self,
+        period: str = "month",
+        *,
+        start: str | datetime | None = None,
+        end: str | datetime | None = None,
+        rejected: bool = False,
+    ) -> PandasDataFrame:
+        """Count records grouped by time period.
+
+        Args:
+            period: Grouping period — 'year', 'quarter', 'month', 'week', or 'day'.
+            start: Inclusive lower bound (>=) for nvd_published_at.
+            end: Exclusive upper bound (<) for nvd_published_at.
+            rejected: Include rejected rows (default False).
+
+        Returns:
+            Pandas DataFrame with columns [period, 'count'], sorted chronologically.
+
+        Raises:
+            ValueError: If period is not a valid option.
+        """
+        import pandas as pd
+
+        from vulnflow.loaders.dataframe import _build_date_mask, _build_status_mask
+
+        if period not in _VALID_PERIODS:
+            msg = f"Invalid period {period!r}, must be one of {sorted(_VALID_PERIODS)}"
+            raise ValueError(msg)
+
+        # Build combined mask: status + date range
+        status_mask = _build_status_mask(self, rejected=rejected)
+        date_mask = _build_date_mask(self, start=start, end=end)
+        mask = status_mask & date_mask
+
+        dates = self.get_column_or_none("nvd_published_at")
+        if dates is None:
+            return pd.DataFrame({period: pd.Series(dtype=object), "count": pd.Series(dtype=int)})
+
+        filtered_dates = dates[mask]
+        if len(filtered_dates) == 0:
+            return pd.DataFrame({period: pd.Series(dtype=object), "count": pd.Series(dtype=int)})
+
+        keys = _extract_period_keys(filtered_dates, period)
+        unique_keys, counts = np.unique(keys, return_counts=True)
+
+        # np.unique sorts lexicographically, which is chronological for our formats
+        return pd.DataFrame({period: unique_keys, "count": counts})
+
     def to_pandas(
         self,
         include_nested: bool = False,
@@ -338,6 +462,8 @@ class VulnDataset:
         awaiting: bool = True,
         rejected: bool = False,
         deferred: bool = True,
+        start: str | datetime | None = None,
+        end: str | datetime | None = None,
     ) -> PandasDataFrame:
         """Export dataset to pandas DataFrame.
 
@@ -349,6 +475,8 @@ class VulnDataset:
             awaiting: Include rows with NVD status 'awaiting' (default True)
             rejected: Include rows with NVD status 'rejected' (default False)
             deferred: Include rows with NVD status 'deferred' (default True)
+            start: Inclusive lower bound (>=) for nvd_published_at. ISO string or datetime.
+            end: Exclusive upper bound (<) for nvd_published_at. ISO string or datetime.
 
         Returns:
             Pandas DataFrame
@@ -357,6 +485,8 @@ class VulnDataset:
 
         loader = PandasLoader(
             include_nested=include_nested,
+            start=start,
+            end=end,
             analyzed=analyzed,
             modified=modified,
             awaiting=awaiting,
@@ -374,6 +504,8 @@ class VulnDataset:
         awaiting: bool = True,
         rejected: bool = False,
         deferred: bool = True,
+        start: str | datetime | None = None,
+        end: str | datetime | None = None,
     ) -> PolarsDataFrame:
         """Export dataset to polars DataFrame.
 
@@ -385,6 +517,8 @@ class VulnDataset:
             awaiting: Include rows with NVD status 'awaiting' (default True)
             rejected: Include rows with NVD status 'rejected' (default False)
             deferred: Include rows with NVD status 'deferred' (default True)
+            start: Inclusive lower bound (>=) for nvd_published_at. ISO string or datetime.
+            end: Exclusive upper bound (<) for nvd_published_at. ISO string or datetime.
 
         Returns:
             Polars DataFrame
@@ -393,6 +527,8 @@ class VulnDataset:
 
         loader = PolarsLoader(
             include_nested=include_nested,
+            start=start,
+            end=end,
             analyzed=analyzed,
             modified=modified,
             awaiting=awaiting,
