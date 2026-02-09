@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
 
-@register_transform(default=True)
+@register_transform(default=False)
 class CAPECFlattenTransform(BaseFlatten):
     """Select primary CAPEC (first entry) and extract key fields.
 
