@@ -31,6 +31,19 @@ class CWEEntry:
     applicable_platforms: list[str] | None = None  # ["Java", "C", "Linux"]
     modes_of_introduction: list[str] | None = None  # ["Design", "Implementation"]
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "category_id": self.category_id,
+            "category_name": self.category_name,
+            "abstraction_level": self.abstraction_level,
+            "likelihood_of_exploit": self.likelihood_of_exploit,
+            "consequences": self.consequences,
+            "applicable_platforms": self.applicable_platforms,
+            "modes_of_introduction": self.modes_of_introduction,
+        }
+
 
 @dataclass
 class CAPECEntry:
@@ -67,6 +80,15 @@ class CPEEntry:
     raw: str | None = None  # Full CPE 2.3 string
     fix_version: str | None = None  # From versionEndExcluding
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "vendor": self.vendor,
+            "product": self.product,
+            "version": self.version,
+            "raw": self.raw,
+            "fix_version": self.fix_version,
+        }
+
 
 @dataclass
 class ReferenceEntry:
@@ -75,6 +97,13 @@ class ReferenceEntry:
     url: str
     source: str | None = None  # "nvd", "vendor", "third-party"
     tags: list[str] = field(default_factory=list)  # ["Patch", "Vendor Advisory"]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "url": self.url,
+            "source": self.source,
+            "tags": self.tags,
+        }
 
 
 @dataclass
@@ -92,6 +121,21 @@ class CVSSEntry:
     source_url: str | None = None
     published_at: datetime | None = None
     updated_at: datetime | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "version": self.version,
+            "vector_string": self.vector_string,
+            "base_score": self.base_score,
+            "base_severity": self.base_severity,
+            "source": self.source,
+            "is_authoritative": self.is_authoritative,
+            "exploitability_score": self.exploitability_score,
+            "impact_score": self.impact_score,
+            "source_url": self.source_url,
+            "published_at": self.published_at,
+            "updated_at": self.updated_at,
+        }
 
 
 @dataclass
