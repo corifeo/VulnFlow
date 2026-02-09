@@ -16,7 +16,7 @@ import time
 import xml.etree.ElementTree as ET
 from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from zipfile import ZipFile
 
 import numpy as np
@@ -78,7 +78,7 @@ class CWEEnricher(BaseEnricher):
         self.cache_ttl = cache_ttl
         self.cache_dir = Path(cache_dir)
         self.timeout = timeout
-        self._cache: dict[str, dict[str, str | None]] | None = None
+        self._cache: dict[str, dict[str, Any]] | None = None
         self._cache_time: float = 0.0
         self._http_fetcher: HttpFetcher | None = None
 
@@ -122,6 +122,10 @@ class CWEEnricher(BaseEnricher):
                         category_id=metadata.get("category_id"),
                         category_name=metadata.get("category_name"),
                         abstraction_level=metadata.get("abstraction_level"),
+                        likelihood_of_exploit=metadata.get("likelihood_of_exploit"),
+                        consequences=metadata.get("consequences") or None,
+                        applicable_platforms=metadata.get("applicable_platforms") or None,
+                        modes_of_introduction=metadata.get("modes_of_introduction") or None,
                     )
                     enriched_entries.append(asdict(cwe_entry))
                     enriched_count += 1
@@ -136,7 +140,7 @@ class CWEEnricher(BaseEnricher):
         dataset.set_column("cwes", enriched_cwes)
         logger.info(f"Enriched {enriched_count} CWE entries across {n} records")
 
-    async def _get_cached_cwe_db(self) -> dict[str, dict[str, str | None]]:
+    async def _get_cached_cwe_db(self) -> dict[str, dict[str, Any]]:
         """Get CWE database from cache or load fresh (async)."""
         now = time.time()
         expired = self.cache_ttl > 0 and now - self._cache_time > self.cache_ttl
@@ -145,7 +149,7 @@ class CWEEnricher(BaseEnricher):
             self._cache_time = now
         return self._cache
 
-    async def _load_cwe_database(self) -> dict[str, dict[str, str | None]]:
+    async def _load_cwe_database(self) -> dict[str, dict[str, Any]]:
         """Load CWE database from cache or source.
 
         Returns:
@@ -161,7 +165,7 @@ class CWEEnricher(BaseEnricher):
             age = time.time() - cache_file.stat().st_mtime
             if self.cache_ttl == 0 or age < self.cache_ttl:
                 logger.info(f"Using cached CWE database (age: {age:.0f}s)")
-                cached_db: dict[str, dict[str, str | None]] = json.loads(
+                cached_db: dict[str, dict[str, Any]] = json.loads(
                     cache_file.read_text()
                 )
                 return cached_db
@@ -175,11 +179,11 @@ class CWEEnricher(BaseEnricher):
 
         # Parse and cache
         cwe_db = self._parse_cwe_xml(xml_path)
-        cache_file.write_text(json.dumps(cwe_db))
+        cache_file.write_text(json.dumps(cwe_db, indent=True))
 
         # Extract and cache CWE→CAPEC mapping
         capec_mapping = self._extract_capec_mapping(xml_path)
-        capec_mapping_file.write_text(json.dumps(capec_mapping))
+        capec_mapping_file.write_text(json.dumps(capec_mapping, indent=True))
 
         # Clean up intermediate files
         for name in ("cwec_latest.xml.zip", "cwec_latest.xml"):
@@ -222,7 +226,7 @@ class CWEEnricher(BaseEnricher):
 
         return xml_path
 
-    def _parse_cwe_xml(self, xml_path: Path) -> dict[str, dict[str, str | None]]:
+    def _parse_cwe_xml(self, xml_path: Path) -> dict[str, dict[str, Any]]:
         """Parse CWE XML and pre-compute all fields (slow, done once).
 
         Args:
@@ -239,22 +243,58 @@ class CWEEnricher(BaseEnricher):
             raise ValueError(f"Invalid CWE XML format: {e}") from e
 
         # First pass: Build basic entries
-        raw_db: dict[str, dict[str, str | None]] = {}
+        raw_db: dict[str, dict[str, Any]] = {}
         for weakness in root.findall(".//{*}Weakness"):
             cwe_id = f"CWE-{weakness.get('ID')}"
             category_id = self._extract_category_id(weakness)
+
+            # Likelihood of exploit
+            likelihood_el = weakness.find(".//{*}Likelihood_Of_Exploit")
+            likelihood = likelihood_el.text if likelihood_el is not None else None
+
+            # Consequences (scopes + impacts per consequence)
+            consequences: list[dict[str, list[str]]] = []
+            for cons_el in weakness.findall(".//{*}Consequence"):
+                scopes = [
+                    s.text for s in cons_el.findall("{*}Scope") if s.text
+                ]
+                impacts = [
+                    s.text for s in cons_el.findall("{*}Impact") if s.text
+                ]
+                if scopes or impacts:
+                    consequences.append({"scopes": scopes, "impacts": impacts})
+
+            # Applicable platforms (Language, Operating_System, Architecture, Technology)
+            platforms: list[str] = []
+            ap_el = weakness.find(".//{*}Applicable_Platforms")
+            if ap_el is not None:
+                for child in ap_el:
+                    name = child.get("Name")
+                    if name:
+                        platforms.append(name)
+
+            # Modes of introduction (Phase text from Introduction children)
+            modes: list[str] = []
+            for intro_el in weakness.findall(".//{*}Modes_Of_Introduction/{*}Introduction"):
+                phase_el = intro_el.find("{*}Phase")
+                if phase_el is not None and phase_el.text:
+                    modes.append(phase_el.text)
 
             raw_db[cwe_id] = {
                 "name": weakness.get("Name", ""),
                 "category_id": category_id,
                 "category_name": None,  # Filled in second pass
                 "abstraction_level": weakness.get("Abstraction", ""),
+                "likelihood_of_exploit": likelihood,
+                "consequences": consequences,
+                "applicable_platforms": platforms,
+                "modes_of_introduction": modes,
             }
 
         # Second pass: Add category names (requires all entries parsed)
         for _cwe_id, data in raw_db.items():
             category_id = data["category_id"]
-            if category_id and category_id in raw_db:
+            if category_id and isinstance(category_id, str) and category_id in raw_db:
                 data["category_name"] = raw_db[category_id]["name"]
 
         return raw_db
