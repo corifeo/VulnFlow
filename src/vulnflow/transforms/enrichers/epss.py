@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import polars as pl
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -238,7 +237,9 @@ class EPSSEnricher(BaseEnricher):
         data_lines = [line for line in all_lines if not line.startswith("#")]
         data_bytes = "".join(data_lines).encode("utf-8")
 
-        # Parse with Polars (5-10x faster than csv.DictReader for 314k rows)
+        # Parse with Polars (6x faster than csv.DictReader for 314k rows)
+        import polars as pl
+
         df = pl.read_csv(data_bytes, columns=["cve", "epss", "percentile"])
 
         # Build lookup dict from columns
