@@ -8,6 +8,7 @@ Provides:
 - CPEFlattenTransform: Select primary CPE
 - CWEFlattenTransform: Select primary CWE
 - CAPECFlattenTransform: Select primary CAPEC
+- STRIDEFlattenTransform: Extract STRIDE threat booleans
 """
 
 from vulnflow.transforms.flatten.base import BaseFlatten
@@ -17,6 +18,7 @@ from vulnflow.transforms.flatten.cvss import CVSSFlattenTransform
 from vulnflow.transforms.flatten.cwe import CWEFlattenTransform
 from vulnflow.transforms.flatten.epss import EPSSFlattenTransform
 from vulnflow.transforms.flatten.kev import KEVFlattenTransform
+from vulnflow.transforms.flatten.stride import STRIDEFlattenTransform
 
 __all__ = [
     "BaseFlatten",
@@ -26,4 +28,5 @@ __all__ = [
     "CWEFlattenTransform",
     "EPSSFlattenTransform",
     "KEVFlattenTransform",
+    "STRIDEFlattenTransform",
 ]

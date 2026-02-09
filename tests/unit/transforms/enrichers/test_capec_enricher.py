@@ -11,7 +11,7 @@ import pytest
 from vulnflow.dataset import VulnDataset
 from vulnflow.transforms.enrichers.capec import CAPECEnricher
 
-# Minimal CAPEC XML with two attack patterns
+# Minimal CAPEC XML with attack patterns (includes consequences for STRIDE)
 CAPEC_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <Attack_Pattern_Catalog>
   <Attack_Patterns>
@@ -21,6 +21,16 @@ CAPEC_XML = """<?xml version="1.0" encoding="UTF-8"?>
       <Related_Weaknesses>
         <Related_Weakness CWE_ID="79" />
       </Related_Weaknesses>
+      <Consequences>
+        <Consequence>
+          <Scope>Confidentiality</Scope>
+          <Impact>Read Data</Impact>
+        </Consequence>
+        <Consequence>
+          <Scope>Integrity</Scope>
+          <Impact>Modify Data</Impact>
+        </Consequence>
+      </Consequences>
     </Attack_Pattern>
     <Attack_Pattern ID="198" Name="XSS Targeting Error Pages" Abstraction="Detailed" Status="Draft">
       <Likelihood_Of_Attack>High</Likelihood_Of_Attack>
@@ -35,6 +45,16 @@ CAPEC_XML = """<?xml version="1.0" encoding="UTF-8"?>
       <Related_Weaknesses>
         <Related_Weakness CWE_ID="502" />
       </Related_Weaknesses>
+      <Consequences>
+        <Consequence>
+          <Scope>Integrity</Scope>
+          <Impact>Alter Execution Logic</Impact>
+        </Consequence>
+        <Consequence>
+          <Scope>Availability</Scope>
+          <Impact>Unreliable Execution</Impact>
+        </Consequence>
+      </Consequences>
     </Attack_Pattern>
   </Attack_Patterns>
 </Attack_Pattern_Catalog>"""
@@ -188,3 +208,35 @@ async def test_capec_enricher_handles_empty_cwes(tmp_path: Path) -> None:
     # Second record should have capecs from reverse mapping
     capecs_1 = json.loads(dataset.get_column("capecs")[1])
     assert len(capecs_1) > 0
+
+
+@pytest.mark.asyncio
+async def test_capec_database_includes_consequences(tmp_path: Path) -> None:
+    """Cached CAPEC database includes consequences from XML."""
+    capec_xml = tmp_path / "capec.xml"
+    capec_xml.write_text(CAPEC_XML)
+
+    cache_dir = tmp_path / ".cache"
+    mitre_dir = cache_dir / "mitre"
+    mitre_dir.mkdir(parents=True)
+    (mitre_dir / "cwe_capec_mapping.json").write_text("{}")
+
+    dataset = _make_dataset_with_cwes([["CWE-79"]])
+    enricher = CAPECEnricher(source=capec_xml, cache_dir=cache_dir)
+    await enricher.transform(dataset)
+
+    cache_file = cache_dir / "mitre" / "capec_database.json"
+    cached_data = json.loads(cache_file.read_text())
+
+    # CAPEC-86 has consequences
+    assert "consequences" in cached_data["CAPEC-86"]
+    consequences = cached_data["CAPEC-86"]["consequences"]
+    assert len(consequences) == 2
+    assert consequences[0]["scopes"] == ["Confidentiality"]
+    assert consequences[0]["impacts"] == ["Read Data"]
+
+    # CAPEC-198 has no consequences
+    assert cached_data["CAPEC-198"]["consequences"] == []
+
+    # CAPEC-586 has consequences
+    assert len(cached_data["CAPEC-586"]["consequences"]) == 2
