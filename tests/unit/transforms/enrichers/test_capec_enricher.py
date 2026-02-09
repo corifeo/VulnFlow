@@ -21,6 +21,9 @@ CAPEC_XML = """<?xml version="1.0" encoding="UTF-8"?>
       <Related_Weaknesses>
         <Related_Weakness CWE_ID="79" />
       </Related_Weaknesses>
+      <Skills_Required>
+        <Skill Level="Medium">Exploiting a reflected XSS requires knowledge of HTTP headers.</Skill>
+      </Skills_Required>
       <Consequences>
         <Consequence>
           <Scope>Confidentiality</Scope>
@@ -31,6 +34,12 @@ CAPEC_XML = """<?xml version="1.0" encoding="UTF-8"?>
           <Impact>Modify Data</Impact>
         </Consequence>
       </Consequences>
+      <Taxonomy_Mappings>
+        <Taxonomy_Mapping Taxonomy_Name="ATTACK">
+          <Entry_ID>1189</Entry_ID>
+          <Entry_Name>Drive-by Compromise</Entry_Name>
+        </Taxonomy_Mapping>
+      </Taxonomy_Mappings>
     </Attack_Pattern>
     <Attack_Pattern ID="198" Name="XSS Targeting Error Pages" Abstraction="Detailed" Status="Draft">
       <Likelihood_Of_Attack>High</Likelihood_Of_Attack>
@@ -45,6 +54,10 @@ CAPEC_XML = """<?xml version="1.0" encoding="UTF-8"?>
       <Related_Weaknesses>
         <Related_Weakness CWE_ID="502" />
       </Related_Weaknesses>
+      <Skills_Required>
+        <Skill Level="Low">Basic understanding of serialization.</Skill>
+        <Skill Level="High">Crafting advanced injection payloads.</Skill>
+      </Skills_Required>
       <Consequences>
         <Consequence>
           <Scope>Integrity</Scope>
@@ -55,6 +68,20 @@ CAPEC_XML = """<?xml version="1.0" encoding="UTF-8"?>
           <Impact>Unreliable Execution</Impact>
         </Consequence>
       </Consequences>
+      <Taxonomy_Mappings>
+        <Taxonomy_Mapping Taxonomy_Name="ATTACK">
+          <Entry_ID>1110</Entry_ID>
+          <Entry_Name>Brute Force</Entry_Name>
+        </Taxonomy_Mapping>
+        <Taxonomy_Mapping Taxonomy_Name="ATTACK">
+          <Entry_ID>1548.001</Entry_ID>
+          <Entry_Name>Abuse Elevation Control Mechanism</Entry_Name>
+        </Taxonomy_Mapping>
+        <Taxonomy_Mapping Taxonomy_Name="WASC">
+          <Entry_ID>42</Entry_ID>
+          <Entry_Name>Abuse of Functionality</Entry_Name>
+        </Taxonomy_Mapping>
+      </Taxonomy_Mappings>
     </Attack_Pattern>
   </Attack_Patterns>
 </Attack_Pattern_Catalog>"""
@@ -107,6 +134,12 @@ async def test_capec_enricher_maps_cwes_to_capecs(tmp_path: Path) -> None:
     assert capec_86["status"] == "Draft"
     assert capec_86["likelihood_of_attack"] == "Medium"
     assert capec_86["typical_severity"] == "High"
+    assert capec_86["skills_required"] == ["Medium"]
+    assert capec_86["consequences"] == [
+        {"scopes": ["Confidentiality"], "impacts": ["Read Data"]},
+        {"scopes": ["Integrity"], "impacts": ["Modify Data"]},
+    ]
+    assert capec_86["attack_techniques"] == ["1189"]
 
 
 @pytest.mark.asyncio
@@ -131,6 +164,8 @@ async def test_capec_enricher_caches_parsed_database(tmp_path: Path) -> None:
     assert "CAPEC-86" in cached_data
     assert cached_data["CAPEC-86"]["name"] == "XSS via HTTP Headers"
     assert cached_data["CAPEC-86"]["related_cwes"] == ["CWE-79"]
+    assert cached_data["CAPEC-86"]["skills_required"] == ["Medium"]
+    assert cached_data["CAPEC-86"]["attack_techniques"] == ["1189"]
 
 
 @pytest.mark.asyncio
@@ -235,8 +270,12 @@ async def test_capec_database_includes_consequences(tmp_path: Path) -> None:
     assert consequences[0]["scopes"] == ["Confidentiality"]
     assert consequences[0]["impacts"] == ["Read Data"]
 
-    # CAPEC-198 has no consequences
+    # CAPEC-198 has no consequences, skills, or ATT&CK
     assert cached_data["CAPEC-198"]["consequences"] == []
+    assert cached_data["CAPEC-198"]["skills_required"] == []
+    assert cached_data["CAPEC-198"]["attack_techniques"] == []
 
-    # CAPEC-586 has consequences
+    # CAPEC-586 has consequences, multiple skills, and ATT&CK mappings
     assert len(cached_data["CAPEC-586"]["consequences"]) == 2
+    assert cached_data["CAPEC-586"]["skills_required"] == ["Low", "High"]
+    assert cached_data["CAPEC-586"]["attack_techniques"] == ["1110", "1548.001"]

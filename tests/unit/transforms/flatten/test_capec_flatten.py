@@ -26,6 +26,11 @@ def test_capec_flatten_extracts_primary() -> None:
                             "status": "Draft",
                             "likelihood_of_attack": "Medium",
                             "typical_severity": "High",
+                            "skills_required": ["Medium"],
+                            "consequences": [
+                                {"scopes": ["Confidentiality"], "impacts": ["Read Data"]},
+                            ],
+                            "attack_techniques": ["1189"],
                         },
                         {
                             "id": "CAPEC-198",
@@ -34,6 +39,9 @@ def test_capec_flatten_extracts_primary() -> None:
                             "status": "Draft",
                             "likelihood_of_attack": "High",
                             "typical_severity": "Medium",
+                            "skills_required": None,
+                            "consequences": None,
+                            "attack_techniques": None,
                         },
                     ]
                 )
