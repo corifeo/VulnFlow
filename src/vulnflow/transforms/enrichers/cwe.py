@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import time
 import xml.etree.ElementTree as ET
-from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zipfile import ZipFile
@@ -127,7 +126,7 @@ class CWEEnricher(BaseEnricher):
                         applicable_platforms=metadata.get("applicable_platforms") or None,
                         modes_of_introduction=metadata.get("modes_of_introduction") or None,
                     )
-                    enriched_entries.append(asdict(cwe_entry))
+                    enriched_entries.append(cwe_entry.to_dict())
                     enriched_count += 1
                 else:
                     # Keep original if not found in database
