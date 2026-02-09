@@ -42,16 +42,6 @@ STRIDE_CATEGORIES: list[str] = [
     SPOOFING, TAMPERING, REPUDIATION, INFO_DISCLOSURE, DOS, ELEVATION,
 ]
 
-# --- Tier confidence thresholds ---
-
-TIER_THRESHOLDS: dict[int, float] = {
-    1: 0.95,  # CAPEC consequences (authoritative)
-    2: 0.85,  # CWE → STRIDE static mapping
-    3: 0.75,  # CVSS impact metrics
-    4: 0.60,  # Description keywords
-    5: 0.45,  # CVSS vector heuristics
-}
-
 # --- Tier 1: CAPEC consequence mappings ---
 
 SCOPE_TO_STRIDE: dict[str, str] = {
@@ -219,6 +209,14 @@ class STRIDEInference(BaseInference):
         "CVSSFlattenTransform",
     ]
 
+    TIER_THRESHOLDS: dict[int, float] = {
+        1: 0.95,  # CAPEC consequences (authoritative)
+        2: 0.85,  # CWE → STRIDE static mapping
+        3: 0.75,  # CVSS impact metrics
+        4: 0.60,  # Description keywords
+        5: 0.45,  # CVSS vector heuristics
+    }
+
     OUTPUT_SCHEMA: list[FieldDefinition] = [
         FieldDefinition(
             "stride_threats",
@@ -243,17 +241,8 @@ class STRIDEInference(BaseInference):
             tiers: Explicit tier list to run (overrides threshold gating).
             cache_dir: Directory containing .cache/mitre/capec_database.json.
         """
-        super().__init__()
-        self.confidence_threshold = confidence_threshold
-        self.overwrite = overwrite
-        self.tiers = tiers
+        super().__init__(confidence_threshold, overwrite, tiers)
         self.cache_dir = Path(cache_dir)
-
-    def _should_run(self, tier: int) -> bool:
-        """Check if a tier should run based on configuration."""
-        if self.tiers is not None:
-            return tier in self.tiers
-        return self.confidence_threshold <= TIER_THRESHOLDS[tier]
 
     def _load_capec_db(self) -> dict[str, dict[str, Any]]:
         """Load CAPEC database from disk cache."""
@@ -280,11 +269,13 @@ class STRIDEInference(BaseInference):
         descriptions = dataset.get_column_or_none("description")
 
         # Idempotency: load existing if not overwriting
-        stride_col = np.empty(n, dtype=object)
+        stride_col = np.full(n, None, dtype=object)
         if not self.overwrite:
             existing = dataset.get_column_or_none("stride_threats")
             if existing is not None:
                 stride_col[:] = existing
+
+        tier_stats: dict[int, int] = dict.fromkeys(range(1, 6), 0)
 
         for i in range(n):
             if not self.overwrite and stride_col[i] is not None:
@@ -302,6 +293,7 @@ class STRIDEInference(BaseInference):
                 for cat, cids in capec_results.items():
                     if cat not in assigned:
                         assigned[cat] = (0.95, "capec_consequences", cids)
+                        tier_stats[1] += 1
 
             # Tier 2: CWE → STRIDE
             if self._should_run(2) and cwe_id_col is not None:
@@ -309,6 +301,7 @@ class STRIDEInference(BaseInference):
                 for cat in cwe_cats:
                     if cat not in assigned:
                         assigned[cat] = (0.85, "cwe_mapping", [])
+                        tier_stats[2] += 1
 
             # Tier 3: CVSS impact
             if self._should_run(3):
@@ -320,6 +313,7 @@ class STRIDEInference(BaseInference):
                 for cat in cvss_cats:
                     if cat not in assigned:
                         assigned[cat] = (0.75, "cvss_impact", [])
+                        tier_stats[3] += 1
 
             # Tier 4: Description keywords
             if self._should_run(4) and descriptions is not None:
@@ -327,6 +321,7 @@ class STRIDEInference(BaseInference):
                 for cat in desc_cats:
                     if cat not in assigned:
                         assigned[cat] = (0.60, "description", [])
+                        tier_stats[4] += 1
 
             # Tier 5: CVSS vector heuristics
             if self._should_run(5):
@@ -338,6 +333,7 @@ class STRIDEInference(BaseInference):
                 for cat in vec_cats:
                     if cat not in assigned:
                         assigned[cat] = (0.45, "cvss_vector", [])
+                        tier_stats[5] += 1
 
             # Serialize
             if assigned:
@@ -350,8 +346,26 @@ class STRIDEInference(BaseInference):
                 stride_col[i] = "[]"
 
         dataset.set_column("stride_threats", stride_col)
+
+        # Per-tier debug stats
+        tier_names = {
+            1: "capec_consequences",
+            2: "cwe_mapping",
+            3: "cvss_impact",
+            4: "description",
+            5: "cvss_vector",
+        }
+        for tier, count in sorted(tier_stats.items()):
+            if count > 0:
+                logger.debug(
+                    "Tier %d (%s): %d categories assigned",
+                    tier,
+                    tier_names.get(tier, str(tier)),
+                    count,
+                )
+
         logger.info(
-            "Inferred STRIDE threats for %d records (tiers: %s, threshold: %.2f)",
+            "STRIDEInference: %d records, tiers=%s, threshold=%.2f",
             n,
             self.tiers or "auto",
             self.confidence_threshold,

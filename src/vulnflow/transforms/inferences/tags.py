@@ -256,8 +256,18 @@ def _parse_cvss_vector(vector_string: str | None) -> dict[str, str]:
 class TagInference(BaseInference):
     """Infer namespaced tags from vulnerability data.
 
-    Uses rule-based methods to derive tags from all available data sources.
+    Uses a 3-tier rule system to derive tags from all available data sources.
     Each tag is namespaced as "category:tag" for easy filtering.
+
+    Tier 1 (>=1.0) - Structured data:
+        threat (description keywords), vector (CWE), product (CPE),
+        attack (CVSS vector)
+
+    Tier 2 (>=0.9) - Strong signals:
+        ref (NVD reference tags), exploitation status (KEV/exploit data)
+
+    Tier 3 (>=0.8) - Heuristic:
+        EPSS probability thresholds, description impact keywords
 
     Tag categories:
     - threat: Vulnerability type (threat:rce, threat:sqli, etc.)
@@ -268,7 +278,7 @@ class TagInference(BaseInference):
     - ref: Reference indicators (ref:has-patch, ref:has-advisory, etc.)
     - impact: Impact type from CVSS+description (impact:confidentiality, etc.)
 
-    Output: inferred_tags column (JSON-encoded sorted list of tag strings)
+    Output: inferred_tags column (JSON-encoded sorted dict of tag categories)
     """
 
     name: str = "TagInference"
@@ -280,24 +290,38 @@ class TagInference(BaseInference):
         "CPEFlattenTransform",
     ]
 
-    SCHEMA_VERSION: str = "2.0.0"
+    TIER_THRESHOLDS: dict[int, float] = {
+        1: 1.0,   # Structured data: threat/vector/product/attack
+        2: 0.9,   # Strong signals: reference tags, KEV/exploit status
+        3: 0.8,   # Heuristic: EPSS thresholds, description impact keywords
+    }
+
+    SCHEMA_VERSION: str = "3.0.0"
     OUTPUT_SCHEMA: list[FieldDefinition] = [
         FieldDefinition(
             "inferred_tags", "list[str]", "Inferred classification tags", "TagInference"
         ),
     ]
 
-    def __init__(self, confidence_threshold: float = 0.7) -> None:
+    def __init__(
+        self,
+        confidence_threshold: float = 0.7,
+        overwrite: bool = False,
+        tiers: list[int] | None = None,
+    ) -> None:
         """Initialize TagInference.
 
         Args:
-            confidence_threshold: Minimum confidence (0.0-1.0) to add tag.
-                - 1.0: Only direct keyword/structured data matches
-                - 0.7: Balanced (default) - includes reference tags (0.9)
-                - 0.5: Aggressive - includes all inference rules
+            confidence_threshold: Minimum confidence (0.0-1.0) to run a tier.
+                - 0.7: Balanced (default) - all tiers run
+                - 0.9: Only tiers 1-2
+                - 1.0: Only tier 1
+            overwrite: Replace existing inferred_tags. Default False preserves
+                values from previous inference runs.
+            tiers: Specific tiers to run (1-3). Default None runs all tiers
+                meeting the confidence threshold.
         """
-        super().__init__()
-        self.confidence_threshold = confidence_threshold
+        super().__init__(confidence_threshold, overwrite, tiers)
 
     def transform(self, dataset: VulnDataset) -> None:
         """Infer tags from all available data sources.
@@ -318,60 +342,103 @@ class TagInference(BaseInference):
         exploits_json = dataset.get_column_or_none("exploits")
         refs_json = dataset.get_column_or_none("references")
 
-        # Build output
-        all_tags: list[str] = []
+        # Initialize output array
+        tags_col = np.full(n, None, dtype=object)
+
+        # Idempotency: load existing if not overwriting
+        if not self.overwrite:
+            existing = dataset.get_column_or_none("inferred_tags")
+            if existing is not None:
+                tags_col[:] = existing
+
+        tier_stats = {1: 0, 2: 0, 3: 0}
 
         for i in range(n):
+            # Skip populated records when not overwriting
+            if not self.overwrite and tags_col[i] is not None:
+                continue
+
             tags: list[str] = []
 
-            # --- Threat tags from description ---
-            desc = descriptions[i] if descriptions is not None else None
-            threat_tags, conf = self._infer_threat_tags(desc)
-            if conf >= self.confidence_threshold:
-                tags.extend(threat_tags)
+            # --- Tier 1: Structured data (confidence 1.0) ---
+            if self._should_run(1):
+                desc = descriptions[i] if descriptions is not None else None
 
-            # --- Vector tags from CWE ---
-            cwes_raw = cwes_json[i] if cwes_json is not None else None
-            cwes_data = _parse_json_safe(cwes_raw)
-            vector_tags, conf = self._infer_vector_tags(cwes_data)
-            if conf >= self.confidence_threshold:
-                tags.extend(vector_tags)
+                # Threat tags from description
+                threat_tags, conf = self._infer_threat_tags(desc)
+                if conf >= self.confidence_threshold:
+                    tags.extend(threat_tags)
 
-            # --- Product tags from CPE ---
-            cpes_raw = cpes_json[i] if cpes_json is not None else None
-            cpes_data = _parse_json_safe(cpes_raw)
-            product_tags, conf = self._infer_product_tags(cpes_data)
-            if conf >= self.confidence_threshold:
-                tags.extend(product_tags)
+                # Vector tags from CWE
+                cwes_raw = cwes_json[i] if cwes_json is not None else None
+                cwes_data = _parse_json_safe(cwes_raw)
+                vector_tags, conf = self._infer_vector_tags(cwes_data)
+                if conf >= self.confidence_threshold:
+                    tags.extend(vector_tags)
 
-            # --- Attack surface tags from CVSS vector ---
-            cvss_vec = cvss_vectors[i] if cvss_vectors is not None else None
-            attack_tags, conf = self._infer_attack_surface_tags(cvss_vec)
-            if conf >= self.confidence_threshold:
-                tags.extend(attack_tags)
+                # Product tags from CPE
+                cpes_raw = cpes_json[i] if cpes_json is not None else None
+                cpes_data = _parse_json_safe(cpes_raw)
+                product_tags, conf = self._infer_product_tags(cpes_data)
+                if conf >= self.confidence_threshold:
+                    tags.extend(product_tags)
 
-            # --- Exploitation status tags from KEV/EPSS/exploits ---
-            kev_val = is_kev[i] if is_kev is not None else None
-            epss_val = epss_prob[i] if epss_prob is not None else None
-            ransom_val = kev_ransom[i] if kev_ransom is not None else None
-            exploits_raw = exploits_json[i] if exploits_json is not None else None
-            exploit_tags, conf = self._infer_exploitation_tags(
-                kev_val, epss_val, ransom_val, exploits_raw
-            )
-            if conf >= self.confidence_threshold:
-                tags.extend(exploit_tags)
+                # Attack surface tags from CVSS vector
+                cvss_vec = cvss_vectors[i] if cvss_vectors is not None else None
+                attack_tags, conf = self._infer_attack_surface_tags(cvss_vec)
+                if conf >= self.confidence_threshold:
+                    tags.extend(attack_tags)
 
-            # --- Reference tags ---
-            refs_raw = refs_json[i] if refs_json is not None else None
-            refs_data = _parse_json_safe(refs_raw)
-            ref_tags, conf = self._infer_reference_tags(refs_data)
-            if conf >= self.confidence_threshold:
-                tags.extend(ref_tags)
+                # Impact tags from CVSS (structured part, 1.0 confidence)
+                cvss_impact_tags, conf = self._infer_cvss_impact_tags(cvss_vec)
+                if conf >= self.confidence_threshold:
+                    tags.extend(cvss_impact_tags)
 
-            # --- Impact tags from CVSS + description ---
-            impact_tags, conf = self._infer_impact_tags(desc, cvss_vec)
-            if conf >= self.confidence_threshold:
-                tags.extend(impact_tags)
+                if tags:
+                    tier_stats[1] += 1
+
+            # --- Tier 2: Strong signals (confidence 0.9) ---
+            if self._should_run(2):
+                pre_count = len(tags)
+
+                # Reference tags
+                refs_raw = refs_json[i] if refs_json is not None else None
+                refs_data = _parse_json_safe(refs_raw)
+                ref_tags, conf = self._infer_reference_tags(refs_data)
+                if conf >= self.confidence_threshold:
+                    tags.extend(ref_tags)
+
+                # Exploitation status tags (KEV + exploit data only)
+                kev_val = is_kev[i] if is_kev is not None else None
+                ransom_val = kev_ransom[i] if kev_ransom is not None else None
+                exploits_raw = exploits_json[i] if exploits_json is not None else None
+                exploit_tags, conf = self._infer_exploitation_tags(
+                    kev_val, ransom_val, exploits_raw
+                )
+                if conf >= self.confidence_threshold:
+                    tags.extend(exploit_tags)
+
+                if len(tags) > pre_count:
+                    tier_stats[2] += 1
+
+            # --- Tier 3: Heuristic (confidence 0.8) ---
+            if self._should_run(3):
+                pre_count = len(tags)
+
+                # EPSS probability tags
+                epss_val = epss_prob[i] if epss_prob is not None else None
+                epss_tags, conf = self._infer_epss_tags(epss_val)
+                if conf >= self.confidence_threshold:
+                    tags.extend(epss_tags)
+
+                # Description-based impact keywords
+                desc = descriptions[i] if descriptions is not None else None
+                impact_tags, conf = self._infer_description_impact_tags(desc)
+                if conf >= self.confidence_threshold:
+                    tags.extend(impact_tags)
+
+                if len(tags) > pre_count:
+                    tier_stats[3] += 1
 
             # Group by category as dict[str, list[str]]
             grouped: dict[str, list[str]] = {}
@@ -379,9 +446,28 @@ class TagInference(BaseInference):
                 category, _, value = tag.partition(":")
                 grouped.setdefault(category, []).append(value)
 
-            all_tags.append(json.dumps(grouped))
+            tags_col[i] = json.dumps(grouped)
 
-        dataset.set_column("inferred_tags", np.array(all_tags, dtype=object))
+        dataset.set_column("inferred_tags", tags_col)
+
+        # Per-tier debug stats
+        tier_names = {1: "structured", 2: "strong_signals", 3: "heuristic"}
+        for tier, count in sorted(tier_stats.items()):
+            if count > 0:
+                logger.debug(
+                    "Tier %d (%s): %d records contributed tags",
+                    tier,
+                    tier_names.get(tier, str(tier)),
+                    count,
+                )
+
+        logger.info(
+            "TagInference: %d records, tier1=%d tier2=%d tier3=%d tags",
+            n,
+            tier_stats[1],
+            tier_stats[2],
+            tier_stats[3],
+        )
 
     # ========================================================================
     # Rule methods
@@ -498,16 +584,15 @@ class TagInference(BaseInference):
     def _infer_exploitation_tags(
         self,
         is_kev_val: Any,
-        epss_probability: Any,
         kev_ransomware: Any,
         exploits_raw: str | None,
     ) -> tuple[list[str], float]:
-        """Infer exploitation status tags from KEV, EPSS, and exploit data.
+        """Infer exploitation status tags from KEV and exploit data.
+
+        Tier 2: Strong signals only (no EPSS — see _infer_epss_tags).
 
         Confidence levels:
         - KEV status: 1.0 (authoritative)
-        - EPSS high (>=0.5): 0.9
-        - EPSS moderate (>=0.1): 0.8
         - Has exploits: 0.9
         """
         tags: list[str] = []
@@ -523,19 +608,6 @@ class TagInference(BaseInference):
             tags.append("status:ransomware")
             max_conf = max(max_conf, 1.0)
 
-        # EPSS probability thresholds
-        if epss_probability is not None:
-            try:
-                prob = float(epss_probability)
-                if prob >= 0.5:
-                    tags.append("status:high-epss")
-                    max_conf = max(max_conf, 0.9)
-                elif prob >= 0.1:
-                    tags.append("status:moderate-epss")
-                    max_conf = max(max_conf, 0.8)
-            except (TypeError, ValueError):
-                pass
-
         # Exploits present
         exploits_data = _parse_json_safe(exploits_raw)
         if exploits_data:
@@ -544,6 +616,32 @@ class TagInference(BaseInference):
 
         if tags:
             return list(set(tags)), max_conf
+
+        return [], 0.0
+
+    def _infer_epss_tags(
+        self, epss_probability: Any
+    ) -> tuple[list[str], float]:
+        """Infer EPSS probability tags.
+
+        Tier 3: Heuristic signals.
+
+        Confidence levels:
+        - EPSS high (>=0.5): 0.9
+        - EPSS moderate (>=0.1): 0.8
+        """
+        if epss_probability is None:
+            return [], 0.0
+
+        try:
+            prob = float(epss_probability)
+        except (TypeError, ValueError):
+            return [], 0.0
+
+        if prob >= 0.5:
+            return ["status:high-epss"], 0.9
+        if prob >= 0.1:
+            return ["status:moderate-epss"], 0.8
 
         return [], 0.0
 
@@ -569,47 +667,54 @@ class TagInference(BaseInference):
 
         return [], 0.0
 
-    def _infer_impact_tags(
-        self, description: str | None, cvss_vector: str | None
+    def _infer_cvss_impact_tags(
+        self, cvss_vector: str | None
     ) -> tuple[list[str], float]:
-        """Infer impact tags from CVSS C/I/A metrics and description keywords.
+        """Infer impact tags from CVSS C/I/A metrics.
 
-        Confidence:
-        - CVSS-derived: 1.0 (structured data)
-        - Description-derived: 0.8 (keyword heuristic)
-
-        Returns highest confidence among matched tags.
+        Tier 1: Structured data (confidence 1.0).
         """
-        tags: list[str] = []
-        max_conf = 0.0
-
-        # CVSS impact metrics (C, I, A)
         metrics = _parse_cvss_vector(cvss_vector)
-        if metrics:
-            c_val = metrics.get("C")
-            if c_val and c_val in ("H", "L"):
-                tags.append("impact:confidentiality")
-                max_conf = max(max_conf, 1.0)
+        if not metrics:
+            return [], 0.0
 
-            i_val = metrics.get("I")
-            if i_val and i_val in ("H", "L"):
-                tags.append("impact:integrity")
-                max_conf = max(max_conf, 1.0)
+        tags: list[str] = []
 
-            a_val = metrics.get("A")
-            if a_val and a_val in ("H", "L"):
-                tags.append("impact:availability")
-                max_conf = max(max_conf, 1.0)
+        c_val = metrics.get("C")
+        if c_val and c_val in ("H", "L"):
+            tags.append("impact:confidentiality")
 
-        # Description-based impact keywords
-        if description:
-            desc_lower = description.lower()
-            for keyword, suffix in IMPACT_KEYWORDS.items():
-                if keyword in desc_lower:
-                    tags.append(f"impact:{suffix}")
-                    max_conf = max(max_conf, 0.8)
+        i_val = metrics.get("I")
+        if i_val and i_val in ("H", "L"):
+            tags.append("impact:integrity")
+
+        a_val = metrics.get("A")
+        if a_val and a_val in ("H", "L"):
+            tags.append("impact:availability")
 
         if tags:
-            return list(set(tags)), max_conf
+            return list(set(tags)), 1.0
+
+        return [], 0.0
+
+    def _infer_description_impact_tags(
+        self, description: str | None
+    ) -> tuple[list[str], float]:
+        """Infer impact tags from description keywords.
+
+        Tier 3: Heuristic (confidence 0.8).
+        """
+        if not description:
+            return [], 0.0
+
+        desc_lower = description.lower()
+        tags: list[str] = []
+
+        for keyword, suffix in IMPACT_KEYWORDS.items():
+            if keyword in desc_lower:
+                tags.append(f"impact:{suffix}")
+
+        if tags:
+            return list(set(tags)), 0.8
 
         return [], 0.0

@@ -30,8 +30,6 @@ from vulnflow.utils import json
 
 logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
 # Pre-compiled regexes for performance
 _URL_DATE_SLASH = re.compile(r"/(\d{4})/(\d{2})/(\d{2})")
 _URL_DATE_ISO = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
@@ -39,15 +37,6 @@ _EXPLOIT_URL_PATTERN = re.compile(
     r"exploit-db\.com|exploitdb|metasploit|/poc/|/proof-of-concept|nuclei-templates",
     re.IGNORECASE,
 )
-
-# Tier confidence thresholds
-TIER_THRESHOLDS = {
-    1: 0.95,  # Authoritative sources
-    2: 0.80,  # URL date extraction
-    3: 0.60,  # Tag presence
-    4: 0.50,  # Structural signals
-    5: 0.30,  # Age-based (spectrum down to 0.05)
-}
 
 # Age-based inference spectrum (confidence -> minimum age)
 AGE_SPECTRUM = [
@@ -196,6 +185,14 @@ class EventInference(BaseInference):
     name: str = "EventInference"
     depends_on: list[str] = ["KEVFlattenTransform"]
 
+    TIER_THRESHOLDS: dict[int, float] = {
+        1: 0.95,  # Authoritative sources
+        2: 0.80,  # URL date extraction
+        3: 0.60,  # Tag presence
+        4: 0.50,  # Structural signals
+        5: 0.30,  # Age-based (spectrum down to 0.05)
+    }
+
     SCHEMA_VERSION: str = "3.0.0"
     OUTPUT_SCHEMA: list[FieldDefinition] = [
         # Timestamps
@@ -272,16 +269,7 @@ class EventInference(BaseInference):
             tiers: Specific tiers to run (1-5). Default None runs all tiers
                 meeting the confidence threshold. Use [5] for age-only.
         """
-        super().__init__()
-        self.confidence_threshold = confidence_threshold
-        self.overwrite = overwrite
-        self.tiers = tiers
-
-    def _should_run(self, tier: int) -> bool:
-        """Check if a tier should run based on configuration."""
-        if self.tiers is not None:
-            return tier in self.tiers
-        return self.confidence_threshold <= TIER_THRESHOLDS[tier]
+        super().__init__(confidence_threshold, overwrite, tiers)
 
     def _assign(
         self,

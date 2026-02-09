@@ -1,6 +1,6 @@
 """
 Event Inference - Infer CVD timeline timestamps
-Tests: URL date extraction, P/A inference from NVD/KEV
+Tests: URL date extraction, P/A inference from NVD/KEV, overwrite, tier selection
 
 Layer: Transform/Inferences
 Dependencies: dataset, KEV enricher
@@ -8,10 +8,25 @@ Dependencies: dataset, KEV enricher
 
 from __future__ import annotations
 
+from typing import Any
+
+import numpy as np
+
 from vulnflow.dataset import VulnDataset
 from vulnflow.transforms.enrichers.kev import KEVEnricher
 from vulnflow.transforms.flatten.kev import KEVFlattenTransform
 from vulnflow.transforms.inferences.events import EventInference, extract_date_from_url
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
+
+def _make_dataset(columns: dict[str, list[Any]]) -> VulnDataset:
+    """Create a VulnDataset from column lists."""
+    dataset = VulnDataset()
+    dataset._data = {k: np.array(v, dtype=object) for k, v in columns.items()}
+    return dataset
 
 
 def test_extract_date_from_url_slash_pattern():
@@ -137,3 +152,86 @@ def test_event_inference_vectorized_works_correctly():
 
     # Verify it's still a datetime
     assert isinstance(p_timestamp[0], datetime)
+
+
+# ============================================================================
+# Overwrite behavior
+# ============================================================================
+
+
+def test_overwrite_preserves_existing():
+    """overwrite=False preserves existing timestamps."""
+    from datetime import UTC, datetime
+
+    sentinel = datetime(2000, 1, 1, tzinfo=UTC)
+    ds = _make_dataset({
+        "cve_id": ["CVE-2024-0001"],
+        "nvd_published_at": [datetime(2024, 1, 15, tzinfo=UTC)],
+        "p_timestamp": [sentinel],
+        "p_confidence": [0.99],
+    })
+
+    EventInference(overwrite=False).transform(ds)
+
+    # Should keep the sentinel, not replace with nvd_published_at
+    assert ds.get_column("p_timestamp")[0] == sentinel
+    assert ds.get_column("p_confidence")[0] == 0.99
+
+
+def test_overwrite_replaces():
+    """overwrite=True replaces existing timestamps."""
+    from datetime import UTC, datetime
+
+    sentinel = datetime(2000, 1, 1, tzinfo=UTC)
+    ds = _make_dataset({
+        "cve_id": ["CVE-2024-0001"],
+        "nvd_published_at": [datetime(2024, 1, 15, tzinfo=UTC)],
+        "p_timestamp": [sentinel],
+        "p_confidence": [0.99],
+    })
+
+    EventInference(overwrite=True).transform(ds)
+
+    # Should replace sentinel with nvd_published_at
+    p_ts = ds.get_column("p_timestamp")[0]
+    assert p_ts != sentinel
+    assert p_ts.year == 2024
+
+
+# ============================================================================
+# Explicit tier selection
+# ============================================================================
+
+
+def test_explicit_tier_selection():
+    """Explicit tiers=[1] only runs tier 1."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Only run tier 1 (authoritative: P from NVD, A from KEV)
+    EventInference(tiers=[1]).transform(dataset)
+
+    # P should be set from tier 1
+    p_ts = dataset.get_column("p_timestamp")
+    assert p_ts[0] is not None
+
+    # V is only set by tiers 2-5, so with only tier 1, most will be None
+    # (unless constraints fill them in from other events)
+
+
+def test_tier_thresholds_is_class_attribute():
+    """TIER_THRESHOLDS is defined as a class attribute, not module-level."""
+    assert hasattr(EventInference, "TIER_THRESHOLDS")
+    assert isinstance(EventInference.TIER_THRESHOLDS, dict)
+    assert 1 in EventInference.TIER_THRESHOLDS
+    assert EventInference.TIER_THRESHOLDS[1] == 0.95
+
+
+def test_should_run_is_inherited():
+    """_should_run is inherited from BaseInference, not defined locally."""
+    from vulnflow.transforms.base import BaseInference
+
+    # EventInference should NOT define its own _should_run
+    assert "_should_run" not in EventInference.__dict__
+    # But it should have it via inheritance
+    assert hasattr(EventInference, "_should_run")
+    assert EventInference._should_run is BaseInference._should_run

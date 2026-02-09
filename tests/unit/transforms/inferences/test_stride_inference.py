@@ -344,3 +344,66 @@ class TestEdgeCases:
         STRIDEInference().transform(ds)
         threats = _get_threats(ds)
         assert threats == []
+
+
+# ============================================================================
+# Standard pattern alignment
+# ============================================================================
+
+
+class TestStandardPattern:
+    """STRIDEInference follows the standard BaseInference pattern."""
+
+    def test_tier_thresholds_is_class_attribute(self) -> None:
+        """TIER_THRESHOLDS is defined as a class attribute."""
+        assert hasattr(STRIDEInference, "TIER_THRESHOLDS")
+        assert isinstance(STRIDEInference.TIER_THRESHOLDS, dict)
+        assert 1 in STRIDEInference.TIER_THRESHOLDS
+        assert STRIDEInference.TIER_THRESHOLDS[1] == 0.95
+
+    def test_should_run_is_inherited(self) -> None:
+        """_should_run is inherited from BaseInference."""
+        from vulnflow.transforms.base import BaseInference
+
+        assert "_should_run" not in STRIDEInference.__dict__
+        assert hasattr(STRIDEInference, "_should_run")
+        assert STRIDEInference._should_run is BaseInference._should_run
+
+    def test_overwrite_passed_to_base(self) -> None:
+        """overwrite param is set via BaseInference.__init__."""
+        inf = STRIDEInference(overwrite=True)
+        assert inf.overwrite is True
+
+    def test_tiers_passed_to_base(self) -> None:
+        """tiers param is set via BaseInference.__init__."""
+        inf = STRIDEInference(tiers=[1, 2])
+        assert inf.tiers == [1, 2]
+
+    def test_explicit_tier_selection(self) -> None:
+        """Explicit tiers=[2] only runs tier 2."""
+        ds = _make_dataset(
+            {
+                "cve_id": ["CVE-2024-0001"],
+                "cwe_id": ["CWE-287"],
+                "description": ["denial of service"],
+            }
+        )
+        STRIDEInference(tiers=[2]).transform(ds)
+        threats = _get_threats(ds)
+
+        # Tier 2 (CWE mapping) should run
+        assert any(t["source"] == "cwe_mapping" for t in threats)
+        # Tier 4 (description) should NOT run
+        assert not any(t["source"] == "description" for t in threats)
+
+    def test_array_init_uses_np_full(self) -> None:
+        """Empty stride_threats values are None, not uninitialized."""
+        ds = _make_dataset({"cve_id": ["CVE-2024-0001", "CVE-2024-0002"]})
+        # Only run tier 1, which needs CAPEC data we don't have
+        STRIDEInference(tiers=[1]).transform(ds)
+        # Records with no data should get "[]", not garbage from np.empty
+        for i in range(2):
+            raw = ds.get_column("stride_threats")[i]
+            assert raw is not None
+            parsed = json.loads(raw)
+            assert isinstance(parsed, list)
