@@ -85,6 +85,8 @@ class EPSSEnricher(BaseEnricher):
         """Enrich dataset with EPSS data.
 
         Appends new EPSS scores to the epss_scores array with date deduplication.
+        Only processes records that have matching EPSS data — unmatched records
+        are left untouched (no JSON round-trip overhead).
 
         Args:
             dataset: VulnDataset to enrich (modifies in place)
@@ -98,53 +100,47 @@ class EPSSEnricher(BaseEnricher):
         cve_ids = dataset.get_column("cve_id")
         n = len(dataset)
 
-        # Get or create epss_scores column
+        # Get or create epss_scores column — copy so we can mutate
         if "epss_scores" in dataset.columns:
-            epss_scores_raw = dataset.get_column("epss_scores")
+            new_epss_scores = dataset.get_column("epss_scores").copy()
         else:
-            epss_scores_raw = np.array(["[]"] * n, dtype=object)
+            new_epss_scores = np.array(["[]"] * n, dtype=object)
 
-        # Build lookup dict for EPSS data (keyed by CVE ID)
-        epss_lookup: dict[str, dict[str, Any]] = epss_data
-
-        # Process each record
-        new_epss_scores = np.empty(n, dtype=object)
-
+        # Only process records that have EPSS matches
         for i, cve_id in enumerate(cve_ids):
+            if cve_id not in epss_data:
+                continue
+
             # Parse existing scores
-            existing_raw = epss_scores_raw[i]
+            existing_raw = new_epss_scores[i]
             if existing_raw and existing_raw != "null":
                 existing_scores: list[dict[str, Any]] = json.loads(existing_raw)
             else:
                 existing_scores = []
 
-            # Check if we have new EPSS data for this CVE
-            if cve_id in epss_lookup:
-                new_data = epss_lookup[cve_id]
+            new_data = epss_data[cve_id]
 
-                # Format date for comparison and storage
-                new_date = new_data.get("date")
-                new_date_str = (
-                    new_date.isoformat() if isinstance(new_date, datetime) else new_date
-                )
+            # Format date for comparison and storage
+            new_date = new_data.get("date")
+            new_date_str = (
+                new_date.isoformat() if isinstance(new_date, datetime) else new_date
+            )
 
-                # Build new entry
-                new_entry: dict[str, Any] = {
-                    "probability": new_data["probability"],
-                    "percentile": new_data["percentile"],
-                    "date": new_date_str,
-                    "model": new_data.get("model", 3),
-                }
+            # Build new entry
+            new_entry: dict[str, Any] = {
+                "probability": new_data["probability"],
+                "percentile": new_data["percentile"],
+                "date": new_date_str,
+                "model": new_data.get("model", 3),
+            }
 
-                # Deduplicate by date - remove existing entry with same date
-                existing_scores = [
-                    s for s in existing_scores if s.get("date") != new_date_str
-                ]
+            # Deduplicate by date
+            existing_scores = [
+                s for s in existing_scores if s.get("date") != new_date_str
+            ]
+            existing_scores.append(new_entry)
 
-                # Append new entry
-                existing_scores.append(new_entry)
-
-            # Serialize updated scores
+            # Only serialize records that changed
             new_epss_scores[i] = json.dumps(existing_scores)
 
         # Set column

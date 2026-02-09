@@ -45,3 +45,35 @@ async def test_epss_enricher_creates_array_column_only(tmp_path: Path) -> None:
     # Verify scalar columns do NOT exist (will be created by flatten)
     assert "epss_probability" not in dataset.columns
     assert "epss_percentile" not in dataset.columns
+
+
+@pytest.mark.asyncio
+async def test_epss_enricher_preserves_unmatched_records(tmp_path: Path) -> None:
+    """Non-matching records should not be json-round-tripped."""
+    epss_csv = tmp_path / "epss.csv"
+    epss_csv.write_text(
+        "#model_version:v2023.03.01,score_date:2024-01-01\n"
+        "cve,epss,percentile\n"
+        "CVE-2024-0001,0.5,0.85\n"
+    )
+
+    dataset = VulnDataset()
+    dataset.set_column(
+        "cve_id",
+        np.array(["CVE-2024-0001", "CVE-9999-0001"], dtype=object),
+    )
+    dataset.set_column(
+        "epss_scores",
+        np.array(["[]", "[]"], dtype=object),
+    )
+
+    enricher = EPSSEnricher(source=epss_csv, cache_dir=tmp_path / ".cache")
+    await enricher.transform(dataset)
+
+    # Matched record should have EPSS data
+    scores_0 = json.loads(dataset.get_column("epss_scores")[0])
+    assert len(scores_0) == 1
+    assert scores_0[0]["probability"] == 0.5
+
+    # Unmatched record should be unchanged
+    assert dataset.get_column("epss_scores")[1] == "[]"
