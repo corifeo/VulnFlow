@@ -140,10 +140,48 @@ class BaseInference(BaseTransform):
 
     Inferences fill gaps in data using heuristics.
     Examples: EventInference, TagInference
+
+    Standard pattern:
+    - TIER_THRESHOLDS: Maps tier number to minimum confidence
+    - confidence_threshold: Gates which tiers run (threshold <= tier value)
+    - overwrite: If True, re-infer even if output columns already populated
+    - tiers: Explicit tier list (overrides threshold gating)
+    - _should_run(tier): Check if a tier should execute
     """
 
     # Optional: default confidence threshold
     confidence_threshold: float = 0.7
+
+    # Subclass defines: {tier_number: minimum_confidence}
+    TIER_THRESHOLDS: dict[int, float] = {}
+
+    def __init__(
+        self,
+        confidence_threshold: float = 0.7,
+        overwrite: bool = False,
+        tiers: list[int] | None = None,
+    ) -> None:
+        """Initialize inference with standard parameters.
+
+        Args:
+            confidence_threshold: Minimum confidence to run a tier.
+            overwrite: Replace existing output values.
+            tiers: Explicit tier list (overrides threshold gating).
+        """
+        super().__init__()
+        self.confidence_threshold = confidence_threshold
+        self.overwrite = overwrite
+        self.tiers = tiers
+
+    def _should_run(self, tier: int) -> bool:
+        """Check if a tier should run based on configuration.
+
+        If explicit tiers list is set, checks membership.
+        Otherwise, checks confidence_threshold <= tier threshold.
+        """
+        if self.tiers is not None:
+            return tier in self.tiers
+        return self.confidence_threshold <= self.TIER_THRESHOLDS.get(tier, 0.0)
 
     @abstractmethod
     def transform(self, dataset: VulnDataset) -> None:

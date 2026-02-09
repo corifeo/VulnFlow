@@ -57,9 +57,9 @@ class TestTagInferenceRegistration:
         assert "threat" in tags
         assert "rce" in tags["threat"]
 
-    def test_schema_version_is_2(self) -> None:
-        """SCHEMA_VERSION is 2.0.0 (breaking: namespaced tags)."""
-        assert TagInference.SCHEMA_VERSION == "2.0.0"
+    def test_schema_version_is_3(self) -> None:
+        """SCHEMA_VERSION is 3.0.0 (breaking: tier system added)."""
+        assert TagInference.SCHEMA_VERSION == "3.0.0"
 
     def test_depends_on_flatten_transforms(self) -> None:
         """TagInference depends on all 5 flatten transforms."""
@@ -741,3 +741,171 @@ class TestEdgeCases:
         assert "status" in tags
         assert "ref" in tags
         assert "impact" in tags
+
+
+# ============================================================================
+# Standard Pattern: Overwrite & Idempotency
+# ============================================================================
+
+
+class TestOverwrite:
+    def test_overwrite_false_preserves_existing(self) -> None:
+        """overwrite=False skips records with existing inferred_tags."""
+        ds = _make_dataset({
+            "cve_id": ["CVE-2024-0001"],
+            "description": ["remote code execution vulnerability"],
+            "inferred_tags": [json.dumps({"custom": ["my-tag"]})],
+        })
+        TagInference(overwrite=False).transform(ds)
+        tags = _get_tags(ds)
+        # Should preserve existing value, not overwrite
+        assert tags == {"custom": ["my-tag"]}
+
+    def test_overwrite_true_replaces(self) -> None:
+        """overwrite=True replaces existing inferred_tags."""
+        ds = _make_dataset({
+            "cve_id": ["CVE-2024-0001"],
+            "description": ["remote code execution vulnerability"],
+            "inferred_tags": [json.dumps({"custom": ["my-tag"]})],
+        })
+        TagInference(overwrite=True).transform(ds)
+        tags = _get_tags(ds)
+        # Should have re-inferred, not the custom value
+        assert "threat" in tags
+        assert "rce" in tags["threat"]
+
+    def test_overwrite_false_is_default(self) -> None:
+        """Default overwrite is False."""
+        ti = TagInference()
+        assert ti.overwrite is False
+
+    def test_idempotent_double_run(self) -> None:
+        """Running twice without overwrite produces same result."""
+        ds = _make_dataset({
+            "cve_id": ["CVE-2024-0001"],
+            "description": ["remote code execution vulnerability"],
+        })
+        TagInference().transform(ds)
+        first = ds.get_column("inferred_tags")[0]
+
+        TagInference().transform(ds)
+        second = ds.get_column("inferred_tags")[0]
+
+        assert first == second
+
+    def test_overwrite_false_processes_none_records(self) -> None:
+        """overwrite=False still processes records where inferred_tags is None."""
+        ds = _make_dataset({
+            "cve_id": ["CVE-2024-0001", "CVE-2024-0002"],
+            "description": [
+                "remote code execution",
+                "SQL injection vulnerability",
+            ],
+            "inferred_tags": [
+                json.dumps({"custom": ["keep-me"]}),
+                None,
+            ],
+        })
+        TagInference(overwrite=False).transform(ds)
+        # First record preserved
+        tags0 = _get_tags(ds, 0)
+        assert tags0 == {"custom": ["keep-me"]}
+        # Second record processed
+        tags1 = _get_tags(ds, 1)
+        assert "sqli" in tags1["threat"]
+
+
+# ============================================================================
+# Standard Pattern: Tier System
+# ============================================================================
+
+
+class TestTierSystem:
+    def test_tier_thresholds_defined(self) -> None:
+        """TagInference has TIER_THRESHOLDS class attribute."""
+        assert hasattr(TagInference, "TIER_THRESHOLDS")
+        assert isinstance(TagInference.TIER_THRESHOLDS, dict)
+        assert len(TagInference.TIER_THRESHOLDS) == 3
+
+    def test_tier1_only(self) -> None:
+        """tiers=[1] only runs tier 1 rules (threat/vector/product/attack)."""
+        ds = _make_dataset({
+            "cve_id": ["CVE-2024-0001"],
+            "description": ["remote code execution vulnerability"],
+            "references": [json.dumps([
+                {"url": "https://example.com/patch", "tags": ["Patch"]}
+            ])],
+            "epss_probability": [0.75],
+            "is_kev": [True],
+        })
+        TagInference(tiers=[1]).transform(ds)
+        tags = _get_tags(ds)
+        # Tier 1 includes threat tags from description
+        assert "threat" in tags
+        # Tier 2 ref tags should NOT be present
+        assert "ref" not in tags
+        # Tier 3 epss tags should NOT be present
+        assert "status" not in tags or "high-epss" not in tags.get("status", [])
+
+    def test_tier2_excluded(self) -> None:
+        """tiers=[1, 3] excludes tier 2 (reference/exploitation tags)."""
+        ds = _make_dataset({
+            "cve_id": ["CVE-2024-0001"],
+            "description": ["remote code execution vulnerability"],
+            "references": [json.dumps([
+                {"url": "https://example.com/patch", "tags": ["Patch"]}
+            ])],
+            "is_kev": [True],
+        })
+        TagInference(tiers=[1, 3]).transform(ds)
+        tags = _get_tags(ds)
+        assert "threat" in tags  # tier 1
+        assert "ref" not in tags  # tier 2 excluded
+
+    def test_tier3_excluded(self) -> None:
+        """tiers=[1, 2] excludes tier 3 (EPSS/impact heuristic tags)."""
+        ds = _make_dataset({
+            "cve_id": ["CVE-2024-0001"],
+            "description": ["allows execute arbitrary code"],
+            "epss_probability": [0.75],
+            "references": [json.dumps([
+                {"url": "https://example.com/patch", "tags": ["Patch"]}
+            ])],
+        })
+        TagInference(tiers=[1, 2]).transform(ds)
+        tags = _get_tags(ds)
+        assert "ref" in tags  # tier 2
+        # Tier 3 EPSS tags should NOT be present
+        assert "status" not in tags or "high-epss" not in tags.get("status", [])
+
+    def test_explicit_tier_selection(self) -> None:
+        """Explicit tiers override threshold gating for tier selection."""
+        ds = _make_dataset({
+            "cve_id": ["CVE-2024-0001"],
+            "description": ["remote code execution vulnerability"],
+            "epss_probability": [0.75],
+        })
+        # threshold=0.85 would exclude tier 3 (0.8) by threshold gating,
+        # but explicit tiers=[3] overrides the tier gate
+        TagInference(confidence_threshold=0.85, tiers=[3]).transform(ds)
+        tags = _get_tags(ds)
+        assert "status" in tags
+        assert "high-epss" in tags["status"]
+
+    def test_should_run_inherited(self) -> None:
+        """_should_run is inherited from BaseInference."""
+        from vulnflow.transforms.base import BaseInference
+
+        assert "_should_run" not in TagInference.__dict__
+        assert TagInference._should_run is BaseInference._should_run
+
+
+# ============================================================================
+# Standard Pattern: Schema Version
+# ============================================================================
+
+
+class TestSchemaVersion:
+    def test_schema_version_is_3(self) -> None:
+        """SCHEMA_VERSION is 3.0.0 after tier system addition."""
+        assert TagInference.SCHEMA_VERSION == "3.0.0"

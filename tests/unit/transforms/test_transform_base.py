@@ -255,18 +255,17 @@ class TestBaseInference:
         assert inference.confidence_threshold == 0.7
 
     def test_base_inference_allows_confidence_override(self) -> None:
-        """Subclass can override confidence_threshold."""
+        """Subclass can override confidence_threshold via constructor."""
 
         class TestInference(BaseInference):
             name = "test"
             OUTPUT_SCHEMA: list[FieldDefinition] = []
             depends_on: list[str] = []
-            confidence_threshold = 0.9
 
             def transform(self, dataset: VulnDataset) -> None:
                 pass
 
-        inference = TestInference()
+        inference = TestInference(confidence_threshold=0.9)
         assert inference.confidence_threshold == 0.9
 
 
