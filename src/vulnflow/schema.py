@@ -57,7 +57,20 @@ class CAPECEntry:
     typical_severity: str | None = None  # "Very High"|"High"|"Medium"|"Low"|"Very Low"
     skills_required: list[str] | None = None  # ["Low", "Medium"]
     consequences: list[dict[str, list[str]]] | None = None  # [{"scopes": [...], "impacts": [...]}]
-    attack_techniques: list[str] | None = None  # ["1110", "1548.001"]
+    attack_techniques: list[str] | None = None  # MITRE ATT&CK IDs ["1110", "1548.001"]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "abstraction": self.abstraction,
+            "status": self.status,
+            "likelihood_of_attack": self.likelihood_of_attack,
+            "typical_severity": self.typical_severity,
+            "skills_required": self.skills_required,
+            "consequences": self.consequences,
+            "attack_techniques": self.attack_techniques,
+        }
 
 
 @dataclass
@@ -65,9 +78,17 @@ class STRIDEThreat:
     """STRIDE threat classification with provenance."""
 
     category: str  # "spoofing"|"tampering"|"repudiation"|"info_disclosure"|"dos"|"elevation"
-    confidence: float  # 0.0-1.0
+    confidence: float  # 0.0–1.0 (tier-based: 0.95/0.85/0.75/0.60/0.45)
     source: str  # "capec_consequences"|"cwe_mapping"|"cvss_impact"|"description"|"cvss_vector"
-    capec_ids: list[str] = field(default_factory=list)
+    capec_ids: list[str] = field(default_factory=list)  # ["CAPEC-86", "CAPEC-242"]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "category": self.category,
+            "confidence": self.confidence,
+            "source": self.source,
+            "capec_ids": self.capec_ids,
+        }
 
 
 @dataclass
@@ -142,23 +163,42 @@ class CVSSEntry:
 class EPSSEntry:
     """EPSS probability (time-series support)."""
 
-    probability: float
-    percentile: float
-    date: datetime
+    probability: float  # 0.0–1.0 (e.g. 0.03765)
+    percentile: float  # 0.0–1.0 (e.g. 0.92)
+    date: datetime  # Score date (e.g. 2024-03-15)
     model: int = 3  # EPSS model version (1, 2, 3)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "probability": self.probability,
+            "percentile": self.percentile,
+            "date": self.date,
+            "model": self.model,
+        }
 
 
 @dataclass
 class KEVEntry:
     """CISA Known Exploited Vulnerabilities (complete from start)."""
 
-    date_added: datetime
-    due_date: datetime | None
-    vendor: str
-    product: str
-    vulnerability_name: str
-    required_action: str
-    known_ransomware_use: bool = False  # Complete field from Phase 1
+    date_added: datetime  # "2022-01-10"
+    due_date: datetime | None  # "2022-01-24"
+    vendor: str  # "Apache"
+    product: str  # "Log4j"
+    vulnerability_name: str  # "Apache Log4j Remote Code Execution"
+    required_action: str  # "Apply updates per vendor instructions."
+    known_ransomware_use: bool = False  # True if used in ransomware campaigns
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "date_added": self.date_added,
+            "due_date": self.due_date,
+            "vendor": self.vendor,
+            "product": self.product,
+            "vulnerability_name": self.vulnerability_name,
+            "required_action": self.required_action,
+            "known_ransomware_use": self.known_ransomware_use,
+        }
 
 
 @dataclass
@@ -170,7 +210,17 @@ class ExploitEntry:
     url: str | None = None
     description: str | None = None
     published_at: datetime | None = None
-    confidence: float = 0.5  # 0.0-1.0 quality score
+    confidence: float = 0.5  # 0.0–1.0 quality score (1.0 = verified exploit)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source": self.source,
+            "id": self.id,
+            "url": self.url,
+            "description": self.description,
+            "published_at": self.published_at,
+            "confidence": self.confidence,
+        }
 
 
 # Main VulnRecord (complete schema from Phase 1)
@@ -184,12 +234,11 @@ class VulnRecord:
     1. Identity/Description - What is it?
     2. Metadata - When did we see it?
     3. NVD Temporal - What NVD provides
-    4. CVD Timeline - Populated by EventInference (Phase 11)
-    5. Scoring - How severe/likely?
-    6. Exploitation - Is it being exploited?
-    7. Classification - What type, what products?
-    8. References - Supporting data
-    9. Extensible - Custom fields
+    4. Scoring - How severe/likely?
+    5. Exploitation - Is it being exploited?
+    6. Classification - What type, what products?
+    7. References - Supporting data
+    8. Extensible - Custom fields
     """
 
     # Identity
@@ -204,9 +253,6 @@ class VulnRecord:
     nvd_modified_at: datetime | None = None
     nvd_status: str | None = None  # analyzed, awaiting, modified, rejected, deferred
 
-    # Note: CVD Timeline (v/f/d/p/x/a_timestamp) is NOT part of VulnRecord.
-    # EventInference (Phase 11) adds these columns directly to VulnDataset.
-
     # Scoring (multi-source, time-series)
     cvss_scores: list[CVSSEntry] = field(default_factory=list)
     epss_scores: list[EPSSEntry] = field(default_factory=list)
@@ -218,6 +264,8 @@ class VulnRecord:
     # Classification
     cwes: list[CWEEntry] = field(default_factory=list)
     cpes: list[CPEEntry] = field(default_factory=list)
+    capecs: list[CAPECEntry] = field(default_factory=list)
+    stride_threats: list[STRIDEThreat] = field(default_factory=list)
 
     # References
     references: list[ReferenceEntry] = field(default_factory=list)
