@@ -411,7 +411,7 @@ def test_build_base_schema_datetime_or_none_field() -> None:
 
 
 def test_build_base_schema_list_dataclass_field() -> None:
-    """build_base_schema maps list[CVSSEntry] to str/non-nullable/is_json."""
+    """build_base_schema maps list[CVSSv3Entry | CVSSv4Entry] to str/non-nullable/is_json."""
     schema = build_base_schema()
     cvss_field = next(fd for fd in schema if fd.name == "cvss_scores")
     assert cvss_field.type == "str"
