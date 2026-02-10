@@ -8,6 +8,7 @@ Provides:
 - CAPECEnricher: MITRE CAPEC attack pattern enrichment (BulkEnricher pattern)
 - APIEnricher: Base class for per-CVE API enrichers
 - ExploitDBEnricher: ExploitDB enrichment (APIEnricher pattern)
+- NVDHistoryEnricher: NVD CVE change history enrichment (per-CVE or date-range)
 
 Layer: Transform/Enrichers
 Dependencies: base, schema
@@ -22,6 +23,7 @@ from vulnflow.transforms.enrichers.cwe import CWEEnricher
 from vulnflow.transforms.enrichers.epss import EPSSEnricher
 from vulnflow.transforms.enrichers.exploit import ExploitDBEnricher
 from vulnflow.transforms.enrichers.kev import KEVEnricher
+from vulnflow.transforms.enrichers.nvd_history import NVDHistoryEnricher
 
 __all__ = [
     "KEVEnricher",
@@ -30,4 +32,5 @@ __all__ = [
     "CAPECEnricher",
     "APIEnricher",
     "ExploitDBEnricher",
+    "NVDHistoryEnricher",
 ]
