@@ -187,3 +187,96 @@ class TestCVSSEdgeCases:
         }
         CVSSFlattenTransform().transform(ds)
         assert ds.get_column("cvss_attack_vector")[0] is None
+
+
+class TestCVSSv4Flatten:
+    """Tests for CVSS v4.0 component field extraction from dict."""
+
+    def test_v4_components_populated(self) -> None:
+        """v4.0 entry with component fields populates flatten columns."""
+        ds = _make_cvss_dataset([
+            [{"version": "4.0", "base_score": 8.5, "base_severity": "HIGH",
+              "source": "nvd", "is_authoritative": True,
+              "vector_string": "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+              "attack_vector": "LOCAL",
+              "attack_complexity": "LOW",
+              "attack_requirements": "NONE",
+              "privileges_required": "LOW",
+              "user_interaction": "NONE",
+              "vuln_confidentiality_impact": "HIGH",
+              "vuln_integrity_impact": "HIGH",
+              "vuln_availability_impact": "HIGH",
+              "sub_confidentiality_impact": "NONE",
+              "sub_integrity_impact": "NONE",
+              "sub_availability_impact": "NONE"}],
+        ])
+        CVSSFlattenTransform().transform(ds)
+        assert ds.get_column("cvss_attack_vector")[0] == "LOCAL"
+        assert ds.get_column("cvss_attack_complexity")[0] == "LOW"
+        assert ds.get_column("cvss_privileges_required")[0] == "LOW"
+        assert ds.get_column("cvss_user_interaction")[0] == "NONE"
+        assert ds.get_column("cvss_scope")[0] is None  # v4 has no scope
+        # v4 maps vuln_*_impact to the generic columns
+        assert ds.get_column("cvss_confidentiality")[0] == "HIGH"
+        assert ds.get_column("cvss_integrity")[0] == "HIGH"
+        assert ds.get_column("cvss_availability")[0] == "HIGH"
+
+    def test_v31_components_from_dict(self) -> None:
+        """v3.1 entry reads components from dict fields, not regex."""
+        ds = _make_cvss_dataset([
+            [{"version": "3.1", "base_score": 9.8, "base_severity": "CRITICAL",
+              "source": "nvd", "is_authoritative": True,
+              "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "attack_vector": "NETWORK",
+              "attack_complexity": "LOW",
+              "privileges_required": "NONE",
+              "user_interaction": "NONE",
+              "scope": "UNCHANGED",
+              "confidentiality_impact": "HIGH",
+              "integrity_impact": "HIGH",
+              "availability_impact": "HIGH"}],
+        ])
+        CVSSFlattenTransform().transform(ds)
+        assert ds.get_column("cvss_attack_vector")[0] == "NETWORK"
+        assert ds.get_column("cvss_scope")[0] == "UNCHANGED"
+        assert ds.get_column("cvss_confidentiality")[0] == "HIGH"
+        assert ds.get_column("cvss_integrity")[0] == "HIGH"
+        assert ds.get_column("cvss_availability")[0] == "HIGH"
+
+    def test_mixed_v31_v40_all_populated(self) -> None:
+        """Dataset with both v3.1 and v4.0 records populates all component columns."""
+        ds = _make_cvss_dataset([
+            # v3.1 record
+            [{"version": "3.1", "base_score": 7.8, "base_severity": "HIGH",
+              "source": "nvd", "is_authoritative": True,
+              "vector_string": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "attack_vector": "LOCAL", "attack_complexity": "LOW",
+              "privileges_required": "LOW", "user_interaction": "NONE",
+              "scope": "UNCHANGED",
+              "confidentiality_impact": "HIGH", "integrity_impact": "HIGH",
+              "availability_impact": "HIGH"}],
+            # v4.0 record
+            [{"version": "4.0", "base_score": 8.5, "base_severity": "HIGH",
+              "source": "nvd", "is_authoritative": True,
+              "vector_string": "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+              "attack_vector": "LOCAL", "attack_complexity": "LOW",
+              "attack_requirements": "NONE", "privileges_required": "LOW",
+              "user_interaction": "NONE",
+              "vuln_confidentiality_impact": "HIGH", "vuln_integrity_impact": "HIGH",
+              "vuln_availability_impact": "HIGH",
+              "sub_confidentiality_impact": "NONE", "sub_integrity_impact": "NONE",
+              "sub_availability_impact": "NONE"}],
+        ])
+        CVSSFlattenTransform().transform(ds)
+
+        # v3.1 record - all 8 component columns populated
+        assert ds.get_column("cvss_attack_vector")[0] == "LOCAL"
+        assert ds.get_column("cvss_scope")[0] == "UNCHANGED"
+        assert ds.get_column("cvss_confidentiality")[0] == "HIGH"
+
+        # v4.0 record - all component columns populated (THE BUG FIX)
+        assert ds.get_column("cvss_attack_vector")[1] == "LOCAL"
+        assert ds.get_column("cvss_scope")[1] is None  # v4 has no scope, expected
+        assert ds.get_column("cvss_confidentiality")[1] == "HIGH"  # from vuln_confidentiality_impact
+        assert ds.get_column("cvss_integrity")[1] == "HIGH"
+        assert ds.get_column("cvss_availability")[1] == "HIGH"

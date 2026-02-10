@@ -168,28 +168,53 @@ class CVSSFlattenTransform(BaseFlatten):
             out["cvss_exploitability_score"][i] = selected.get("exploitability_score")
             out["cvss_impact_score"][i] = selected.get("impact_score")
 
-            # Parse vector string (try v3 first, fall back to v2)
-            vector = selected.get("vector_string", "")
-            if vector:
-                match = CVSS3_PATTERN.match(vector)
-                if match:
-                    out["cvss_attack_vector"][i] = match.group(1)
-                    out["cvss_attack_complexity"][i] = match.group(2)
-                    out["cvss_privileges_required"][i] = match.group(3)
-                    out["cvss_user_interaction"][i] = match.group(4)
-                    out["cvss_scope"][i] = match.group(5)
-                    out["cvss_confidentiality"][i] = match.group(6)
-                    out["cvss_integrity"][i] = match.group(7)
-                    out["cvss_availability"][i] = match.group(8)
-                else:
-                    v2_match = CVSS2_PATTERN.match(vector)
-                    if v2_match:
-                        out["cvss_attack_vector"][i] = v2_match.group(1)
-                        out["cvss_attack_complexity"][i] = v2_match.group(2)
-                        # v2 Au != v3 PR; leave PR, UI, S as None
-                        out["cvss_confidentiality"][i] = v2_match.group(4)
-                        out["cvss_integrity"][i] = v2_match.group(5)
-                        out["cvss_availability"][i] = v2_match.group(6)
+            # Read component fields directly from dict
+            # (NVD provides them expanded in cvssData, parser stores them)
+            version = selected.get("version", "")
+            if version.startswith("4"):
+                # v4.0: different field names, no scope
+                out["cvss_attack_vector"][i] = selected.get("attack_vector")
+                out["cvss_attack_complexity"][i] = selected.get("attack_complexity")
+                out["cvss_privileges_required"][i] = selected.get("privileges_required")
+                out["cvss_user_interaction"][i] = selected.get("user_interaction")
+                # v4 has no scope — leave as None
+                # v4 maps vuln_*_impact to generic columns
+                out["cvss_confidentiality"][i] = selected.get("vuln_confidentiality_impact")
+                out["cvss_integrity"][i] = selected.get("vuln_integrity_impact")
+                out["cvss_availability"][i] = selected.get("vuln_availability_impact")
+            elif selected.get("attack_vector") is not None:
+                # v2/v3.x with component fields from dict
+                out["cvss_attack_vector"][i] = selected.get("attack_vector")
+                out["cvss_attack_complexity"][i] = selected.get("attack_complexity")
+                out["cvss_privileges_required"][i] = selected.get("privileges_required")
+                out["cvss_user_interaction"][i] = selected.get("user_interaction")
+                out["cvss_scope"][i] = selected.get("scope")
+                out["cvss_confidentiality"][i] = selected.get("confidentiality_impact")
+                out["cvss_integrity"][i] = selected.get("integrity_impact")
+                out["cvss_availability"][i] = selected.get("availability_impact")
+            else:
+                # Fallback: regex parse vector string (for old data without component fields)
+                vector = selected.get("vector_string", "")
+                if vector:
+                    match = CVSS3_PATTERN.match(vector)
+                    if match:
+                        out["cvss_attack_vector"][i] = match.group(1)
+                        out["cvss_attack_complexity"][i] = match.group(2)
+                        out["cvss_privileges_required"][i] = match.group(3)
+                        out["cvss_user_interaction"][i] = match.group(4)
+                        out["cvss_scope"][i] = match.group(5)
+                        out["cvss_confidentiality"][i] = match.group(6)
+                        out["cvss_integrity"][i] = match.group(7)
+                        out["cvss_availability"][i] = match.group(8)
+                    else:
+                        v2_match = CVSS2_PATTERN.match(vector)
+                        if v2_match:
+                            out["cvss_attack_vector"][i] = v2_match.group(1)
+                            out["cvss_attack_complexity"][i] = v2_match.group(2)
+                            # v2 Au != v3 PR; leave PR, UI, S as None
+                            out["cvss_confidentiality"][i] = v2_match.group(4)
+                            out["cvss_integrity"][i] = v2_match.group(5)
+                            out["cvss_availability"][i] = v2_match.group(6)
 
         # Insert columns right after input_column (cvss_scores)
         dataset.insert_columns_after(self.input_column, out)
