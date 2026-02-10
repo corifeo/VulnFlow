@@ -1,9 +1,13 @@
 """Tests for schema introspection and type conversion utilities."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from uuid import UUID
 
 from vulnflow.utils.schema import (
+    build_base_schema,
+    build_schema_map,
     build_type_map,
     deserialize_value,
     get_flattened_columns,
@@ -364,3 +368,110 @@ def test_roundtrip_primitives():
 
     # None
     assert deserialize_value(serialize_value(None), "text", type_map) is None
+
+
+# === build_base_schema Tests ===
+
+
+def test_build_base_schema_returns_all_vulnrecord_fields() -> None:
+    """build_base_schema returns a FieldDefinition for each VulnRecord field."""
+    from vulnflow.utils.schema import get_record_columns
+
+    schema = build_base_schema()
+    schema_names = {fd.name for fd in schema}
+    record_columns = set(get_record_columns())
+    assert schema_names == record_columns
+
+
+def test_build_base_schema_uuid_field() -> None:
+    """build_base_schema maps UUID with default_factory to uuid/non-nullable."""
+    schema = build_base_schema()
+    id_field = next(fd for fd in schema if fd.name == "id")
+    assert id_field.type == "uuid"
+    assert id_field.nullable is False
+    assert id_field.is_json is False
+
+
+def test_build_base_schema_str_or_none_field() -> None:
+    """build_base_schema maps str | None to str/nullable."""
+    schema = build_base_schema()
+    cve_field = next(fd for fd in schema if fd.name == "cve_id")
+    assert cve_field.type == "str"
+    assert cve_field.nullable is True
+    assert cve_field.is_json is False
+
+
+def test_build_base_schema_datetime_or_none_field() -> None:
+    """build_base_schema maps datetime | None to datetime/nullable."""
+    schema = build_base_schema()
+    pub_field = next(fd for fd in schema if fd.name == "nvd_published_at")
+    assert pub_field.type == "datetime"
+    assert pub_field.nullable is True
+    assert pub_field.is_json is False
+
+
+def test_build_base_schema_list_dataclass_field() -> None:
+    """build_base_schema maps list[CVSSEntry] to str/non-nullable/is_json."""
+    schema = build_base_schema()
+    cvss_field = next(fd for fd in schema if fd.name == "cvss_scores")
+    assert cvss_field.type == "str"
+    assert cvss_field.nullable is False
+    assert cvss_field.is_json is True
+
+
+def test_build_base_schema_optional_dataclass_field() -> None:
+    """build_base_schema maps KEVEntry | None to str/nullable/is_json."""
+    schema = build_base_schema()
+    kev_field = next(fd for fd in schema if fd.name == "kev")
+    assert kev_field.type == "str"
+    assert kev_field.nullable is True
+    assert kev_field.is_json is True
+
+
+def test_build_base_schema_dict_field() -> None:
+    """build_base_schema maps dict[str, ...] to str/non-nullable/is_json."""
+    schema = build_base_schema()
+    tags_field = next(fd for fd in schema if fd.name == "tags")
+    assert tags_field.type == "str"
+    assert tags_field.nullable is False
+    assert tags_field.is_json is True
+
+
+def test_build_base_schema_source_component() -> None:
+    """build_base_schema sets source_component to '_base' for all fields."""
+    schema = build_base_schema()
+    for fd in schema:
+        assert fd.source_component == "_base"
+
+
+# === build_schema_map Tests ===
+
+
+def test_build_schema_map_returns_dict() -> None:
+    """build_schema_map returns dict mapping names to FieldDefinitions."""
+    from vulnflow.registry import FieldDefinition
+
+    schema_map = build_schema_map()
+    assert isinstance(schema_map, dict)
+    for name, fd in schema_map.items():
+        assert isinstance(name, str)
+        assert isinstance(fd, FieldDefinition)
+
+
+def test_build_schema_map_includes_base_columns() -> None:
+    """build_schema_map includes VulnRecord base columns."""
+    schema_map = build_schema_map()
+    assert "id" in schema_map
+    assert "cve_id" in schema_map
+    assert "cvss_scores" in schema_map
+
+
+def test_build_type_map_includes_base_columns() -> None:
+    """build_type_map now includes base VulnRecord columns via get_full_schema."""
+    type_map = build_type_map()
+    assert "id" in type_map
+    assert type_map["id"] == "uuid"
+    assert "cve_id" in type_map
+    assert type_map["cve_id"] == "str"
+    assert "nvd_published_at" in type_map
+    assert type_map["nvd_published_at"] == "datetime"
