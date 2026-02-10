@@ -781,7 +781,7 @@ class TestProvenanceLabel:
 
 
 def test_nvd_extractor_parses_cvss_v40(nvd_sample_dataset: VulnDataset) -> None:
-    """NVDExtractor parses CVSS v4.0 metrics with computed severity."""
+    """NVDExtractor parses CVSS v4.0 metrics with component fields."""
     # Third record (CVE-2024-0003) has v4.0, v3.1, and v2.0
     cvss_raw = nvd_sample_dataset.get_column("cvss_scores")[2]
     cvss_data = json.loads(cvss_raw)
@@ -790,6 +790,13 @@ def test_nvd_extractor_parses_cvss_v40(nvd_sample_dataset: VulnDataset) -> None:
 
     v40 = next(e for e in cvss_data if e["version"] == "4.0")
     assert v40["base_score"] == 5.1
-    assert v40["base_severity"] == "MEDIUM"  # Computed from score, not in JSON
+    assert v40["base_severity"] == "MEDIUM"  # From fixture's baseSeverity field
     assert v40["source"] == "nvd"
     assert v40["is_authoritative"] is True
+
+    # v4.0 component fields
+    assert v40["attack_vector"] == "NETWORK"
+    assert v40["attack_requirements"] == "NONE"
+    assert v40["user_interaction"] == "PASSIVE"
+    assert v40["vuln_confidentiality_impact"] == "LOW"
+    assert v40["sub_confidentiality_impact"] == "LOW"
