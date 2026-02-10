@@ -19,6 +19,7 @@ Provides:
 - parse_cwes: Parse CWE weaknesses
 - parse_cpes: Parse CPE configurations
 - parse_references: Parse reference entries
+- populate_columns: Convert NVD vulnerability dicts to columnar arrays
 
 Layer: Utility
 Dependencies: schema
@@ -44,6 +45,7 @@ from vulnflow.utils.nvd import (
     parse_cwes,
     parse_references,
     parse_timestamp,
+    populate_columns,
 )
 from vulnflow.utils.progress import (
     ProgressMode,
@@ -63,6 +65,7 @@ __all__ = [
     "parse_cwes",
     "parse_cpes",
     "parse_references",
+    "populate_columns",
     "topological_sort",
     "get_record_columns",
     "get_flattened_columns",
