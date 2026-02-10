@@ -193,6 +193,135 @@ def test_parse_cvss_empty() -> None:
     assert parse_cvss({}) == []
 
 
+def test_parse_cvss_v40_extracts_components() -> None:
+    """v4.0 parser reads vulnConfidentialityImpact etc. from cvssData."""
+    metrics = {
+        "cvssMetricV40": [{
+            "source": "nvd@nist.gov",
+            "type": "Primary",
+            "cvssData": {
+                "version": "4.0",
+                "vectorString": "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+                "baseScore": 8.5,
+                "baseSeverity": "HIGH",
+                "attackVector": "LOCAL",
+                "attackComplexity": "LOW",
+                "attackRequirements": "NONE",
+                "privilegesRequired": "LOW",
+                "userInteraction": "NONE",
+                "vulnConfidentialityImpact": "HIGH",
+                "vulnIntegrityImpact": "HIGH",
+                "vulnAvailabilityImpact": "HIGH",
+                "subConfidentialityImpact": "NONE",
+                "subIntegrityImpact": "NONE",
+                "subAvailabilityImpact": "NONE",
+            },
+        }],
+    }
+    entries = parse_cvss(metrics)
+    assert len(entries) == 1
+    e = entries[0]
+    assert e.version == "4.0"
+    assert e.attack_vector == "LOCAL"
+    assert e.attack_requirements == "NONE"
+    assert e.vuln_confidentiality_impact == "HIGH"
+    assert e.sub_confidentiality_impact == "NONE"
+
+
+def test_parse_cvss_v40_supplemental_metrics() -> None:
+    """v4.0 parser reads supplemental metrics from cvssData."""
+    metrics = {
+        "cvssMetricV40": [{
+            "source": "psirt@vendor.com",
+            "type": "Secondary",
+            "cvssData": {
+                "version": "4.0",
+                "vectorString": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+                "baseScore": 9.3,
+                "baseSeverity": "CRITICAL",
+                "exploitMaturity": "ATTACKED",
+                "Automatable": "YES",
+                "Recovery": "AUTOMATIC",
+                "Safety": "PRESENT",
+                "providerUrgency": "RED",
+                "vulnerabilityResponseEffort": "LOW",
+                "valueDensity": "CONCENTRATED",
+            },
+        }],
+    }
+    entries = parse_cvss(metrics)
+    e = entries[0]
+    assert e.exploit_maturity == "ATTACKED"
+    assert e.automatable == "YES"
+    assert e.recovery == "AUTOMATIC"
+    assert e.safety == "PRESENT"
+    assert e.provider_urgency == "RED"
+    assert e.vulnerability_response_effort == "LOW"
+    assert e.value_density == "CONCENTRATED"
+
+
+def test_parse_cvss_v31_extracts_components() -> None:
+    """v3.1 parser reads attackVector, scope, etc. from cvssData."""
+    metrics = {
+        "cvssMetricV31": [{
+            "source": "nvd@nist.gov",
+            "type": "Primary",
+            "cvssData": {
+                "version": "3.1",
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "baseScore": 9.8,
+                "baseSeverity": "CRITICAL",
+                "attackVector": "NETWORK",
+                "attackComplexity": "LOW",
+                "privilegesRequired": "NONE",
+                "userInteraction": "NONE",
+                "scope": "UNCHANGED",
+                "confidentialityImpact": "HIGH",
+                "integrityImpact": "HIGH",
+                "availabilityImpact": "HIGH",
+            },
+            "exploitabilityScore": 3.9,
+            "impactScore": 5.9,
+        }],
+    }
+    entries = parse_cvss(metrics)
+    e = entries[0]
+    assert e.attack_vector == "NETWORK"
+    assert e.scope == "UNCHANGED"
+    assert e.confidentiality_impact == "HIGH"
+    assert e.exploitability_score == 3.9
+
+
+def test_parse_cvss_v20_extracts_components() -> None:
+    """v2.0 parser reads accessVector (not attackVector) from cvssData."""
+    metrics = {
+        "cvssMetricV2": [{
+            "source": "nvd@nist.gov",
+            "type": "Primary",
+            "cvssData": {
+                "version": "2.0",
+                "vectorString": "AV:N/AC:L/Au:N/C:C/I:C/A:C",
+                "baseScore": 10.0,
+                "accessVector": "NETWORK",
+                "accessComplexity": "LOW",
+                "confidentialityImpact": "COMPLETE",
+                "integrityImpact": "COMPLETE",
+                "availabilityImpact": "COMPLETE",
+            },
+            "baseSeverity": "HIGH",
+            "exploitabilityScore": 10.0,
+            "impactScore": 10.0,
+        }],
+    }
+    entries = parse_cvss(metrics)
+    e = entries[0]
+    assert e.attack_vector == "NETWORK"
+    assert e.attack_complexity == "LOW"
+    assert e.confidentiality_impact == "COMPLETE"
+    assert e.privileges_required is None  # v2 doesn't have PR
+    assert e.scope is None  # v2 doesn't have scope
+
+
 # --- parse_cwes ---
 
 

@@ -69,7 +69,7 @@ def extract_cvss_metadata(metric: dict[str, Any]) -> dict[str, Any]:
         metric: NVD CVSS metric dict
 
     Returns:
-        Dict with common fields ready for CVSSEntry(**metadata) unpacking
+        Dict with common fields ready for CVSSv3Entry/CVSSv4Entry(**metadata) unpacking
     """
     source_raw = metric.get("source", "nvd@nist.gov")
 
