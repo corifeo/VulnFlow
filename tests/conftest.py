@@ -48,7 +48,7 @@ def dataset_from_records(records: list[VulnRecord]) -> VulnDataset:  # type: ign
     import numpy as np
 
     from vulnflow.dataset import VulnDataset
-    from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, VulnRecord
+    from vulnflow.schema import CPEEntry, CVSSv3Entry, CVSSv4Entry, CWEEntry, VulnRecord
 
     # Create JSON encoder once for reuse
     json_encoder = json.JSONEncoder(default=str)
@@ -76,8 +76,8 @@ def dataset_from_records(records: list[VulnRecord]) -> VulnDataset:  # type: ign
             return json_encoder.encode(dataclass_to_dict(value))
         return json_encoder.encode(value)
 
-    def flatten_cvss(cvss_scores: list[CVSSEntry]) -> dict[str, float | str | None]:
-        """Flatten list[CVSSEntry] to scalar columns."""
+    def flatten_cvss(cvss_scores: list[CVSSv3Entry | CVSSv4Entry]) -> dict[str, float | str | None]:
+        """Flatten list[CVSSv3Entry | CVSSv4Entry] to scalar columns."""
         if not cvss_scores:
             return {
                 "cvss_base_score": None,
