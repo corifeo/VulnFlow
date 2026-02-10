@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -338,7 +337,7 @@ class STRIDEInference(BaseInference):
             # Serialize
             if assigned:
                 entries = [
-                    asdict(STRIDEThreat(cat, conf, src, cids))
+                    STRIDEThreat(cat, conf, src, cids).to_dict()
                     for cat, (conf, src, cids) in sorted(assigned.items())
                 ]
                 stride_col[i] = json.dumps(entries)

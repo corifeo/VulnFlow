@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import time
 import xml.etree.ElementTree as ET
-from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -139,7 +138,7 @@ class CAPECEnricher(BaseEnricher):
                     )
                 else:
                     entry = CAPECEntry(id=capec_id)
-                entries.append(asdict(entry))
+                entries.append(entry.to_dict())
 
             capecs_array[i] = json.dumps(entries)
             enriched_count += len(entries)
