@@ -1,6 +1,12 @@
 """Tests for CVSS utilities."""
 
-from vulnflow.utils.cvss import extract_cvss_metadata, normalize_source
+import pytest
+
+from vulnflow.utils.cvss import (
+    extract_cvss_metadata,
+    normalize_source,
+    score_to_severity,
+)
 
 
 def test_normalize_source_nvd():
@@ -73,3 +79,24 @@ def test_extract_cvss_metadata_secondary():
     assert result["is_authoritative"] is False
     assert result["exploitability_score"] is None
     assert result["impact_score"] is None
+
+
+@pytest.mark.parametrize(
+    ("score", "expected"),
+    [
+        (0.0, "NONE"),
+        (0.1, "LOW"),
+        (3.9, "LOW"),
+        (4.0, "MEDIUM"),
+        (5.1, "MEDIUM"),
+        (6.9, "MEDIUM"),
+        (7.0, "HIGH"),
+        (8.9, "HIGH"),
+        (9.0, "CRITICAL"),
+        (9.3, "CRITICAL"),
+        (10.0, "CRITICAL"),
+    ],
+)
+def test_score_to_severity(score: float, expected: str) -> None:
+    """Map CVSS score to severity at all boundary values."""
+    assert score_to_severity(score) == expected

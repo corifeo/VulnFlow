@@ -125,6 +125,19 @@
           }
         ],
         "metrics": {
+          "cvssMetricV40": [
+            {
+              "source": "nvd@nist.gov",
+              "type": "Primary",
+              "cvssData": {
+                "version": "4.0",
+                "vectorString": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:P/VC:L/VI:L/VA:N/SC:L/SI:L/SA:N",
+                "baseScore": 5.1
+              },
+              "exploitabilityScore": 2.8,
+              "impactScore": 2.7
+            }
+          ],
           "cvssMetricV31": [
             {
               "source": "nvd@nist.gov",

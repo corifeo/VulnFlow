@@ -12,6 +12,13 @@ Provides:
 - HttpFetcher: Async HTTP client with disk caching and gzip support
 - progress_bar: Factory function for progress bars with VulnFlow defaults
 - normalize_source: Normalize CVSS source strings to canonical form
+- score_to_severity: Map CVSS base score to severity string
+- parse_timestamp: ISO timestamp string to datetime
+- extract_nvd_status: Normalize NVD vulnStatus field
+- parse_cvss: Parse CVSS v2/v3.0/v3.1/v4.0 metrics
+- parse_cwes: Parse CWE weaknesses
+- parse_cpes: Parse CPE configurations
+- parse_references: Parse reference entries
 
 Layer: Utility
 Dependencies: schema
@@ -21,7 +28,7 @@ from __future__ import annotations
 
 from vulnflow.utils import json
 from vulnflow.utils.cpe import parse_cpe23
-from vulnflow.utils.cvss import normalize_source
+from vulnflow.utils.cvss import normalize_source, score_to_severity
 from vulnflow.utils.graph import topological_sort
 from vulnflow.utils.http import (
     ContentFormat,
@@ -29,6 +36,14 @@ from vulnflow.utils.http import (
     HttpFetcher,
     detect_format,
     is_url,
+)
+from vulnflow.utils.nvd import (
+    extract_nvd_status,
+    parse_cpes,
+    parse_cvss,
+    parse_cwes,
+    parse_references,
+    parse_timestamp,
 )
 from vulnflow.utils.progress import (
     ProgressMode,
@@ -41,6 +56,13 @@ from vulnflow.utils.transforms import is_async_transform
 __all__ = [
     "parse_cpe23",
     "normalize_source",
+    "score_to_severity",
+    "parse_timestamp",
+    "extract_nvd_status",
+    "parse_cvss",
+    "parse_cwes",
+    "parse_cpes",
+    "parse_references",
     "topological_sort",
     "get_record_columns",
     "get_flattened_columns",

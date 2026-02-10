@@ -4,6 +4,7 @@ CVSS Utilities - Parsing and normalization for CVSS scores
 Provides:
 - normalize_source(): Email/domain → simple identifier
 - extract_cvss_metadata(): Extract fields common to all CVSS versions
+- score_to_severity(): Map CVSS base score to severity string
 
 Layer: Utils
 Dependencies: None
@@ -81,3 +82,24 @@ def extract_cvss_metadata(metric: dict[str, Any]) -> dict[str, Any]:
         "published_at": None,  # Not in NVD data
         "updated_at": None,  # Not in NVD data
     }
+
+
+def score_to_severity(score: float) -> str:
+    """Map CVSS base score to severity string.
+
+    Standard CVSS v3.x/v4.0 severity ranges:
+    - 0.0: NONE
+    - 0.1-3.9: LOW
+    - 4.0-6.9: MEDIUM
+    - 7.0-8.9: HIGH
+    - 9.0-10.0: CRITICAL
+    """
+    if score >= 9.0:
+        return "CRITICAL"
+    if score >= 7.0:
+        return "HIGH"
+    if score >= 4.0:
+        return "MEDIUM"
+    if score >= 0.1:
+        return "LOW"
+    return "NONE"
