@@ -308,3 +308,32 @@ def test_parse_references_non_string_source_and_non_list_tags() -> None:
 def test_parse_references_empty() -> None:
     """Empty references returns empty list."""
     assert parse_references([]) == []
+
+
+# --- populate_columns ---
+
+
+def test_populate_columns_returns_dict_of_arrays() -> None:
+    """populate_columns converts vulnerability dicts to columnar arrays."""
+    import json
+    from pathlib import Path
+
+    from vulnflow.utils.nvd import populate_columns
+
+    sample = json.loads(Path("tests/fixtures/nvd_sample.json").read_text())
+    vulns = sample["vulnerabilities"]
+
+    arrays = populate_columns(vulns)
+
+    assert isinstance(arrays, dict)
+    assert "cve_id" in arrays
+    assert arrays["cve_id"][0] == "CVE-2024-0001"
+    assert len(arrays["cve_id"]) == 5
+
+
+def test_populate_columns_empty_list() -> None:
+    """populate_columns returns empty dict for empty input."""
+    from vulnflow.utils.nvd import populate_columns
+
+    arrays = populate_columns([])
+    assert arrays == {}

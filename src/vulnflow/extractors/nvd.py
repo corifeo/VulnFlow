@@ -18,23 +18,12 @@ import gzip
 from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
-
-import numpy as np
 
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.registry import Registry
 from vulnflow.utils import json
 from vulnflow.utils.http import HttpFetcher, is_url
-from vulnflow.utils.nvd import (
-    extract_nvd_status,
-    parse_cpes,
-    parse_cvss,
-    parse_cwes,
-    parse_references,
-    parse_timestamp,
-)
-from vulnflow.utils.schema import get_record_columns
+from vulnflow.utils.nvd import populate_columns
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -114,7 +103,6 @@ class NVDExtractor(BaseExtractor):
             httpx.HTTPError: On network or HTTP errors for URLs
         """
         from vulnflow.dataset import VulnDataset
-        from vulnflow.utils.progress import progress_bar
 
         timings: dict[str, float] = {}
 
@@ -130,86 +118,14 @@ class NVDExtractor(BaseExtractor):
         vulnerabilities = self._parse_content(content)
         timings["json"] = perf_counter() - t0
 
-        # Empty dataset
-        n = len(vulnerabilities)
-        if n == 0:
+        t0 = perf_counter()
+        arrays = populate_columns(vulnerabilities)
+        timings["populate"] = perf_counter() - t0
+
+        if not arrays:
             self._timings = timings
             return VulnDataset()
 
-        t0 = perf_counter()
-
-        # Pre-allocate columnar arrays
-        record_cols = get_record_columns()
-        arrays = {col: np.empty(n, dtype=object) for col in record_cols}
-
-        # Single-pass: Parse JSON → dataclasses → serialize inline
-        with progress_bar(
-            total=n,
-            desc=f"Parsing {self.label}",
-            unit="CVEs",
-            mininterval=0.5,
-        ) as pbar:
-            for i, vuln in enumerate(vulnerabilities):
-                cve_data = vuln.get("cve", {})
-
-                # Identity
-                arrays["id"][i] = str(uuid4())
-                arrays["cve_id"][i] = cve_data.get("id")
-
-                # Description (extract English)
-                description = None
-                for desc in cve_data.get("descriptions", []):
-                    if desc.get("lang") == "en":
-                        description = desc.get("value")
-                        break
-                arrays["description"][i] = description
-
-                # NVD Temporal
-                arrays["nvd_published_at"][i] = parse_timestamp(
-                    cve_data.get("published")
-                )
-                arrays["nvd_modified_at"][i] = parse_timestamp(
-                    cve_data.get("lastModified")
-                )
-                arrays["nvd_status"][i] = extract_nvd_status(cve_data)
-
-                # Complex fields: Parse to dataclasses → asdict() → JSON
-                # Type-safe but still efficient (single pass)
-
-                # CVSS scores
-                cvss_entries = parse_cvss(cve_data.get("metrics", {}))
-                cvss_dicts = [entry.to_dict() for entry in cvss_entries]
-                arrays["cvss_scores"][i] = (
-                    json.dumps(cvss_dicts) if cvss_dicts else "[]"
-                )
-
-                # CWEs
-                cwe_entries = parse_cwes(cve_data.get("weaknesses", []))
-                cwe_dicts = [entry.to_dict() for entry in cwe_entries]
-                arrays["cwes"][i] = json.dumps(cwe_dicts) if cwe_dicts else "[]"
-
-                # CPEs
-                cpe_entries = parse_cpes(cve_data.get("configurations", []))
-                cpe_dicts = [entry.to_dict() for entry in cpe_entries]
-                arrays["cpes"][i] = json.dumps(cpe_dicts) if cpe_dicts else "[]"
-
-                # References
-                ref_entries = parse_references(cve_data.get("references", []))
-                ref_dicts = [entry.to_dict() for entry in ref_entries]
-                arrays["references"][i] = json.dumps(ref_dicts) if ref_dicts else "[]"
-
-                # Empty fields (not in NVD)
-                arrays["epss_scores"][i] = "[]"
-                arrays["kev"][i] = "null"
-                arrays["exploits"][i] = "[]"
-                arrays["tags"][i] = "{}"
-                arrays["metadata"][i] = "{}"
-
-                pbar.update(1)
-
-        timings["populate"] = perf_counter() - t0
-
-        # Build dataset
         dataset = VulnDataset()
         dataset._data = arrays
         dataset._record_provenance(extractor=self.provenance_label)

@@ -8,16 +8,20 @@ Provides:
 - parse_cwes: Parse CWE weaknesses
 - parse_cpes: Parse CPE configurations
 - parse_references: Parse reference entries
+- populate_columns: Convert NVD vulnerability dicts to columnar arrays
 
 Layer: Utils
-Dependencies: schema, utils.cvss, utils.cpe
-Used by: NVDExtractor, future CVE.org extractor
+Dependencies: schema, utils.cvss, utils.cpe, utils.json, utils.schema
+Used by: NVDExtractor, NVDAPIExtractor
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
+
+import numpy as np
 
 from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, ReferenceEntry
 from vulnflow.utils.cpe import parse_cpe23
@@ -243,3 +247,97 @@ def parse_references(references: list[dict[str, object]]) -> list[ReferenceEntry
             )
 
     return ref_entries
+
+
+def populate_columns(
+    vulnerabilities: list[dict[str, Any]],
+) -> dict[str, np.ndarray[Any, Any]]:
+    """Convert NVD vulnerability dicts to columnar arrays.
+
+    Single-pass conversion from NVD JSON structures to pre-allocated
+    numpy arrays. Uses the parse functions defined in this module
+    for CVSS, CWE, CPE, reference, timestamp, and status extraction.
+
+    Complex fields (lists of dataclasses) are serialized to JSON strings.
+    Fields not present in NVD data (epss, kev, exploits, capecs,
+    stride_threats) are initialized to empty defaults.
+
+    Args:
+        vulnerabilities: List of NVD vulnerability dicts, each with a
+            ``"cve"`` key containing the CVE data.
+
+    Returns:
+        Dict mapping column names to numpy object arrays, one entry per
+        VulnRecord field. Returns empty dict for empty input.
+    """
+    from vulnflow.utils import json
+    from vulnflow.utils.schema import get_record_columns
+
+    n = len(vulnerabilities)
+    if n == 0:
+        return {}
+
+    # Pre-allocate columnar arrays
+    record_cols = get_record_columns()
+    arrays: dict[str, np.ndarray[Any, Any]] = {
+        col: np.empty(n, dtype=object) for col in record_cols
+    }
+
+    for i, vuln in enumerate(vulnerabilities):
+        cve_data = vuln.get("cve", {})
+
+        # Identity
+        arrays["id"][i] = str(uuid4())
+        arrays["cve_id"][i] = cve_data.get("id")
+
+        # Description (extract English)
+        description = None
+        for desc in cve_data.get("descriptions", []):
+            if desc.get("lang") == "en":
+                description = desc.get("value")
+                break
+        arrays["description"][i] = description
+
+        # NVD Temporal
+        arrays["nvd_published_at"][i] = parse_timestamp(
+            cve_data.get("published")
+        )
+        arrays["nvd_modified_at"][i] = parse_timestamp(
+            cve_data.get("lastModified")
+        )
+        arrays["nvd_status"][i] = extract_nvd_status(cve_data)
+
+        # Complex fields: Parse to dataclasses -> to_dict() -> JSON
+
+        # CVSS scores
+        cvss_entries = parse_cvss(cve_data.get("metrics", {}))
+        cvss_dicts = [entry.to_dict() for entry in cvss_entries]
+        arrays["cvss_scores"][i] = (
+            json.dumps(cvss_dicts) if cvss_dicts else "[]"
+        )
+
+        # CWEs
+        cwe_entries = parse_cwes(cve_data.get("weaknesses", []))
+        cwe_dicts = [entry.to_dict() for entry in cwe_entries]
+        arrays["cwes"][i] = json.dumps(cwe_dicts) if cwe_dicts else "[]"
+
+        # CPEs
+        cpe_entries = parse_cpes(cve_data.get("configurations", []))
+        cpe_dicts = [entry.to_dict() for entry in cpe_entries]
+        arrays["cpes"][i] = json.dumps(cpe_dicts) if cpe_dicts else "[]"
+
+        # References
+        ref_entries = parse_references(cve_data.get("references", []))
+        ref_dicts = [entry.to_dict() for entry in ref_entries]
+        arrays["references"][i] = json.dumps(ref_dicts) if ref_dicts else "[]"
+
+        # Empty fields (not in NVD)
+        arrays["epss_scores"][i] = "[]"
+        arrays["kev"][i] = "null"
+        arrays["exploits"][i] = "[]"
+        arrays["capecs"][i] = "[]"
+        arrays["stride_threats"][i] = "[]"
+        arrays["tags"][i] = "{}"
+        arrays["metadata"][i] = "{}"
+
+    return arrays
