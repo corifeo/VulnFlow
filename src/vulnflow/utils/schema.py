@@ -3,7 +3,9 @@
 Provides:
 - get_record_columns: Get VulnRecord field names
 - get_flattened_columns: Get flattened column names for DataFrame export
+- build_base_schema: Derive base schema from VulnRecord type annotations
 - build_type_map: Build column name → type mapping from Registry
+- build_schema_map: Build column name → FieldDefinition mapping
 - deserialize_value: JSON → Python type using schema
 - serialize_value: Python type → JSON-serializable
 - infer_type: Fallback type inference for unregistered fields
@@ -17,8 +19,11 @@ from __future__ import annotations
 
 from dataclasses import fields
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from vulnflow.registry import FieldDefinition
 
 
 def get_record_columns() -> list[str]:
@@ -80,14 +85,127 @@ def get_flattened_columns() -> list[str]:
     ]
 
 
+# === Base Schema Introspection ===
+
+
+def build_base_schema() -> list[FieldDefinition]:
+    """Derive base schema from VulnRecord type annotations.
+
+    Inspects VulnRecord's type hints at runtime to produce FieldDefinition
+    entries for all base columns. This ensures the registry always reflects
+    the actual VulnRecord definition without manual maintenance.
+
+    Detection rules from typing.get_type_hints(VulnRecord):
+    - UUID (with default_factory) → type="uuid", nullable=False
+    - str | None → type="str", nullable=True
+    - datetime | None → type="datetime", nullable=True
+    - list[DataclassEntry] → type="str", nullable=False, is_json=True
+    - DataclassEntry | None → type="str", nullable=True, is_json=True
+    - dict[str, ...] → type="str", nullable=False, is_json=True
+
+    Returns:
+        List of FieldDefinition for all VulnRecord fields
+    """
+    import dataclasses
+    import types
+    import typing
+
+    from vulnflow.registry import FieldDefinition
+    from vulnflow.schema import VulnRecord
+
+    hints = typing.get_type_hints(VulnRecord)
+    dc_fields = {f.name: f for f in dataclasses.fields(VulnRecord)}
+    result: list[FieldDefinition] = []
+
+    for name, hint in hints.items():
+        field_type = "str"
+        nullable = True
+        is_json = False
+
+        # Unwrap Optional / X | None via get_args
+        origin = typing.get_origin(hint)
+        args = typing.get_args(hint)
+
+        if origin is types.UnionType:
+            # X | None pattern
+            non_none = [a for a in args if a is not type(None)]
+            if len(non_none) == 1:
+                inner = non_none[0]
+                nullable = True
+                # Check if the inner type is a dataclass → JSON
+                if dataclasses.is_dataclass(inner):
+                    field_type = "str"
+                    is_json = True
+                elif inner is str:
+                    field_type = "str"
+                elif inner is datetime:
+                    field_type = "datetime"
+                else:
+                    field_type = "str"
+            else:
+                field_type = "str"
+        elif origin is list:
+            # list[X] — always has a value (default_factory=list), stored as JSON
+            nullable = False
+            is_json = True
+            # Check if inner type is str → list[str] type
+            if args and args[0] is str:
+                field_type = "list[str]"
+            else:
+                field_type = "str"
+        elif origin is dict:
+            # dict[str, ...] — always has a value, stored as JSON
+            nullable = False
+            is_json = True
+            field_type = "str"
+        elif hint is UUID:
+            field_type = "uuid"
+            # UUID with default_factory=uuid4 → not nullable
+            dc_field = dc_fields.get(name)
+            if dc_field is not None and dc_field.default_factory is not dataclasses.MISSING:
+                nullable = False
+            else:
+                nullable = True
+        elif hint is str:
+            field_type = "str"
+            nullable = False
+        elif hint is datetime:
+            field_type = "datetime"
+            nullable = False
+        elif hint is bool:
+            field_type = "bool"
+            nullable = False
+        elif hint is int:
+            field_type = "int"
+            nullable = False
+        elif hint is float:
+            field_type = "float"
+            nullable = False
+        else:
+            field_type = "str"
+
+        result.append(
+            FieldDefinition(
+                name=name,
+                type=field_type,
+                description=f"VulnRecord.{name}",
+                source_component="_base",
+                nullable=nullable,
+                is_json=is_json,
+            )
+        )
+
+    return result
+
+
 # === Type Conversion ===
 
 
 def build_type_map() -> dict[str, str]:
-    """Build column name → type mapping from Registry schema.
+    """Build column name → type mapping from full schema (base + transforms).
 
-    Queries Registry.get_all_columns() to extract type information
-    for all registered fields.
+    Queries Registry.get_full_schema() to extract type information
+    for all columns including base VulnRecord fields.
 
     Returns:
         Dictionary mapping column names to type strings
@@ -102,10 +220,21 @@ def build_type_map() -> dict[str, str]:
     """
     from vulnflow.registry import Registry
 
-    type_map = {}
-    for field_def in Registry.get_all_columns():
-        type_map[field_def.name] = field_def.type
-    return type_map
+    return {fd.name: fd.type for fd in Registry.get_full_schema()}
+
+
+def build_schema_map() -> dict[str, FieldDefinition]:
+    """Build column name → FieldDefinition mapping from full schema.
+
+    Returns the complete FieldDefinition (including nullable, is_json)
+    for each column. Useful for database loaders that need full metadata.
+
+    Returns:
+        Dictionary mapping column names to FieldDefinition instances
+    """
+    from vulnflow.registry import Registry
+
+    return {fd.name: fd for fd in Registry.get_full_schema()}
 
 
 def deserialize_value(value: Any, column: str, type_map: dict[str, str]) -> Any:
@@ -142,9 +271,15 @@ def deserialize_value(value: Any, column: str, type_map: dict[str, str]) -> Any:
     expected_type = type_map.get(column)
 
     if expected_type == "datetime":
-        return datetime.fromisoformat(value)
+        try:
+            return datetime.fromisoformat(value)
+        except (ValueError, TypeError):
+            return value
     elif expected_type == "uuid":
-        return UUID(value)
+        try:
+            return UUID(value)
+        except (ValueError, AttributeError):
+            return value
     elif expected_type == "int":
         return int(value)
     elif expected_type == "float":

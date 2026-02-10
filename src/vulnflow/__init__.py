@@ -32,7 +32,7 @@ from vulnflow.exceptions import (
 from vulnflow.extractors.base import BaseExtractor, Extractor
 from vulnflow.loaders.base import BaseLoader, Loader
 from vulnflow.pipeline import PipelineResult, VulnPipeline
-from vulnflow.registry import FieldDefinition, Registry
+from vulnflow.registry import FieldDefinition, FieldType, Registry
 from vulnflow.schema import VulnRecord
 
 __all__ = [
@@ -42,6 +42,7 @@ __all__ = [
     "PipelineResult",
     "Registry",
     "FieldDefinition",
+    "FieldType",
     "Extractor",
     "BaseExtractor",
     "Loader",

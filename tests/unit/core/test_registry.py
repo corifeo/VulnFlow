@@ -610,3 +610,229 @@ def test_get_flattened_columns_contains_cpe() -> None:
     assert "primary_vendor" in columns
     assert "primary_product" in columns
     assert "primary_version" in columns
+
+
+# =============================================================================
+# FieldType Enum Tests
+# =============================================================================
+
+
+def test_field_type_is_strenum() -> None:
+    """FieldType members are usable as plain strings."""
+    from vulnflow.registry import FieldType
+
+    assert FieldType.STR == "str"
+    assert FieldType.DATETIME == "datetime"
+    assert FieldType.UUID == "uuid"
+    assert FieldType.LIST_STR == "list[str]"
+
+
+def test_field_type_in_field_definition() -> None:
+    """FieldDefinition.type accepts FieldType members."""
+    from vulnflow.registry import FieldDefinition, FieldType
+
+    fd = FieldDefinition(
+        name="test",
+        type=FieldType.DATETIME,
+        description="Test field",
+    )
+    assert fd.type == "datetime"
+    assert fd.type == FieldType.DATETIME
+
+
+def test_field_type_backward_compatible() -> None:
+    """FieldDefinition.type still accepts raw strings."""
+    from vulnflow.registry import FieldDefinition, FieldType
+
+    fd = FieldDefinition(name="test", type="str", description="Test field")
+    assert fd.type == FieldType.STR
+
+
+def test_field_type_all_members() -> None:
+    """FieldType has all expected members."""
+    from vulnflow.registry import FieldType
+
+    expected = {"str", "bool", "int", "float", "float32", "uint8", "uint16",
+                "datetime", "uuid", "list[str]"}
+    actual = {member.value for member in FieldType}
+    assert actual == expected
+
+
+# =============================================================================
+# Extended FieldDefinition Tests
+# =============================================================================
+
+
+def test_field_definition_nullable_default() -> None:
+    """FieldDefinition.nullable defaults to True."""
+    from vulnflow.registry import FieldDefinition
+
+    fd = FieldDefinition(name="test", type="str", description="Test")
+    assert fd.nullable is True
+
+
+def test_field_definition_is_json_default() -> None:
+    """FieldDefinition.is_json defaults to False."""
+    from vulnflow.registry import FieldDefinition
+
+    fd = FieldDefinition(name="test", type="str", description="Test")
+    assert fd.is_json is False
+
+
+def test_field_definition_with_new_fields() -> None:
+    """FieldDefinition accepts nullable and is_json."""
+    from vulnflow.registry import FieldDefinition
+
+    fd = FieldDefinition(
+        name="data",
+        type="str",
+        description="JSON column",
+        nullable=False,
+        is_json=True,
+    )
+    assert fd.nullable is False
+    assert fd.is_json is True
+
+
+def test_field_definition_backward_compat_no_new_args() -> None:
+    """Existing FieldDefinition calls without new args still work."""
+    from vulnflow.registry import FieldDefinition
+
+    fd = FieldDefinition("kev_date", "datetime", "KEV date", "KEVEnricher")
+    assert fd.name == "kev_date"
+    assert fd.type == "datetime"
+    assert fd.source_component == "KEVEnricher"
+    assert fd.nullable is True
+    assert fd.is_json is False
+
+
+# =============================================================================
+# get_full_schema() Tests
+# =============================================================================
+
+
+def test_get_full_schema_includes_base_columns() -> None:
+    """get_full_schema() includes VulnRecord base columns."""
+    from vulnflow.registry import Registry
+
+    clear_registry()
+    schema = Registry.get_full_schema()
+    names = {fd.name for fd in schema}
+    assert "id" in names
+    assert "cve_id" in names
+    assert "cvss_scores" in names
+
+
+def test_get_full_schema_includes_transform_columns() -> None:
+    """get_full_schema() includes registered transform columns."""
+    from vulnflow.registry import FieldDefinition, Registry
+
+    clear_registry()
+    Registry.register_schema(
+        "TestTransform",
+        [FieldDefinition("custom_field", "float", "Custom", "TestTransform")],
+    )
+    schema = Registry.get_full_schema()
+    names = {fd.name for fd in schema}
+    assert "custom_field" in names
+    assert "id" in names  # base still present
+
+
+def test_get_full_schema_deduplicates_by_name() -> None:
+    """get_full_schema() deduplicates — transform overrides base."""
+    from vulnflow.registry import FieldDefinition, Registry
+
+    clear_registry()
+    # Register a transform that redefines "cve_id" with different type
+    Registry.register_schema(
+        "Override",
+        [FieldDefinition("cve_id", "int", "Overridden", "Override", nullable=False)],
+    )
+    schema = Registry.get_full_schema()
+    cve_fields = [fd for fd in schema if fd.name == "cve_id"]
+    assert len(cve_fields) == 1
+    assert cve_fields[0].source_component == "Override"
+    assert cve_fields[0].type == "int"
+
+
+def test_get_full_schema_base_first_order() -> None:
+    """get_full_schema() returns base columns first, then transforms."""
+    from vulnflow.registry import FieldDefinition, Registry
+
+    clear_registry()
+    Registry.register_schema(
+        "TestTransform",
+        [FieldDefinition("zzz_transform_col", "str", "Last", "TestTransform")],
+    )
+    schema = Registry.get_full_schema()
+    names = [fd.name for fd in schema]
+    # id should come before zzz_transform_col
+    assert names.index("id") < names.index("zzz_transform_col")
+
+
+def test_get_full_schema_lazy_base_registration() -> None:
+    """get_full_schema() lazily registers _base schema on first call."""
+    from vulnflow.registry import Registry
+
+    clear_registry()
+    assert "_base" not in Registry._schemas
+    Registry.get_full_schema()
+    assert "_base" in Registry._schemas
+
+
+# =============================================================================
+# get_schema_for_columns() Tests
+# =============================================================================
+
+
+def test_get_schema_for_columns_known() -> None:
+    """get_schema_for_columns() returns FieldDefinitions for known columns."""
+    from vulnflow.registry import Registry
+
+    clear_registry()
+    result = Registry.get_schema_for_columns(["id", "cve_id"])
+    assert len(result) == 2
+    assert result[0].name == "id"
+    assert result[1].name == "cve_id"
+
+
+def test_get_schema_for_columns_preserves_order() -> None:
+    """get_schema_for_columns() returns results in input order."""
+    from vulnflow.registry import Registry
+
+    clear_registry()
+    result = Registry.get_schema_for_columns(["cve_id", "id", "description"])
+    assert [fd.name for fd in result] == ["cve_id", "id", "description"]
+
+
+def test_get_schema_for_columns_unknown_inferred() -> None:
+    """get_schema_for_columns() infers unregistered columns as str/nullable."""
+    from vulnflow.registry import Registry
+
+    clear_registry()
+    result = Registry.get_schema_for_columns(["totally_unknown_col"])
+    assert len(result) == 1
+    assert result[0].name == "totally_unknown_col"
+    assert result[0].type == "str"
+    assert result[0].nullable is True
+
+
+def test_get_schema_for_columns_empty_input() -> None:
+    """get_schema_for_columns() returns empty list for empty input."""
+    from vulnflow.registry import Registry
+
+    clear_registry()
+    result = Registry.get_schema_for_columns([])
+    assert result == []
+
+
+# =============================================================================
+# FieldType Export Tests
+# =============================================================================
+
+
+def test_field_type_exported_from_vulnflow() -> None:
+    """FieldType is importable from vulnflow top-level."""
+    from vulnflow import FieldType
+
+    assert FieldType.STR == "str"

@@ -2,18 +2,29 @@
 Registry - Plugin registration for transforms, extractors, and loaders
 
 Provides:
-- Registry: Central registry for transform plugins
-- FieldDefinition: Schema definition for dataset fields
+- Registry: Central class-level registry for transforms, extractors, and loaders
+- FieldDefinition: Schema definition for dataset columns
+- register_transform: Module-level decorator (uses class name as key)
+- get_transforms / clear_registry: Convenience helpers
+
+Registration happens at import time via decorators:
+- Transforms: @register_transform(default=True/False) on the class
+- Extractors: @Registry.register_extractor("name") on the class
+- Loaders:    @Registry.register_loader("name") on the class
+
+Schema tracking is automatic — BaseTransform.__init__() calls
+Registry.register_schema() using OUTPUT_SCHEMA from each transform.
 
 Layer: Core
 Dependencies: None
-Used by: dataset, transforms
+Used by: dataset, pipeline, transforms, extractors, loaders, utils.schema
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 if TYPE_CHECKING:
@@ -23,21 +34,44 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
+class FieldType(StrEnum):
+    """Semantic type enum for database-ready schema mapping.
+
+    FieldDefinition.type accepts both FieldType members and raw strings
+    for backward compatibility.
+    """
+
+    STR = "str"
+    BOOL = "bool"
+    INT = "int"
+    FLOAT = "float"
+    FLOAT32 = "float32"
+    UINT8 = "uint8"
+    UINT16 = "uint16"
+    DATETIME = "datetime"
+    UUID = "uuid"
+    LIST_STR = "list[str]"
+
+
 @dataclass
 class FieldDefinition:
     """Schema definition for a single field.
 
     Attributes:
         name: Column name (e.g., "kev_date_added")
-        type: Data type (e.g., "datetime", "float", "str")
+        type: Data type — accepts FieldType or raw string (e.g., "datetime", "float", "str")
         description: Human-readable description
         source_component: Which component adds this field (e.g., "KEVEnricher")
+        nullable: Whether the column allows NULL/None values
+        is_json: Whether the column stores JSON-encoded data
     """
 
     name: str
     type: str
     description: str
     source_component: str | None = None
+    nullable: bool = True
+    is_json: bool = False
 
 
 class Registry:
@@ -204,6 +238,67 @@ class Registry:
             raise KeyError(f"Schema not found: {component_name}")
         version: str = cls._schemas[component_name]["version"]
         return version
+
+    @classmethod
+    def get_full_schema(cls) -> list[FieldDefinition]:
+        """All columns: base (from VulnRecord) first, then transforms.
+
+        Lazily registers base schema on first call via build_base_schema().
+        Deduplicates by column name — transform fields override base fields.
+
+        Returns:
+            List of FieldDefinition in stable order (base columns first)
+        """
+        if "_base" not in cls._schemas:
+            from vulnflow.utils.schema import build_base_schema
+
+            cls.register_schema("_base", build_base_schema())
+
+        seen: dict[str, FieldDefinition] = {}
+
+        # Base fields first
+        base_data = cls._schemas.get("_base")
+        if base_data is not None:
+            for field_def in base_data["fields"]:
+                seen[field_def.name] = field_def
+
+        # Transform fields (override base if same name)
+        for component_name, schema_data in cls._schemas.items():
+            if component_name == "_base":
+                continue
+            for field_def in schema_data["fields"]:
+                seen[field_def.name] = field_def
+
+        return list(seen.values())
+
+    @classmethod
+    def get_schema_for_columns(cls, columns: list[str]) -> list[FieldDefinition]:
+        """FieldDefinitions for specific column names.
+
+        Looks up columns in the full schema. Columns not found in the
+        registry are returned with inferred type "str" and nullable=True.
+
+        Args:
+            columns: Column names to look up
+
+        Returns:
+            List of FieldDefinition in the same order as input columns
+        """
+        schema_map = {fd.name: fd for fd in cls.get_full_schema()}
+        result: list[FieldDefinition] = []
+        for col in columns:
+            if col in schema_map:
+                result.append(schema_map[col])
+            else:
+                result.append(
+                    FieldDefinition(
+                        name=col,
+                        type="str",
+                        description=f"Unregistered column: {col}",
+                        nullable=True,
+                    )
+                )
+        return result
 
     @classmethod
     def list_extractors(cls) -> list[str]:
