@@ -5,7 +5,6 @@ All tests mock HTTP to avoid real API calls.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import numpy as np
