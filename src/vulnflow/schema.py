@@ -128,15 +128,24 @@ class ReferenceEntry:
 
 
 @dataclass
-class CVSSEntry:
-    """CVSS scoring (multi-source support)."""
+class CVSSv3Entry:
+    """CVSS v3.x scoring (multi-source support)."""
 
-    version: str  # "3.1", "4.0"
+    version: str  # "3.0", "3.1"
     vector_string: str
     base_score: float
     base_severity: str  # "CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"
     source: str  # "nvd", "redhat", "microsoft"
     is_authoritative: bool = False  # True if type="Primary" in NVD
+    # v3.x base metrics
+    attack_vector: str | None = None  # "NETWORK", "ADJACENT_NETWORK", "LOCAL", "PHYSICAL"
+    attack_complexity: str | None = None  # "LOW", "HIGH"
+    privileges_required: str | None = None  # "NONE", "LOW", "HIGH"
+    user_interaction: str | None = None  # "NONE", "REQUIRED"
+    scope: str | None = None  # "UNCHANGED", "CHANGED"
+    confidentiality_impact: str | None = None  # "NONE", "LOW", "HIGH"
+    integrity_impact: str | None = None  # "NONE", "LOW", "HIGH"
+    availability_impact: str | None = None  # "NONE", "LOW", "HIGH"
     exploitability_score: float | None = None
     impact_score: float | None = None
     source_url: str | None = None
@@ -151,6 +160,89 @@ class CVSSEntry:
             "base_severity": self.base_severity,
             "source": self.source,
             "is_authoritative": self.is_authoritative,
+            "attack_vector": self.attack_vector,
+            "attack_complexity": self.attack_complexity,
+            "privileges_required": self.privileges_required,
+            "user_interaction": self.user_interaction,
+            "scope": self.scope,
+            "confidentiality_impact": self.confidentiality_impact,
+            "integrity_impact": self.integrity_impact,
+            "availability_impact": self.availability_impact,
+            "exploitability_score": self.exploitability_score,
+            "impact_score": self.impact_score,
+            "source_url": self.source_url,
+            "published_at": self.published_at,
+            "updated_at": self.updated_at,
+        }
+
+
+# Backward compatibility alias
+CVSSEntry = CVSSv3Entry
+
+
+@dataclass
+class CVSSv4Entry:
+    """CVSS v4.0 scoring (multi-source support)."""
+
+    version: str  # "4.0"
+    vector_string: str
+    base_score: float
+    base_severity: str  # "CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"
+    source: str  # "nvd", "redhat", "microsoft"
+    is_authoritative: bool = False  # True if type="Primary" in NVD
+    # v4.0 base metrics
+    attack_vector: str | None = None  # "NETWORK", "ADJACENT", "LOCAL", "PHYSICAL"
+    attack_complexity: str | None = None  # "LOW", "HIGH"
+    attack_requirements: str | None = None  # "NONE", "PRESENT"
+    privileges_required: str | None = None  # "NONE", "LOW", "HIGH"
+    user_interaction: str | None = None  # "NONE", "PASSIVE", "ACTIVE"
+    # v4.0 splits CIA into vulnerable/subsequent system
+    vuln_confidentiality_impact: str | None = None  # "NONE", "LOW", "HIGH"
+    vuln_integrity_impact: str | None = None  # "NONE", "LOW", "HIGH"
+    vuln_availability_impact: str | None = None  # "NONE", "LOW", "HIGH"
+    sub_confidentiality_impact: str | None = None  # "NONE", "LOW", "HIGH"
+    sub_integrity_impact: str | None = None  # "NONE", "LOW", "HIGH"
+    sub_availability_impact: str | None = None  # "NONE", "LOW", "HIGH"
+    # v4.0 supplemental metrics
+    exploit_maturity: str | None = None  # "ATTACKED", "POC", "UNREPORTED"
+    automatable: str | None = None  # "YES", "NO"
+    recovery: str | None = None  # "AUTOMATIC", "USER", "IRRECOVERABLE"
+    safety: str | None = None  # "NEGLIGIBLE", "PRESENT"
+    provider_urgency: str | None = None  # "RED", "AMBER", "GREEN", "CLEAR"
+    vulnerability_response_effort: str | None = None  # "LOW", "MODERATE", "HIGH"
+    value_density: str | None = None  # "DIFFUSE", "CONCENTRATED"
+    exploitability_score: float | None = None
+    impact_score: float | None = None
+    source_url: str | None = None
+    published_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "version": self.version,
+            "vector_string": self.vector_string,
+            "base_score": self.base_score,
+            "base_severity": self.base_severity,
+            "source": self.source,
+            "is_authoritative": self.is_authoritative,
+            "attack_vector": self.attack_vector,
+            "attack_complexity": self.attack_complexity,
+            "attack_requirements": self.attack_requirements,
+            "privileges_required": self.privileges_required,
+            "user_interaction": self.user_interaction,
+            "vuln_confidentiality_impact": self.vuln_confidentiality_impact,
+            "vuln_integrity_impact": self.vuln_integrity_impact,
+            "vuln_availability_impact": self.vuln_availability_impact,
+            "sub_confidentiality_impact": self.sub_confidentiality_impact,
+            "sub_integrity_impact": self.sub_integrity_impact,
+            "sub_availability_impact": self.sub_availability_impact,
+            "exploit_maturity": self.exploit_maturity,
+            "automatable": self.automatable,
+            "recovery": self.recovery,
+            "safety": self.safety,
+            "provider_urgency": self.provider_urgency,
+            "vulnerability_response_effort": self.vulnerability_response_effort,
+            "value_density": self.value_density,
             "exploitability_score": self.exploitability_score,
             "impact_score": self.impact_score,
             "source_url": self.source_url,
@@ -254,7 +346,7 @@ class VulnRecord:
     nvd_status: str | None = None  # analyzed, awaiting, modified, rejected, deferred
 
     # Scoring (multi-source, time-series)
-    cvss_scores: list[CVSSEntry] = field(default_factory=list)
+    cvss_scores: list[CVSSv3Entry | CVSSv4Entry] = field(default_factory=list)
     epss_scores: list[EPSSEntry] = field(default_factory=list)
 
     # Exploitation
