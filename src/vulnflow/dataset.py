@@ -28,68 +28,46 @@ if TYPE_CHECKING:
     from polars import DataFrame as PolarsDataFrame
 
 
-def _get_version() -> str:
-    """Get vulnflow version without circular import."""
-    from vulnflow import __version__
-
-    return __version__
-
-
-_VALID_PERIODS = frozenset({"year", "quarter", "month", "week", "day"})
-
-
-def _extract_period_keys(dates: np.ndarray, period: str) -> np.ndarray:
-    """Convert datetime array to string period keys.
-
-    Handles both Python datetime objects and numpy datetime64 values.
-
-    Args:
-        dates: Array of datetime objects (after mask applied, no Nones)
-        period: One of 'year', 'quarter', 'month', 'week', 'day'
-
-    Returns:
-        Object array of string keys (e.g. '2024-01', '2024-Q1')
-    """
-    n = len(dates)
-    keys = np.empty(n, dtype=object)
-
-    for i in range(n):
-        val = dates[i]
-        # Convert datetime64 to Python datetime if needed
-        if isinstance(val, np.datetime64):
-            # Convert to timestamp then to datetime
-            ts = (val - np.datetime64("1970-01-01T00:00:00", "ms")) / np.timedelta64(
-                1, "ms"
-            )
-            dt = datetime.fromtimestamp(float(ts) / 1000.0, tz=UTC)
-        else:
-            dt = val
-
-        if period == "year":
-            keys[i] = f"{dt.year}"
-        elif period == "quarter":
-            q = (dt.month - 1) // 3 + 1
-            keys[i] = f"{dt.year}-Q{q}"
-        elif period == "month":
-            keys[i] = f"{dt.year}-{dt.month:02d}"
-        elif period == "week":
-            iso_year, iso_week, _ = dt.isocalendar()
-            keys[i] = f"{iso_year}-W{iso_week:02d}"
-        else:  # day
-            keys[i] = f"{dt.year}-{dt.month:02d}-{dt.day:02d}"
-
-    return keys
-
-
 class VulnDataset:
-    """Columnar storage for vulnerability records.
+    """Core container for vulnerability records with columnar storage.
 
-    Internal storage uses dict[str, np.ndarray] for vectorized operations.
-    Public API provides extractors, transformers, and loaders.
+    Thin wrapper around ``dict[str, np.ndarray]`` that serves as the single
+    data object flowing through the ETL pipeline. Delegates extraction to
+    extractors, enrichment/computation to transforms, and output to loaders.
+
+    Construction:
+        VulnDataset.from_nvd("cve-2024.json")          # NVD JSON file
+        VulnDataset.from_parquet("library.parquet")     # Parquet (lossless)
+        VulnDataset.from_parquet(["base.parquet", "delta.parquet"])  # upsert
+        VulnDataset.from_json("export.json")            # JSON round-trip
+        VulnDataset.from_pandas(df)                     # pandas DataFrame
+        VulnDataset.from_polars(df)                     # polars DataFrame
+
+    Transform (modifies in place, returns self for chaining):
+        ds.transform()                     # run registered defaults
+        ds.transform([KEVEnricher(), ...])  # explicit transform list
+
+    Export — analysis path (filters rejected rows by default):
+        ds.to_pandas()                     # pandas DataFrame
+        ds.to_polars()                     # polars DataFrame
+        ds.to_pandas(rejected=True)        # include all statuses
+        ds.to_pandas(start="2024-01-01")   # date range filter
+
+    Export — archive path (lossless, no filtering):
+        ds.to_parquet("out.parquet")
+        ds.to_json("out.json")
+
+    Query:
+        ds.count_by("month")               # temporal distribution
+        ds.get_status_distribution()        # NVD status counts
+        ds.filter(mask)                     # boolean indexing → new dataset
+        VulnDataset.merge([ds1, ds2])       # concatenate datasets
     """
 
     def __init__(self) -> None:
         """Initialize empty dataset."""
+        from vulnflow import __version__
+
         self._data: dict[str, np.ndarray] = {}
         self._provenance: dict[str, Any] = {
             "extractors": [],
@@ -97,7 +75,7 @@ class VulnDataset:
             "created_at": datetime.now(UTC).isoformat(),
             "updated_at": datetime.now(UTC).isoformat(),
             "record_count": 0,
-            "vulnflow_version": _get_version(),
+            "vulnflow_version": __version__,
         }
 
     def __len__(self) -> int:
@@ -271,23 +249,20 @@ class VulnDataset:
                 total=len(transforms),
                 unit="transforms",
             ) as rpt:
-                # Handle Jupyter/IPython event loops
+                # Apply nest_asyncio if already inside an event loop (Jupyter)
                 try:
                     asyncio.get_running_loop()
                     import nest_asyncio  # type: ignore[import-untyped]
 
                     nest_asyncio.apply()
-                    successful, _failed, _errors = asyncio.run(
-                        PipelineExecutor.run_transforms(
-                            self, transforms, strict=True, reporter=rpt
-                        )
-                    )
                 except RuntimeError:
-                    successful, _failed, _errors = asyncio.run(
-                        PipelineExecutor.run_transforms(
-                            self, transforms, strict=True, reporter=rpt
-                        )
+                    pass
+
+                successful, _failed, _errors = asyncio.run(
+                    PipelineExecutor.run_transforms(
+                        self, transforms, strict=True, reporter=rpt
                     )
+                )
 
             # Record provenance for successful transforms
             for t_name in successful:
@@ -426,116 +401,59 @@ class VulnDataset:
         Raises:
             ValueError: If period is not a valid option.
         """
-        import pandas as pd
+        from vulnflow.utils.filtering import count_by_period
 
-        from vulnflow.loaders.dataframe import _build_date_mask, _build_status_mask
-
-        if period not in _VALID_PERIODS:
-            msg = f"Invalid period {period!r}, must be one of {sorted(_VALID_PERIODS)}"
-            raise ValueError(msg)
-
-        # Build combined mask: status + date range
-        status_mask = _build_status_mask(self, rejected=rejected)
-        date_mask = _build_date_mask(self, start=start, end=end)
-        mask = status_mask & date_mask
-
-        dates = self.get_column_or_none("nvd_published_at")
-        if dates is None:
-            return pd.DataFrame({period: pd.Series(dtype=object), "count": pd.Series(dtype=int)})
-
-        filtered_dates = dates[mask]
-        if len(filtered_dates) == 0:
-            return pd.DataFrame({period: pd.Series(dtype=object), "count": pd.Series(dtype=int)})
-
-        keys = _extract_period_keys(filtered_dates, period)
-        unique_keys, counts = np.unique(keys, return_counts=True)
-
-        # np.unique sorts lexicographically, which is chronological for our formats
-        return pd.DataFrame({period: unique_keys, "count": counts})
+        return count_by_period(self, period, start=start, end=end, rejected=rejected)
 
     def to_pandas(
         self,
         include_nested: bool = False,
         *,
-        analyzed: bool = True,
-        modified: bool = True,
-        awaiting: bool = True,
-        rejected: bool = False,
-        deferred: bool = True,
         start: str | datetime | None = None,
         end: str | datetime | None = None,
+        **kwargs: bool,
     ) -> PandasDataFrame:
         """Export dataset to pandas DataFrame.
 
         Args:
             include_nested: If True, include nested JSON columns (cvss_scores, etc.)
                            for full data fidelity. Default False excludes nested columns.
-            analyzed: Include rows with NVD status 'analyzed' (default True)
-            modified: Include rows with NVD status 'modified' (default True)
-            awaiting: Include rows with NVD status 'awaiting' (default True)
-            rejected: Include rows with NVD status 'rejected' (default False)
-            deferred: Include rows with NVD status 'deferred' (default True)
             start: Inclusive lower bound (>=) for nvd_published_at. ISO string or datetime.
             end: Exclusive upper bound (<) for nvd_published_at. ISO string or datetime.
+            **kwargs: NVD status filters (analyzed, modified, awaiting, rejected,
+                     deferred). Default excludes only rejected rows.
 
         Returns:
             Pandas DataFrame
         """
         from vulnflow.loaders.dataframe import PandasLoader
 
-        loader = PandasLoader(
-            include_nested=include_nested,
-            start=start,
-            end=end,
-            analyzed=analyzed,
-            modified=modified,
-            awaiting=awaiting,
-            rejected=rejected,
-            deferred=deferred,
-        )
-        return loader.load(self)
+        return PandasLoader(include_nested=include_nested, start=start, end=end, **kwargs).load(self)
 
     def to_polars(
         self,
         include_nested: bool = False,
         *,
-        analyzed: bool = True,
-        modified: bool = True,
-        awaiting: bool = True,
-        rejected: bool = False,
-        deferred: bool = True,
         start: str | datetime | None = None,
         end: str | datetime | None = None,
+        **kwargs: bool,
     ) -> PolarsDataFrame:
         """Export dataset to polars DataFrame.
 
         Args:
             include_nested: If True, include nested JSON columns (cvss_scores, etc.)
                            for full data fidelity. Default False excludes nested columns.
-            analyzed: Include rows with NVD status 'analyzed' (default True)
-            modified: Include rows with NVD status 'modified' (default True)
-            awaiting: Include rows with NVD status 'awaiting' (default True)
-            rejected: Include rows with NVD status 'rejected' (default False)
-            deferred: Include rows with NVD status 'deferred' (default True)
             start: Inclusive lower bound (>=) for nvd_published_at. ISO string or datetime.
             end: Exclusive upper bound (<) for nvd_published_at. ISO string or datetime.
+            **kwargs: NVD status filters (analyzed, modified, awaiting, rejected,
+                     deferred). Default excludes only rejected rows.
 
         Returns:
             Polars DataFrame
         """
         from vulnflow.loaders.dataframe import PolarsLoader
 
-        loader = PolarsLoader(
-            include_nested=include_nested,
-            start=start,
-            end=end,
-            analyzed=analyzed,
-            modified=modified,
-            awaiting=awaiting,
-            rejected=rejected,
-            deferred=deferred,
-        )
-        return loader.load(self)
+        return PolarsLoader(include_nested=include_nested, start=start, end=end, **kwargs).load(self)
 
     def to_parquet(self, path: str | Path) -> None:
         """Export dataset to Parquet file (lossless, no filtering).
@@ -638,11 +556,9 @@ class VulnDataset:
             >>> ds.get_status_distribution()
             {'analyzed': 1141, 'awaiting': 1506, 'modified': 89, 'rejected': 28}
         """
-        import numpy as np
+        from vulnflow.utils.filtering import status_distribution
 
-        statuses = self.get_column("nvd_status")
-        unique, counts = np.unique(statuses, return_counts=True)
-        return dict(zip(unique.tolist(), counts.tolist(), strict=True))
+        return status_distribution(self)
 
     @classmethod
     def from_polars(cls, dataframe: PolarsDataFrame) -> VulnDataset:
