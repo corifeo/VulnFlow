@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from vulnflow.schema import CPEEntry, CVSSEntry, CWEEntry, ReferenceEntry
+from vulnflow.schema import CPEEntry, CVSSv3Entry, CVSSv4Entry, CWEEntry, ReferenceEntry
 from vulnflow.utils.cpe import parse_cpe23
 from vulnflow.utils.cvss import extract_cvss_metadata, score_to_severity
 
@@ -79,34 +79,71 @@ def extract_nvd_status(cve_data: dict[str, Any]) -> str:
         return "analyzed"  # Safe fallback for unrecognized values
 
 
-def parse_cvss(metrics: dict[str, list[dict[str, Any]]]) -> list[CVSSEntry]:
+def parse_cvss(
+    metrics: dict[str, list[dict[str, Any]]],
+) -> list[CVSSv3Entry | CVSSv4Entry]:
     """Parse CVSS metrics from NVD format.
 
-    Handles version-specific field locations:
-    - v4.0: baseSeverity NOT in cvssData, computed from score
-    - v3.1/v3.0: baseSeverity in cvssData
-    - v2.0: baseSeverity at metric level (not in cvssData)
+    Handles version-specific field locations and component fields:
+    - v4.0: baseSeverity from cvssData (fallback: computed from score),
+      reads vuln/sub CIA impacts and supplemental metrics
+    - v3.1/v3.0: baseSeverity in cvssData, reads component fields
+    - v2.0: baseSeverity at metric level (not in cvssData),
+      maps accessVector→attack_vector, accessComplexity→attack_complexity
 
     Args:
         metrics: NVD metrics dict (e.g., cve_data["metrics"])
 
     Returns:
-        List of CVSSEntry dataclass instances
+        List of CVSSv3Entry or CVSSv4Entry dataclass instances
     """
-    cvss_scores: list[CVSSEntry] = []
+    cvss_scores: list[CVSSv3Entry | CVSSv4Entry] = []
 
-    # CVSS 4.0 - baseSeverity NOT in cvssData, compute from score
+    # CVSS 4.0 - prefer NVD baseSeverity, fall back to computed
     for metric in metrics.get("cvssMetricV40", []):
         cvss_data = metric.get("cvssData", {})
         metadata = extract_cvss_metadata(metric)
         base_score = cvss_data.get("baseScore", 0.0)
 
         cvss_scores.append(
-            CVSSEntry(
+            CVSSv4Entry(
                 version=cvss_data.get("version", "4.0"),
                 vector_string=cvss_data.get("vectorString", ""),
                 base_score=base_score,
-                base_severity=score_to_severity(base_score),
+                base_severity=cvss_data.get("baseSeverity")
+                or score_to_severity(base_score),
+                # v4.0 base metrics
+                attack_vector=cvss_data.get("attackVector"),
+                attack_complexity=cvss_data.get("attackComplexity"),
+                attack_requirements=cvss_data.get("attackRequirements"),
+                privileges_required=cvss_data.get("privilegesRequired"),
+                user_interaction=cvss_data.get("userInteraction"),
+                # v4.0 vulnerable system impacts
+                vuln_confidentiality_impact=cvss_data.get(
+                    "vulnConfidentialityImpact"
+                ),
+                vuln_integrity_impact=cvss_data.get("vulnIntegrityImpact"),
+                vuln_availability_impact=cvss_data.get(
+                    "vulnAvailabilityImpact"
+                ),
+                # v4.0 subsequent system impacts
+                sub_confidentiality_impact=cvss_data.get(
+                    "subConfidentialityImpact"
+                ),
+                sub_integrity_impact=cvss_data.get("subIntegrityImpact"),
+                sub_availability_impact=cvss_data.get(
+                    "subAvailabilityImpact"
+                ),
+                # v4.0 supplemental metrics (NB: inconsistent casing in NVD)
+                exploit_maturity=cvss_data.get("exploitMaturity"),
+                automatable=cvss_data.get("Automatable"),
+                recovery=cvss_data.get("Recovery"),
+                safety=cvss_data.get("Safety"),
+                provider_urgency=cvss_data.get("providerUrgency"),
+                vulnerability_response_effort=cvss_data.get(
+                    "vulnerabilityResponseEffort"
+                ),
+                value_density=cvss_data.get("valueDensity"),
                 **metadata,
             )
         )
@@ -117,11 +154,22 @@ def parse_cvss(metrics: dict[str, list[dict[str, Any]]]) -> list[CVSSEntry]:
         metadata = extract_cvss_metadata(metric)
 
         cvss_scores.append(
-            CVSSEntry(
+            CVSSv3Entry(
                 version=cvss_data.get("version", "3.1"),
                 vector_string=cvss_data.get("vectorString", ""),
                 base_score=cvss_data.get("baseScore", 0.0),
                 base_severity=cvss_data.get("baseSeverity", "NONE"),
+                # v3.x component fields
+                attack_vector=cvss_data.get("attackVector"),
+                attack_complexity=cvss_data.get("attackComplexity"),
+                privileges_required=cvss_data.get("privilegesRequired"),
+                user_interaction=cvss_data.get("userInteraction"),
+                scope=cvss_data.get("scope"),
+                confidentiality_impact=cvss_data.get(
+                    "confidentialityImpact"
+                ),
+                integrity_impact=cvss_data.get("integrityImpact"),
+                availability_impact=cvss_data.get("availabilityImpact"),
                 **metadata,
             )
         )
@@ -132,28 +180,48 @@ def parse_cvss(metrics: dict[str, list[dict[str, Any]]]) -> list[CVSSEntry]:
         metadata = extract_cvss_metadata(metric)
 
         cvss_scores.append(
-            CVSSEntry(
+            CVSSv3Entry(
                 version=cvss_data.get("version", "3.0"),
                 vector_string=cvss_data.get("vectorString", ""),
                 base_score=cvss_data.get("baseScore", 0.0),
                 base_severity=cvss_data.get("baseSeverity", "NONE"),
+                # v3.x component fields
+                attack_vector=cvss_data.get("attackVector"),
+                attack_complexity=cvss_data.get("attackComplexity"),
+                privileges_required=cvss_data.get("privilegesRequired"),
+                user_interaction=cvss_data.get("userInteraction"),
+                scope=cvss_data.get("scope"),
+                confidentiality_impact=cvss_data.get(
+                    "confidentialityImpact"
+                ),
+                integrity_impact=cvss_data.get("integrityImpact"),
+                availability_impact=cvss_data.get("availabilityImpact"),
                 **metadata,
             )
         )
 
     # CVSS 2.0 - baseSeverity at metric level (not in cvssData)
+    # NVD v2 uses accessVector/accessComplexity (not attackVector/attackComplexity)
     for metric in metrics.get("cvssMetricV2", []):
         cvss_data = metric.get("cvssData", {})
         metadata = extract_cvss_metadata(metric)
 
         cvss_scores.append(
-            CVSSEntry(
+            CVSSv3Entry(
                 version=cvss_data.get("version", "2.0"),
                 vector_string=cvss_data.get("vectorString", ""),
                 base_score=cvss_data.get("baseScore", 0.0),
                 base_severity=metric.get(
                     "baseSeverity", "NONE"
                 ),  # Different location!
+                # v2 field name mapping: accessVector → attack_vector, etc.
+                attack_vector=cvss_data.get("accessVector"),
+                attack_complexity=cvss_data.get("accessComplexity"),
+                confidentiality_impact=cvss_data.get(
+                    "confidentialityImpact"
+                ),
+                integrity_impact=cvss_data.get("integrityImpact"),
+                availability_impact=cvss_data.get("availabilityImpact"),
                 **metadata,
             )
         )
