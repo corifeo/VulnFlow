@@ -15,7 +15,7 @@ import pandas as pd
 import polars as pl
 
 from vulnflow.dataset import VulnDataset
-from vulnflow.loaders.dataframe import _NVD_STATUS_DEFAULTS, _build_status_mask
+from vulnflow.utils.filtering import _NVD_STATUS_DEFAULTS, _build_status_mask
 
 # ============================================================================
 # Fixture helper

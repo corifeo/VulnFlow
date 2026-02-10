@@ -17,12 +17,15 @@ Used by: dataset.to_pandas(), to_polars()
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 from vulnflow.registry import Registry
+from vulnflow.utils.filtering import (
+    _NVD_STATUS_DEFAULTS,
+    _build_date_mask,
+    _build_status_mask,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -42,159 +45,6 @@ NESTED_COLUMNS = frozenset(
         "kev",
     }
 )
-
-# ============================================================================
-# Status filtering (DataFrame loaders only)
-# ============================================================================
-
-_NVD_STATUS_DEFAULTS: dict[str, bool] = {
-    "analyzed": True,
-    "modified": True,
-    "awaiting": True,
-    "rejected": False,
-    "deferred": True,
-}
-
-
-def _build_status_mask(
-    dataset: VulnDataset,
-    *,
-    analyzed: bool = True,
-    modified: bool = True,
-    awaiting: bool = True,
-    rejected: bool = False,
-    deferred: bool = True,
-) -> np.ndarray:
-    """Build boolean mask based on NVD status values.
-
-    Returns a boolean array where True means "include this row".
-    If the dataset has no ``nvd_status`` column the mask is all-True (no-op).
-    Rows with ``None`` status are always included.
-
-    Args:
-        dataset: VulnDataset to filter
-        analyzed: Include rows with status 'analyzed'
-        modified: Include rows with status 'modified'
-        awaiting: Include rows with status 'awaiting'
-        rejected: Include rows with status 'rejected'
-        deferred: Include rows with status 'deferred'
-
-    Returns:
-        Boolean numpy array (dtype=bool), same length as dataset
-    """
-    statuses = dataset.get_column_or_none("nvd_status")
-    if statuses is None:
-        return np.ones(len(dataset), dtype=bool)
-
-    flags = {
-        "analyzed": analyzed,
-        "modified": modified,
-        "awaiting": awaiting,
-        "rejected": rejected,
-        "deferred": deferred,
-    }
-    included = [status for status, include in flags.items() if include]
-
-    # None status → always include
-    is_none = np.array([s is None for s in statuses], dtype=bool)
-    mask: np.ndarray[tuple[int, ...], np.dtype[np.bool_]] = (
-        np.isin(statuses, included) | is_none
-    )
-    return mask
-
-
-# ============================================================================
-# Date range filtering (DataFrame loaders only)
-# ============================================================================
-
-
-def _parse_date(value: str | datetime) -> datetime:
-    """Parse a date string or pass through a datetime.
-
-    Args:
-        value: ISO date string (YYYY-MM-DD) or datetime
-
-    Returns:
-        Timezone-aware (UTC) datetime
-    """
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value
-    dt = datetime.fromisoformat(value)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt
-
-
-def _build_date_mask(
-    dataset: VulnDataset,
-    *,
-    start: str | datetime | None = None,
-    end: str | datetime | None = None,
-) -> np.ndarray:
-    """Build boolean mask based on date range for nvd_published_at.
-
-    Returns a boolean array where True means "include this row".
-    If start/end are both None the mask is all-True (no-op).
-    If the dataset has no ``nvd_published_at`` column the mask is all-True.
-
-    Args:
-        dataset: VulnDataset to filter
-        start: Inclusive lower bound (>=). ISO string or datetime.
-        end: Exclusive upper bound (<). ISO string or datetime.
-
-    Returns:
-        Boolean numpy array (dtype=bool), same length as dataset
-    """
-    n = len(dataset)
-    if start is None and end is None:
-        return np.ones(n, dtype=bool)
-
-    dates = dataset.get_column_or_none("nvd_published_at")
-    if dates is None:
-        return np.ones(n, dtype=bool)
-
-    # Handle datetime64 arrays (from Parquet round-trip)
-    if np.issubdtype(dates.dtype, np.datetime64):
-        mask = np.ones(n, dtype=bool)
-        if start is not None:
-            dt_start = _parse_date(start)
-            np_start = np.datetime64(dt_start.replace(tzinfo=None), "ms")
-            mask &= dates >= np_start
-        if end is not None:
-            dt_end = _parse_date(end)
-            np_end = np.datetime64(dt_end.replace(tzinfo=None), "ms")
-            mask &= dates < np_end
-        return mask
-
-    # Handle object arrays (Python datetime from NVD extractor)
-    parsed_start: datetime | None = _parse_date(start) if start is not None else None
-    parsed_end: datetime | None = _parse_date(end) if end is not None else None
-
-    mask = np.empty(n, dtype=bool)
-    for i in range(n):
-        val = dates[i]
-        if val is None:
-            mask[i] = False
-            continue
-        # Make naive datetimes UTC-aware for comparison
-        if isinstance(val, datetime) and val.tzinfo is None:
-            val = val.replace(tzinfo=UTC)
-        ok = True
-        if parsed_start is not None:
-            # Ensure both are aware or both naive for comparison
-            cmp_start = parsed_start
-            if val.tzinfo is not None and cmp_start.tzinfo is None:
-                cmp_start = cmp_start.replace(tzinfo=UTC)
-            ok = ok and val >= cmp_start
-        if parsed_end is not None:
-            cmp_end = parsed_end
-            if val.tzinfo is not None and cmp_end.tzinfo is None:
-                cmp_end = cmp_end.replace(tzinfo=UTC)
-            ok = ok and val < cmp_end
-        mask[i] = ok
-    return mask
 
 
 # ============================================================================

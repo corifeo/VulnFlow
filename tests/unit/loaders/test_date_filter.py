@@ -16,7 +16,7 @@ import pandas as pd
 import polars as pl
 
 from vulnflow.dataset import VulnDataset
-from vulnflow.loaders.dataframe import _build_date_mask
+from vulnflow.utils.filtering import _build_date_mask
 
 # ============================================================================
 # Fixture helpers
