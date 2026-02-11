@@ -42,22 +42,13 @@ from vulnflow.helpers.explore import (
     trend,
 )
 
-# ============================================================================
-# Fixtures
-# ============================================================================
-
-
-def _make_dataset(columns: dict[str, list[Any]]) -> VulnDataset:
-    """Create a VulnDataset from column dicts for testing."""
-    ds = VulnDataset()
-    ds._data = {k: np.array(v, dtype=object) for k, v in columns.items()}
-    return ds
+from tests.conftest import make_dataset
 
 
 @pytest.fixture
 def sample_dataset() -> VulnDataset:
     """Dataset with basic columns for testing."""
-    return _make_dataset(
+    return make_dataset(
         {
             "cve_id": [
                 "CVE-2023-0001",
@@ -129,7 +120,7 @@ def nested_dataset() -> VulnDataset:
         ),
         json.dumps([{"source": "redhat", "base_score": 9.8}]),
     ]
-    return _make_dataset(
+    return make_dataset(
         {
             "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
             "cwes": cwes,
@@ -146,7 +137,7 @@ def nested_dataset() -> VulnDataset:
 class TestLoad:
     def test_load_explicit_parquet(self, tmp_path: Path) -> None:
         """load() with explicit .parquet path loads from parquet."""
-        ds = _make_dataset({"cve_id": ["CVE-2024-0001"]})
+        ds = make_dataset({"cve_id": ["CVE-2024-0001"]})
         parquet_path = tmp_path / "test.parquet"
         ds.to_parquet(parquet_path)
 
@@ -167,7 +158,7 @@ class TestLoad:
 
     def test_load_explicit_json_roundtrip(self, tmp_path: Path) -> None:
         """load() with .json path loads JSON file."""
-        ds = _make_dataset({"cve_id": ["CVE-2024-0001"]})
+        ds = make_dataset({"cve_id": ["CVE-2024-0001"]})
         json_path = tmp_path / "test.json"
         ds.to_json(json_path)
 
@@ -199,7 +190,7 @@ class TestDataInfo:
         """data_info() reports cache info when available."""
         import vulnflow.helpers.explore as explore_mod
 
-        ds = _make_dataset({"cve_id": ["CVE-2024-0001", "CVE-2024-0002"]})
+        ds = make_dataset({"cve_id": ["CVE-2024-0001", "CVE-2024-0002"]})
         cache_path = tmp_path / "test_cache.parquet"
         ds.to_parquet(cache_path)
 
@@ -227,7 +218,7 @@ class TestDescribe:
 
     def test_describe_numeric_column(self) -> None:
         """Numeric columns get min, max, mean, p50 stats."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
                 "cvss_base_score": [3.0, 7.0, 10.0],
@@ -244,7 +235,7 @@ class TestDescribe:
 
     def test_describe_categorical_column(self) -> None:
         """Low-cardinality string columns get top_values."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
                 "cvss_base_severity": ["HIGH", "HIGH", "MEDIUM"],
@@ -260,7 +251,7 @@ class TestDescribe:
     def test_describe_high_cardinality(self) -> None:
         """High-cardinality columns (>25 unique) get top 5 only by default."""
         values = [f"vendor_{i}" for i in range(30)]
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": [f"CVE-2024-{i:04d}" for i in range(30)],
                 "cpe_vendor": values,
@@ -275,7 +266,7 @@ class TestDescribe:
 
     def test_describe_timestamp_column(self) -> None:
         """Datetime columns get min and max."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001", "CVE-2024-0002"],
             }
@@ -297,7 +288,7 @@ class TestDescribe:
             json.dumps([{"id": "CWE-120"}]),
             json.dumps([{"id": "CWE-89"}, {"id": "CWE-79"}, {"id": "CWE-120"}]),
         ]
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
                 "cwes": cwes,
@@ -311,7 +302,7 @@ class TestDescribe:
 
     def test_describe_bool_column(self) -> None:
         """Bool columns get true_count and false_count."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
             }
@@ -326,7 +317,7 @@ class TestDescribe:
 
     def test_describe_fmt_json(self) -> None:
         """describe(fmt='json') returns a valid JSON string."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001"],
                 "cvss_base_score": [7.5],
@@ -339,7 +330,7 @@ class TestDescribe:
 
     def test_describe_fill_rate(self) -> None:
         """Null values reduce fill_pct below 100."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": [
                     "CVE-2024-0001",
@@ -413,7 +404,7 @@ class TestSeverity:
 
     def test_filter_by_attack_vector(self) -> None:
         """severity(attack_vector='NETWORK') returns only network CVEs."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
                 "cvss_base_severity": ["CRITICAL", "HIGH", "MEDIUM"],
@@ -430,7 +421,7 @@ class TestSeverity:
 
     def test_filter_by_min_score(self) -> None:
         """severity(min_score=9.0) returns only high-score CVEs."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
                 "cvss_base_severity": ["CRITICAL", "HIGH", "MEDIUM"],
@@ -445,7 +436,7 @@ class TestSeverity:
 
     def test_combined_attack_vector_and_min_score(self) -> None:
         """severity() with both filters uses AND logic."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
                 "cvss_base_severity": ["CRITICAL", "HIGH", "CRITICAL"],
@@ -578,7 +569,7 @@ class TestSearch:
 
     def test_attack_vector_full_name(self) -> None:
         """search() with attack_vector='NETWORK' filters correctly."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
                 "cvss_attack_vector": ["N", "L", "N"],
@@ -593,7 +584,7 @@ class TestSearch:
 
     def test_attack_vector_abbreviation(self) -> None:
         """search() with attack_vector='N' also works."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001", "CVE-2024-0002"],
                 "cvss_attack_vector": ["N", "L"],
