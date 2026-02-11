@@ -536,7 +536,7 @@ class EventInference(BaseInference):
                     4: "structural",
                     5: "age_based",
                 }.get(tier, str(tier))
-                logger.debug(f"Tier {tier} ({tier_name}): {', '.join(parts)}")
+                logger.debug("Tier %d (%s): %s", tier, tier_name, ", ".join(parts))
 
         # Final coverage (INFO)
         def pct(arr: np.ndarray) -> str:
@@ -544,8 +544,8 @@ class EventInference(BaseInference):
             return f"{count / n * 100:.1f}%"
 
         logger.info(
-            f"EventInference coverage: V={pct(v_ts)} F={pct(f_ts)} "
-            f"P={pct(p_ts)} X={pct(x_ts)} A={pct(a_ts)}"
+            "EventInference coverage: V=%s F=%s P=%s X=%s A=%s",
+            pct(v_ts), pct(f_ts), pct(p_ts), pct(x_ts), pct(a_ts),
         )
 
     def transform(self, dataset: VulnDataset) -> None:

@@ -130,14 +130,14 @@ class CWEEnricher(BaseEnricher):
                     enriched_count += 1
                 else:
                     # Keep original if not found in database
-                    logger.debug(f"CWE {cwe_id} not found in database")
+                    logger.debug("CWE %s not found in database", cwe_id)
                     enriched_entries.append(cwe_dict)
 
             enriched_cwes[i] = json.dumps(enriched_entries)
 
         # Update column
         dataset.set_column("cwes", enriched_cwes)
-        logger.info(f"Enriched {enriched_count} CWE entries across {n} records")
+        logger.info("Enriched %d CWE entries across %d records", enriched_count, n)
 
     async def _get_cached_cwe_db(self) -> dict[str, dict[str, Any]]:
         """Get CWE database from cache or load fresh (async)."""
@@ -163,14 +163,14 @@ class CWEEnricher(BaseEnricher):
         if cache_file.exists() and capec_mapping_file.exists():
             age = time.time() - cache_file.stat().st_mtime
             if self.cache_ttl == 0 or age < self.cache_ttl:
-                logger.info(f"Using cached CWE database (age: {age:.0f}s)")
+                logger.info("Using cached CWE database (age: %.0fs)", age)
                 cached_db: dict[str, dict[str, Any]] = json.loads(
                     cache_file.read_text()
                 )
                 return cached_db
 
         # Load from source
-        logger.info(f"Loading CWE database from {self.source}")
+        logger.info("Loading CWE database from %s", self.source)
         if isinstance(self.source, Path):
             xml_path = self.source
         else:
@@ -192,7 +192,7 @@ class CWEEnricher(BaseEnricher):
             if intermediate.exists():
                 intermediate.unlink()
 
-        logger.info(f"Cached {len(cwe_db)} CWE entries")
+        logger.info("Cached %d CWE entries", len(cwe_db))
         return cwe_db
 
     async def _download_cwe_xml(self) -> Path | None:
@@ -245,7 +245,7 @@ class CWEEnricher(BaseEnricher):
             tree = ET.parse(xml_path)
             root = tree.getroot()
         except ET.ParseError as e:
-            logger.error(f"Failed to parse CWE XML file {xml_path}: {e}")
+            logger.error("Failed to parse CWE XML file %s: %s", xml_path, e)
             raise ValueError(f"Invalid CWE XML format: {e}") from e
 
         # First pass: Build basic entries

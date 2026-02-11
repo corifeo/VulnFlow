@@ -144,7 +144,7 @@ class CAPECEnricher(BaseEnricher):
             enriched_count += len(entries)
 
         dataset.set_column("capecs", capecs_array)
-        logger.info(f"Enriched {enriched_count} CAPEC entries across {n} records")
+        logger.info("Enriched %d CAPEC entries across %d records", enriched_count, n)
 
     def _build_cwe_to_capec_mapping(
         self,
@@ -213,14 +213,14 @@ class CAPECEnricher(BaseEnricher):
         if cache_file.exists():
             age = time.time() - cache_file.stat().st_mtime
             if self.cache_ttl == 0 or age < self.cache_ttl:
-                logger.info(f"Using cached CAPEC database (age: {age:.0f}s)")
+                logger.info("Using cached CAPEC database (age: %.0fs)", age)
                 cached_db: dict[str, dict[str, Any]] = json.loads(
                     cache_file.read_text()
                 )
                 return cached_db
 
         # Load from source
-        logger.info(f"Loading CAPEC database from {self.source}")
+        logger.info("Loading CAPEC database from %s", self.source)
         if isinstance(self.source, Path):
             xml_path = self.source
             capec_db = self._parse_capec_xml(xml_path)
@@ -239,7 +239,7 @@ class CAPECEnricher(BaseEnricher):
                 return {}
 
         cache_file.write_text(json.dumps(capec_db, indent=True))
-        logger.info(f"Cached {len(capec_db)} CAPEC entries")
+        logger.info("Cached %d CAPEC entries", len(capec_db))
         return capec_db
 
     async def _download_capec_xml(self) -> Path:
@@ -279,7 +279,7 @@ class CAPECEnricher(BaseEnricher):
             tree = ET.parse(xml_path)
             root = tree.getroot()
         except ET.ParseError as e:
-            logger.error(f"Failed to parse CAPEC XML file {xml_path}: {e}")
+            logger.error("Failed to parse CAPEC XML file %s: %s", xml_path, e)
             raise ValueError(f"Invalid CAPEC XML format: {e}") from e
 
         capec_db: dict[str, dict[str, Any]] = {}
