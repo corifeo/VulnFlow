@@ -129,6 +129,21 @@ class NVDExtractor(BaseExtractor):
         dataset = VulnDataset()
         dataset._data = arrays
         dataset._record_provenance(extractor=self.provenance_label)
+
+        # Compute date range from nvd_published_at for provenance
+        pub_dates = arrays.get("nvd_published_at")
+        if pub_dates is not None:
+            non_null = [d for d in pub_dates if d is not None]
+            if non_null:
+                date_min = min(non_null)
+                date_max = max(non_null)
+                dataset._provenance["date_min"] = (
+                    date_min.isoformat() if hasattr(date_min, "isoformat") else str(date_min)
+                )
+                dataset._provenance["date_max"] = (
+                    date_max.isoformat() if hasattr(date_max, "isoformat") else str(date_max)
+                )
+
         self._timings = timings
         return dataset
 

@@ -620,3 +620,35 @@ class TestCountBy:
         result = ds.count_by("month")
         periods = list(result["month"])
         assert periods == sorted(periods)
+
+
+class TestProvenanceDateRangeMerge:
+    def test_merge_takes_min_max_across_datasets(self) -> None:
+        """merge() computes min(date_min) and max(date_max)."""
+        ds1 = VulnDataset()
+        ds1._provenance["date_min"] = "2024-01-01T00:00:00+00:00"
+        ds1._provenance["date_max"] = "2024-06-30T00:00:00+00:00"
+        ds1.set_column("cve_id", np.array(["CVE-2024-0001"], dtype=object))
+
+        ds2 = VulnDataset()
+        ds2._provenance["date_min"] = "2024-07-01T00:00:00+00:00"
+        ds2._provenance["date_max"] = "2024-12-31T00:00:00+00:00"
+        ds2.set_column("cve_id", np.array(["CVE-2024-0002"], dtype=object))
+
+        merged = VulnDataset.merge([ds1, ds2])
+        assert merged._provenance["date_min"] == "2024-01-01T00:00:00+00:00"
+        assert merged._provenance["date_max"] == "2024-12-31T00:00:00+00:00"
+
+    def test_merge_handles_missing_date_range(self) -> None:
+        """merge() handles datasets without date_min/date_max (old format)."""
+        ds1 = VulnDataset()
+        ds1._provenance["date_min"] = "2024-01-01T00:00:00+00:00"
+        ds1._provenance["date_max"] = "2024-06-30T00:00:00+00:00"
+        ds1.set_column("cve_id", np.array(["CVE-2024-0001"], dtype=object))
+
+        ds2 = VulnDataset()  # No date_min/date_max (old provenance)
+        ds2.set_column("cve_id", np.array(["CVE-2024-0002"], dtype=object))
+
+        merged = VulnDataset.merge([ds1, ds2])
+        assert merged._provenance["date_min"] == "2024-01-01T00:00:00+00:00"
+        assert merged._provenance["date_max"] == "2024-06-30T00:00:00+00:00"
