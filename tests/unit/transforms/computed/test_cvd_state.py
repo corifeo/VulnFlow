@@ -14,6 +14,8 @@ from vulnflow.transforms.enrichers.kev import KEVEnricher
 from vulnflow.transforms.flatten.kev import KEVFlattenTransform
 from vulnflow.transforms.inferences.events import EventInference
 
+from tests.conftest import make_dataset
+
 
 def test_cvd_state_creates_state_column():
     """CVDStateTransform creates cvd_state column."""
@@ -164,3 +166,14 @@ def test_cvd_state_adds_time_deltas():
 
     # V to F = 15 days
     assert fix_lag_days[0] == 15.0
+
+
+def test_cvd_state_empty_dataset() -> None:
+    """CVDStateTransform handles 0-row dataset without error."""
+    ds = make_dataset({
+        "cve_id": [],
+        "v_timestamp": [], "f_timestamp": [], "d_timestamp": [],
+        "p_timestamp": [], "x_timestamp": [], "a_timestamp": [],
+    })
+    CVDStateTransform().transform(ds)
+    assert len(ds.get_column("cvd_state")) == 0
