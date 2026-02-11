@@ -96,9 +96,11 @@ df = dataset.to_pandas()
 # CacheBuilder(recent_only=True)        # Recent feed only
 # CacheBuilder(quiet=True)             # Suppress progress bars
 
-# Build options:
-# .build()                              # Extract + flatten CVSS (default)
-# .build(cvss=False)                    # Extract only, keep nested CVSS JSON
+# Build options (enrichment defaults: cvss, epss, kev, cpe, cwe all on):
+# .build()                              # All defaults: CVSS + EPSS + KEV + CPE + CWE
+# .build(cvss=False)                    # Skip CVSS flattening, keep nested JSON
+# .build(capec=True)                    # Opt-in: CAPEC attack patterns (+ CWE chain)
+# .build(stride=True)                   # Opt-in: STRIDE threat categories (+ CAPEC + CWE chain)
 # .build(timeout=300.0)                 # Custom HTTP timeout per feed
 ```
 

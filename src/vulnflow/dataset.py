@@ -190,7 +190,7 @@ class VulnDataset:
             raise KeyError(msg)
 
         # Validate lengths
-        for name, data in columns.items():  # noqa: B007
+        for name, data in columns.items(): # noqa: B007
             if self._data and len(data) != len(self):
                 msg = f"Column length mismatch: expected {len(self)}, got {len(data)}"
                 raise ValueError(msg)
