@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import json
 
-from vulnflow.transforms.flatten.stride import STRIDEFlattenTransform
-
 from tests.conftest import make_dataset
 
+from vulnflow.transforms.flatten.stride import STRIDEFlattenTransform
 
 # ============================================================================
 # Tests

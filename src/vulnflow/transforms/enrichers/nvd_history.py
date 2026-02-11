@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseEnricher
 from vulnflow.utils import json
-from vulnflow.utils.http import HttpError, HttpFetcher
+from vulnflow.utils.http import HttpFetcher
 from vulnflow.utils.nvd_api import (
     HISTORY_RESULTS_PER_PAGE,
     NVD_HISTORY_API_URL,

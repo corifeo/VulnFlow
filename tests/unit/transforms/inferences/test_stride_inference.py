@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+from tests.conftest import make_dataset
 
 from vulnflow.dataset import VulnDataset
 from vulnflow.transforms.inferences.stride import STRIDEInference
-
-from tests.conftest import make_dataset
 
 
 def _get_threats(ds: VulnDataset, idx: int = 0) -> list[dict[str, Any]]:
