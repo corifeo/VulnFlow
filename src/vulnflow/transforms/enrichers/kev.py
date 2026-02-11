@@ -112,7 +112,7 @@ class KEVEnricher(BaseEnricher):
                     product=data["product"],
                     vulnerability_name=data.get("vulnerability_name", ""),
                     required_action=data["required_action"],
-                    known_ransomware_use=data["ransomware"] == "Known",
+                    known_ransomware_use=data.get("ransomware") == "Known",
                 )
                 # Convert to dict with ISO datetime format
                 kev_dict = {
@@ -217,13 +217,23 @@ class KEVEnricher(BaseEnricher):
 
         reader = csv.DictReader(io.StringIO(content))
         for row in reader:
-            cve_id = row["cveID"]
+            cve_id = row.get("cveID")
+            if not cve_id:
+                continue
 
             # Parse dates
-            date_added = datetime.strptime(row["dateAdded"], "%Y-%m-%d").replace(
+            date_added_str = row.get("dateAdded")
+            due_date_str = row.get("dueDate")
+            if not date_added_str:
+                continue
+            date_added = datetime.strptime(date_added_str, "%Y-%m-%d").replace(
                 tzinfo=UTC
             )
-            due_date = datetime.strptime(row["dueDate"], "%Y-%m-%d").replace(tzinfo=UTC)
+            due_date = (
+                datetime.strptime(due_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
+                if due_date_str
+                else None
+            )
 
             kev_data[cve_id] = {
                 "date_added": date_added,
