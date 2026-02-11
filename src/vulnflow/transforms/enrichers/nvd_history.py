@@ -161,7 +161,7 @@ class NVDHistoryEnricher(BaseEnricher):
             try:
                 changes = await self._fetch_history_for_cve(fetcher, str(cve_id))
                 nvd_changes[i] = json.dumps(changes)
-            except (HttpError, Exception) as exc:
+            except Exception as exc:
                 logger.warning(
                     "Failed to fetch history for %s: %s", cve_id, exc
                 )

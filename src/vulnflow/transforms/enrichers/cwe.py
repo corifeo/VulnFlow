@@ -27,7 +27,7 @@ from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.schema import CWEEntry
 from vulnflow.transforms.base import BaseEnricher
 from vulnflow.utils import json
-from vulnflow.utils.http import HttpFetcher, is_url
+from vulnflow.utils.http import HttpError, HttpFetcher, is_url
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +175,8 @@ class CWEEnricher(BaseEnricher):
             xml_path = self.source
         else:
             xml_path = await self._download_cwe_xml()
+            if xml_path is None:
+                return {}
 
         # Parse and cache
         cwe_db = self._parse_cwe_xml(xml_path)
@@ -193,7 +195,7 @@ class CWEEnricher(BaseEnricher):
         logger.info(f"Cached {len(cwe_db)} CWE entries")
         return cwe_db
 
-    async def _download_cwe_xml(self) -> Path:
+    async def _download_cwe_xml(self) -> Path | None:
         """Download CWE XML from URL.
 
         Returns:
@@ -211,12 +213,15 @@ class CWEEnricher(BaseEnricher):
         zip_path = mitre_dir / "cwec_latest.xml.zip"
         try:
             content, _fmt = await self._http_fetcher.fetch(
-                str(self.source), progress_desc="Downloading CWE database"
+                str(self.source), self.cache_ttl, progress_desc="Downloading CWE database"
             )
             zip_path.write_bytes(content)
+        except HttpError as e:
+            logger.warning("Failed to download CWE XML from %s: %s", self.source, e)
+            return None
         except Exception as e:
-            logger.error(f"Failed to download CWE XML from {self.source}: {e}")
-            raise RuntimeError(f"Failed to download CWE database: {e}") from e
+            logger.warning("Failed to download CWE XML from %s: %s", self.source, e)
+            return None
 
         # Extract XML
         xml_path = mitre_dir / "cwec_latest.xml"
