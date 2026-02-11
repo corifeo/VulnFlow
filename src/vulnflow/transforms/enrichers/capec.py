@@ -26,7 +26,7 @@ from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.schema import CAPECEntry
 from vulnflow.transforms.base import BaseEnricher
 from vulnflow.utils import json
-from vulnflow.utils.http import HttpFetcher, is_url
+from vulnflow.utils.http import HttpError, HttpFetcher, is_url
 
 logger = logging.getLogger(__name__)
 
@@ -231,8 +231,11 @@ class CAPECEnricher(BaseEnricher):
                 # Clean up intermediate XML
                 if xml_path.exists():
                     xml_path.unlink()
+            except HttpError as e:
+                logger.warning("Failed to download CAPEC XML: %s", e)
+                return {}
             except Exception as e:
-                logger.warning(f"Failed to download CAPEC XML: {e}")
+                logger.warning("Failed to download CAPEC XML: %s", e)
                 return {}
 
         cache_file.write_text(json.dumps(capec_db, indent=True))
@@ -255,7 +258,7 @@ class CAPECEnricher(BaseEnricher):
 
         xml_path = mitre_dir / "capec_latest.xml"
         content, _fmt = await self._http_fetcher.fetch(
-            str(self.source), progress_desc="Downloading CAPEC database"
+            str(self.source), self.cache_ttl, progress_desc="Downloading CAPEC database"
         )
         xml_path.write_bytes(content)
         return xml_path
