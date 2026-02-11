@@ -351,13 +351,10 @@ class TestStandardPattern:
         assert 1 in STRIDEInference.TIER_THRESHOLDS
         assert STRIDEInference.TIER_THRESHOLDS[1] == 0.95
 
-    def test_should_run_is_inherited(self) -> None:
-        """_should_run is inherited from BaseInference."""
-        from vulnflow.transforms.base import BaseInference
-
-        assert "_should_run" not in STRIDEInference.__dict__
-        assert hasattr(STRIDEInference, "_should_run")
-        assert STRIDEInference._should_run is BaseInference._should_run
+    def test_should_run_respects_threshold(self) -> None:
+        """STRIDEInference uses BaseInference tier gating."""
+        inf = STRIDEInference(confidence_threshold=1.5)
+        assert inf._should_run(1) is False
 
     def test_overwrite_passed_to_base(self) -> None:
         """overwrite param is set via BaseInference.__init__."""

@@ -213,12 +213,16 @@ def test_tier_thresholds_is_class_attribute():
     assert EventInference.TIER_THRESHOLDS[1] == 0.95
 
 
-def test_should_run_is_inherited():
-    """_should_run is inherited from BaseInference, not defined locally."""
-    from vulnflow.transforms.base import BaseInference
+def test_event_inference_empty_dataset() -> None:
+    """EventInference handles 0-row dataset without error."""
+    ds = make_dataset({"cve_id": []})
+    EventInference().transform(ds)
+    for col in ["v_timestamp", "f_timestamp", "d_timestamp",
+                 "p_timestamp", "x_timestamp", "a_timestamp"]:
+        assert len(ds.get_column(col)) == 0
 
-    # EventInference should NOT define its own _should_run
-    assert "_should_run" not in EventInference.__dict__
-    # But it should have it via inheritance
-    assert hasattr(EventInference, "_should_run")
-    assert EventInference._should_run is BaseInference._should_run
+
+def test_should_run_respects_threshold() -> None:
+    """EventInference uses BaseInference tier gating."""
+    inf = EventInference(confidence_threshold=1.5)
+    assert inf._should_run(1) is False

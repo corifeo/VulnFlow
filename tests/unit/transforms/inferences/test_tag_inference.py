@@ -882,12 +882,10 @@ class TestTierSystem:
         assert "status" in tags
         assert "high-epss" in tags["status"]
 
-    def test_should_run_inherited(self) -> None:
-        """_should_run is inherited from BaseInference."""
-        from vulnflow.transforms.base import BaseInference
-
-        assert "_should_run" not in TagInference.__dict__
-        assert TagInference._should_run is BaseInference._should_run
+    def test_should_run_respects_threshold(self) -> None:
+        """TagInference uses BaseInference tier gating."""
+        inf = TagInference(confidence_threshold=1.5)
+        assert inf._should_run(1) is False
 
 
 # ============================================================================
