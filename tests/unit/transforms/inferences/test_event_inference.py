@@ -8,12 +8,12 @@ Dependencies: dataset, KEV enricher
 
 from __future__ import annotations
 
+from tests.conftest import make_dataset
+
 from vulnflow.dataset import VulnDataset
 from vulnflow.transforms.enrichers.kev import KEVEnricher
 from vulnflow.transforms.flatten.kev import KEVFlattenTransform
 from vulnflow.transforms.inferences.events import EventInference, extract_date_from_url
-
-from tests.conftest import make_dataset
 
 
 def test_extract_date_from_url_slash_pattern():

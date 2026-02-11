@@ -44,7 +44,6 @@ def dataset_from_records(records: list[VulnRecord]) -> VulnDataset:  # type: ign
     """
     import json
     from dataclasses import fields, is_dataclass
-    from typing import Any
 
     import numpy as np
 

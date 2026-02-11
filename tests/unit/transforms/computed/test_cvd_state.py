@@ -8,13 +8,13 @@ Dependencies: EventInference
 
 from __future__ import annotations
 
+from tests.conftest import make_dataset
+
 from vulnflow.dataset import VulnDataset
 from vulnflow.transforms.computed.cvd_state import CVDStateTransform
 from vulnflow.transforms.enrichers.kev import KEVEnricher
 from vulnflow.transforms.flatten.kev import KEVFlattenTransform
 from vulnflow.transforms.inferences.events import EventInference
-
-from tests.conftest import make_dataset
 
 
 def test_cvd_state_creates_state_column():

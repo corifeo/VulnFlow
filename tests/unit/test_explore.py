@@ -25,6 +25,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from tests.conftest import make_dataset
 
 from vulnflow.dataset import VulnDataset
 from vulnflow.helpers.explore import (
@@ -41,8 +42,6 @@ from vulnflow.helpers.explore import (
     summary,
     trend,
 )
-
-from tests.conftest import make_dataset
 
 
 @pytest.fixture

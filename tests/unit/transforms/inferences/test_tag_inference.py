@@ -11,11 +11,10 @@ from __future__ import annotations
 import json
 
 import numpy as np
+from tests.conftest import make_dataset
 
 from vulnflow.dataset import VulnDataset
 from vulnflow.transforms.inferences.tags import TagInference
-
-from tests.conftest import make_dataset
 
 
 def _get_tags(ds: VulnDataset, idx: int = 0) -> dict[str, list[str]]:
