@@ -28,8 +28,16 @@ from vulnflow.utils.cpe import parse_cpe23
 from vulnflow.utils.cvss import extract_cvss_metadata, score_to_severity
 
 
-def parse_timestamp(ts: str | None) -> datetime | None:
-    """Parse ISO timestamp string to datetime."""
+def parse_timestamp(ts: str | datetime | None) -> datetime | None:
+    """Parse ISO timestamp string or datetime to datetime.
+
+    Accepts ISO 8601 strings (with or without Z suffix), datetime
+    objects (pass-through), or None.
+    """
+    if ts is None:
+        return None
+    if isinstance(ts, datetime):
+        return ts
     if not ts:
         return None
     # Handle Z suffix

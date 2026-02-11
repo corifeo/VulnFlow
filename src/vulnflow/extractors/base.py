@@ -7,7 +7,7 @@ Provides:
 
 Layer: Extract
 Dependencies: None
-Used by: nvd, files, sql, memory extractors
+Used by: nvd, nvd_api, files extractors
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+import numpy as np
 
 from vulnflow.exceptions import ExtractorError
 from vulnflow.utils import json
@@ -125,6 +127,34 @@ class BaseExtractor(ABC):
             ExtractorError: If extraction fails
         """
         ...
+
+    @staticmethod
+    def _record_date_provenance(
+        dataset: VulnDataset,
+        arrays: dict[str, np.ndarray],
+        column: str = "nvd_published_at",
+    ) -> None:
+        """Compute date_min/date_max from a date column and store in provenance.
+
+        Args:
+            dataset: Target dataset whose provenance will be updated
+            arrays: Columnar data dict
+            column: Name of the date column to scan
+        """
+        dates = arrays.get(column)
+        if dates is None:
+            return
+        non_null = [d for d in dates if d is not None]
+        if not non_null:
+            return
+        date_min = min(non_null)
+        date_max = max(non_null)
+        dataset._provenance["date_min"] = (
+            date_min.isoformat() if hasattr(date_min, "isoformat") else str(date_min)
+        )
+        dataset._provenance["date_max"] = (
+            date_max.isoformat() if hasattr(date_max, "isoformat") else str(date_max)
+        )
 
     def _ensure_file_exists(self, path: Path) -> None:
         """Verify file exists, raise ExtractorError if not.

@@ -216,8 +216,10 @@ class ParquetExtractor(BaseExtractor):
         for idx, cve_id in enumerate(cve_ids):
             last_indices[cve_id] = idx
 
-        # Get indices in original order
-        unique_indices = sorted(last_indices.values())
+        # Get unique indices (numpy fancy indexing handles unsorted)
+        unique_indices = np.fromiter(
+            last_indices.values(), dtype=np.intp, count=len(last_indices)
+        )
 
         # Filter all columns to unique indices
         result = VulnDataset()
@@ -350,7 +352,7 @@ class PandasExtractor(BaseExtractor):
 
 @Registry.register_extractor("polars")
 class PolarsExtractor(BaseExtractor):
-    """Extract from Polars DataFrame (delegates to PandasExtractor)."""
+    """Extract from Polars DataFrame (direct column conversion)."""
 
     name: str = "polars"
     format: str = "polars"
@@ -360,11 +362,29 @@ class PolarsExtractor(BaseExtractor):
         self.dataframe = dataframe
 
     def extract(self) -> VulnDataset:
-        """Extract from Polars → VulnDataset via Pandas.
+        """Extract from Polars → VulnDataset directly.
+
+        Converts each column via Polars .to_numpy() without
+        intermediate Pandas DataFrame.
 
         Returns:
             VulnDataset with columnar data from Polars DataFrame
         """
-        pandas_df = self.dataframe.to_pandas()
-        extractor = PandasExtractor(pandas_df)
-        return extractor.extract()
+        from vulnflow.dataset import VulnDataset
+
+        if self.dataframe.is_empty():
+            return VulnDataset()
+
+        dataset = VulnDataset()
+        dataset._data = {
+            col: self.dataframe[col].to_numpy() for col in self.dataframe.columns
+        }
+
+        # Warn if core fields missing
+        if "cve_id" not in self.dataframe.columns:
+            logger.warning("Polars DataFrame missing 'cve_id' column")
+        if "description" not in self.dataframe.columns:
+            logger.warning("Polars DataFrame missing 'description' column")
+
+        dataset._record_provenance(extractor=self.provenance_label)
+        return dataset

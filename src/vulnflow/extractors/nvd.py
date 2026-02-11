@@ -15,15 +15,19 @@ for reuse by other extractors (e.g., future CVE.org extractor).
 from __future__ import annotations
 
 import gzip
+import logging
 from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
+from vulnflow.exceptions import ExtractorError
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.registry import Registry
 from vulnflow.utils import json
 from vulnflow.utils.http import HttpFetcher, is_url
 from vulnflow.utils.nvd import populate_columns
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -109,6 +113,7 @@ class NVDExtractor(BaseExtractor):
         t0 = perf_counter()
         raw = self._fetch_raw()
         timings["download"] = perf_counter() - t0
+        logger.debug("Reading %s (%d bytes)", self.path, len(raw))
 
         t0 = perf_counter()
         content = self._decompress(raw)
@@ -117,6 +122,7 @@ class NVDExtractor(BaseExtractor):
         t0 = perf_counter()
         vulnerabilities = self._parse_content(content)
         timings["json"] = perf_counter() - t0
+        logger.debug("Parsed %d vulnerabilities from %s", len(vulnerabilities), self.path)
 
         t0 = perf_counter()
         arrays = populate_columns(vulnerabilities)
@@ -129,20 +135,7 @@ class NVDExtractor(BaseExtractor):
         dataset = VulnDataset()
         dataset._data = arrays
         dataset._record_provenance(extractor=self.provenance_label)
-
-        # Compute date range from nvd_published_at for provenance
-        pub_dates = arrays.get("nvd_published_at")
-        if pub_dates is not None:
-            non_null = [d for d in pub_dates if d is not None]
-            if non_null:
-                date_min = min(non_null)
-                date_max = max(non_null)
-                dataset._provenance["date_min"] = (
-                    date_min.isoformat() if hasattr(date_min, "isoformat") else str(date_min)
-                )
-                dataset._provenance["date_max"] = (
-                    date_max.isoformat() if hasattr(date_max, "isoformat") else str(date_max)
-                )
+        self._record_date_provenance(dataset, arrays)
 
         self._timings = timings
         return dataset
@@ -174,8 +167,7 @@ class NVDExtractor(BaseExtractor):
             return content
         return Path(self.path).read_bytes()
 
-    @staticmethod
-    def _decompress(raw: bytes) -> bytes:
+    def _decompress(self, raw: bytes) -> bytes:
         """Decompress gzip if detected by magic bytes.
 
         Args:
@@ -183,9 +175,17 @@ class NVDExtractor(BaseExtractor):
 
         Returns:
             Decompressed content, or original bytes if not gzip
+
+        Raises:
+            ExtractorError: If gzip decompression fails (corrupt data)
         """
         if raw[:2] == b"\x1f\x8b":
-            return gzip.decompress(raw)
+            try:
+                return gzip.decompress(raw)
+            except (gzip.BadGzipFile, OSError) as e:
+                raise ExtractorError(
+                    f"Failed to decompress gzip data from {self.path}: {e}"
+                ) from e
         return raw
 
     def _parse_content(self, content: bytes) -> list[dict[str, Any]]:
@@ -223,7 +223,13 @@ class NVDExtractor(BaseExtractor):
             List of vulnerability dicts from "vulnerabilities" array
         """
         data = json.loads(content)
-        return data.get("vulnerabilities", [])  # type: ignore[no-any-return]
+        if "vulnerabilities" not in data:
+            logger.warning(
+                "JSON from %s has no 'vulnerabilities' key — returning empty list",
+                self.path,
+            )
+            return []
+        return data["vulnerabilities"]  # type: ignore[no-any-return]
 
     def _parse_jsonl(self, content: bytes) -> list[dict[str, Any]]:
         """Parse JSONL/NDJSON format (one CVE per line).
