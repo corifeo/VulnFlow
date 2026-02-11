@@ -9,8 +9,8 @@ Provides:
 
 Registration happens at import time via decorators:
 - Transforms: @register_transform(default=True/False) on the class
-- Extractors: @Registry.register_extractor("name") on the class
-- Loaders:    @Registry.register_loader("name") on the class
+- Extractors: @register_extractor("name") on the class
+- Loaders:    @register_loader("name") on the class
 
 Schema tracking is automatic — BaseTransform.__init__() calls
 Registry.register_schema() using OUTPUT_SCHEMA from each transform.

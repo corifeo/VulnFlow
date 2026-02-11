@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CACHE_PATH = Path("data/nvd_library.parquet")
+DEFAULT_CACHE_PATH = Path("data/complete_library.parquet")
 
 _AV_ALIASES: dict[str, str] = {
     "NETWORK": "N",
