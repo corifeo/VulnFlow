@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+import numpy as np
 import pytest
 
 # Add tests directory to path for fixture imports
@@ -171,6 +172,15 @@ def dataset_from_records(records: list[VulnRecord]) -> VulnDataset:  # type: ign
         arrays["metadata"][i] = json.dumps(r.metadata, default=str)
 
     dataset._data = arrays
+    return dataset
+
+
+def make_dataset(columns: dict[str, list[Any]]) -> VulnDataset:  # type: ignore[name-defined]
+    """Create a VulnDataset from column dict (for testing)."""
+    from vulnflow.dataset import VulnDataset
+
+    dataset = VulnDataset()
+    dataset._data = {k: np.array(v, dtype=object) for k, v in columns.items()}
     return dataset
 
 

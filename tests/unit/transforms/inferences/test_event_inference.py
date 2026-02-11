@@ -8,25 +8,12 @@ Dependencies: dataset, KEV enricher
 
 from __future__ import annotations
 
-from typing import Any
-
-import numpy as np
-
 from vulnflow.dataset import VulnDataset
 from vulnflow.transforms.enrichers.kev import KEVEnricher
 from vulnflow.transforms.flatten.kev import KEVFlattenTransform
 from vulnflow.transforms.inferences.events import EventInference, extract_date_from_url
 
-# ============================================================================
-# Helpers
-# ============================================================================
-
-
-def _make_dataset(columns: dict[str, list[Any]]) -> VulnDataset:
-    """Create a VulnDataset from column lists."""
-    dataset = VulnDataset()
-    dataset._data = {k: np.array(v, dtype=object) for k, v in columns.items()}
-    return dataset
+from tests.conftest import make_dataset
 
 
 def test_extract_date_from_url_slash_pattern():
@@ -164,7 +151,7 @@ def test_overwrite_preserves_existing():
     from datetime import UTC, datetime
 
     sentinel = datetime(2000, 1, 1, tzinfo=UTC)
-    ds = _make_dataset({
+    ds = make_dataset({
         "cve_id": ["CVE-2024-0001"],
         "nvd_published_at": [datetime(2024, 1, 15, tzinfo=UTC)],
         "p_timestamp": [sentinel],
@@ -183,7 +170,7 @@ def test_overwrite_replaces():
     from datetime import UTC, datetime
 
     sentinel = datetime(2000, 1, 1, tzinfo=UTC)
-    ds = _make_dataset({
+    ds = make_dataset({
         "cve_id": ["CVE-2024-0001"],
         "nvd_published_at": [datetime(2024, 1, 15, tzinfo=UTC)],
         "p_timestamp": [sentinel],

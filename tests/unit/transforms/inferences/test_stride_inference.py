@@ -8,23 +8,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
 from vulnflow.dataset import VulnDataset
 from vulnflow.transforms.inferences.stride import STRIDEInference
 
-# ============================================================================
-# Helpers
-# ============================================================================
-
-
-def _make_dataset(columns: dict[str, list[Any]]) -> VulnDataset:
-    """Create a VulnDataset from column lists."""
-    dataset = VulnDataset()
-    dataset._data = {k: np.array(v, dtype=object) for k, v in columns.items()}
-    return dataset
+from tests.conftest import make_dataset
 
 
 def _get_threats(ds: VulnDataset, idx: int = 0) -> list[dict[str, Any]]:
@@ -64,7 +54,7 @@ class TestTier1CAPECConsequences:
         (mitre_dir / "capec_database.json").write_text(json.dumps(capec_db))
 
         capecs_json = json.dumps([{"id": "CAPEC-86", "name": "XSS via HTTP Headers"}])
-        ds = _make_dataset(
+        ds = make_dataset(
             {"cve_id": ["CVE-2024-0001"], "capecs": [capecs_json]}
         )
 
@@ -95,7 +85,7 @@ class TestTier2CWEMapping:
 
     def test_stride_from_cwe_mapping(self) -> None:
         """CWE-287 (Improper Authentication) → spoofing at 0.85."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {"cve_id": ["CVE-2024-0001"], "cwe_id": ["CWE-287"]}
         )
         STRIDEInference().transform(ds)
@@ -110,7 +100,7 @@ class TestTier2CWEMapping:
 
     def test_cwe_multi_category(self) -> None:
         """CWE-79 (XSS) → tampering + info_disclosure."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {"cve_id": ["CVE-2024-0001"], "cwe_id": ["CWE-79"]}
         )
         STRIDEInference().transform(ds)
@@ -129,7 +119,7 @@ class TestTier3CVSSImpact:
 
     def test_stride_from_cvss_impact(self) -> None:
         """C:H/I:H/A:H → info_disclosure + tampering + dos at 0.75."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001"],
                 "cvss_confidentiality": ["H"],
@@ -159,7 +149,7 @@ class TestTier4Description:
 
     def test_stride_from_description(self) -> None:
         """'denial of service' keyword → dos at 0.60."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001"],
                 "description": ["A denial of service vulnerability in the parser"],
@@ -186,7 +176,7 @@ class TestTier5CVSSVector:
 
     def test_stride_from_cvss_vector(self) -> None:
         """PR:N → spoofing at 0.45."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001"],
                 "cvss_privileges_required": ["N"],
@@ -213,7 +203,7 @@ class TestThresholdGating:
 
     def test_stride_threshold_gates_tiers(self) -> None:
         """threshold=0.90 only runs tier 1 (0.95)."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001"],
                 "cwe_id": ["CWE-287"],  # Tier 2 would produce spoofing
@@ -253,7 +243,7 @@ class TestTierPrecedence:
         (mitre_dir / "capec_database.json").write_text(json.dumps(capec_db))
 
         capecs_json = json.dumps([{"id": "CAPEC-86"}])
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001"],
                 "capecs": [capecs_json],
@@ -280,7 +270,7 @@ class TestIdempotency:
 
     def test_stride_idempotent(self) -> None:
         """Running twice without overwrite produces the same result."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {"cve_id": ["CVE-2024-0001"], "cwe_id": ["CWE-287"]}
         )
         inference = STRIDEInference()
@@ -294,7 +284,7 @@ class TestIdempotency:
 
     def test_stride_overwrite(self) -> None:
         """overwrite=True replaces previous inference."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {"cve_id": ["CVE-2024-0001"], "cwe_id": ["CWE-287"]}
         )
         # First pass: assign spoofing
@@ -326,7 +316,7 @@ class TestEdgeCases:
 
     def test_stride_handles_missing_columns(self) -> None:
         """No capecs, no cwes, no cvss → uses lower tiers only."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001"],
                 "description": ["A denial of service crash vulnerability"],
@@ -340,7 +330,7 @@ class TestEdgeCases:
 
     def test_no_data_produces_empty_threats(self) -> None:
         """Record with no usable data produces empty threats array."""
-        ds = _make_dataset({"cve_id": ["CVE-2024-0001"]})
+        ds = make_dataset({"cve_id": ["CVE-2024-0001"]})
         STRIDEInference().transform(ds)
         threats = _get_threats(ds)
         assert threats == []
@@ -381,7 +371,7 @@ class TestStandardPattern:
 
     def test_explicit_tier_selection(self) -> None:
         """Explicit tiers=[2] only runs tier 2."""
-        ds = _make_dataset(
+        ds = make_dataset(
             {
                 "cve_id": ["CVE-2024-0001"],
                 "cwe_id": ["CWE-287"],
@@ -398,7 +388,7 @@ class TestStandardPattern:
 
     def test_array_init_uses_np_full(self) -> None:
         """Empty stride_threats values are None, not uninitialized."""
-        ds = _make_dataset({"cve_id": ["CVE-2024-0001", "CVE-2024-0002"]})
+        ds = make_dataset({"cve_id": ["CVE-2024-0001", "CVE-2024-0002"]})
         # Only run tier 1, which needs CAPEC data we don't have
         STRIDEInference(tiers=[1]).transform(ds)
         # Records with no data should get "[]", not garbage from np.empty
