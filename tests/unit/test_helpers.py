@@ -8,9 +8,12 @@ Dependencies: None for URL tests, pipeline for integration tests
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
+
+from vulnflow.extractors.nvd import NVDExtractor
 
 
 class TestCacheBuilderURLResolution:
@@ -301,3 +304,170 @@ class TestCacheBuilderBuild:
         ds = builder.build(epss=False, kev=False, cpe=False, cwe=False)
 
         assert "cwe_id" not in ds.columns
+
+
+class TestParseDuration:
+    @pytest.mark.parametrize(
+        "input_val,expected_days",
+        [
+            ("7d", 7),
+            ("30d", 30),
+            ("1d", 1),
+            ("24h", 1),
+            ("48h", 2),
+            ("12h", 0.5),
+        ],
+    )
+    def test_parse_duration_strings(self, input_val: str, expected_days: float) -> None:
+        from vulnflow.helpers.builder import _parse_duration
+
+        result = _parse_duration(input_val)
+        assert result == timedelta(days=expected_days)
+
+    def test_parse_duration_timedelta_passthrough(self) -> None:
+        from vulnflow.helpers.builder import _parse_duration
+
+        td = timedelta(days=3)
+        assert _parse_duration(td) is td
+
+    def test_parse_duration_invalid_raises(self) -> None:
+        from vulnflow.helpers.builder import _parse_duration
+
+        with pytest.raises(ValueError, match="Cannot parse duration"):
+            _parse_duration("invalid")
+
+
+class TestReadParquetProvenance:
+    def test_reads_provenance_without_loading_data(
+        self, tmp_path: Path, nvd_sample_path: Path
+    ) -> None:
+        from vulnflow.helpers.builder import _read_parquet_provenance
+
+        ds = NVDExtractor(str(nvd_sample_path)).extract()
+        ds.to_parquet(tmp_path / "test.parquet")
+        prov = _read_parquet_provenance(tmp_path / "test.parquet")
+        assert prov is not None
+        assert "extractors" in prov
+        assert "created_at" in prov
+
+    def test_returns_none_for_missing_file(self, tmp_path: Path) -> None:
+        from vulnflow.helpers.builder import _read_parquet_provenance
+
+        assert _read_parquet_provenance(tmp_path / "missing.parquet") is None
+
+
+class TestCacheBuilderEnsure:
+    def test_ensure_builds_when_file_missing(
+        self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
+    ) -> None:
+        """ensure() does a full build when file doesn't exist."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024])
+        monkeypatch.setattr(builder, "_urls", [str(nvd_sample_path)])
+        path = tmp_path / "cache.parquet"
+        ds = builder.ensure(path, max_age="7d")
+        assert len(ds) == 5
+        assert path.exists()
+
+    def test_ensure_returns_cached_when_fresh(
+        self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
+    ) -> None:
+        """ensure() loads from cache when file is fresh."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024])
+        monkeypatch.setattr(builder, "_urls", [str(nvd_sample_path)])
+        path = tmp_path / "cache.parquet"
+        ds1 = builder.ensure(path, max_age="7d")
+        ds2 = builder.ensure(path, max_age="7d")
+        assert len(ds2) == len(ds1)
+
+    def test_ensure_rebuilds_when_stale(
+        self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
+    ) -> None:
+        """ensure() rebuilds when max_age exceeded."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024])
+        monkeypatch.setattr(builder, "_urls", [str(nvd_sample_path)])
+        path = tmp_path / "cache.parquet"
+        builder.ensure(path, max_age="7d")
+        # 0h = always stale
+        ds = builder.ensure(path, max_age="0h")
+        assert len(ds) == 5
+
+    def test_ensure_accepts_timedelta(
+        self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
+    ) -> None:
+        """ensure() accepts timedelta for max_age."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024])
+        monkeypatch.setattr(builder, "_urls", [str(nvd_sample_path)])
+        path = tmp_path / "cache.parquet"
+        ds = builder.ensure(path, max_age=timedelta(days=7))
+        assert len(ds) == 5
+
+    def test_ensure_through_triggers_rebuild(
+        self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
+    ) -> None:
+        """ensure(through=future_date) triggers rebuild when date_max is too old."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024])
+        monkeypatch.setattr(builder, "_urls", [str(nvd_sample_path)])
+        path = tmp_path / "cache.parquet"
+        builder.ensure(path)
+        # Sample data has dates in 2024; asking for 2026 should trigger rebuild
+        ds = builder.ensure(path, through="2026-12-31")
+        assert len(ds) > 0
+
+    def test_ensure_with_no_args_returns_cached(
+        self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
+    ) -> None:
+        """ensure() with no freshness args always returns cached data."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024])
+        monkeypatch.setattr(builder, "_urls", [str(nvd_sample_path)])
+        path = tmp_path / "cache.parquet"
+        builder.ensure(path)
+        ds = builder.ensure(path)
+        assert len(ds) == 5
+
+    def test_ensure_path_as_string(
+        self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
+    ) -> None:
+        """ensure() accepts string path."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024])
+        monkeypatch.setattr(builder, "_urls", [str(nvd_sample_path)])
+        path = str(tmp_path / "cache.parquet")
+        ds = builder.ensure(path, max_age="7d")
+        assert len(ds) == 5
+
+    def test_ensure_old_parquet_without_date_range(
+        self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
+    ) -> None:
+        """ensure(through=...) falls back to rebuild when date_max missing."""
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        from vulnflow.helpers.builder import CacheBuilder
+        from vulnflow.utils import json as vjson
+
+        # Write a parquet file without date_min/date_max in provenance
+        table = pa.table({"cve_id": ["CVE-2024-0001"]})
+        prov = {"extractors": ["test"], "transforms": [], "created_at": "2026-01-01T00:00:00+00:00", "updated_at": "2026-01-01T00:00:00+00:00"}
+        prov_bytes = vjson.dumps(prov).encode("utf-8")
+        table = table.replace_schema_metadata({b"vulnflow:provenance": prov_bytes})
+        path = tmp_path / "old.parquet"
+        pq.write_table(table, path)
+
+        builder = CacheBuilder(years=[2024])
+        monkeypatch.setattr(builder, "_urls", [str(nvd_sample_path)])
+        # through requires date_max; missing means rebuild
+        ds = builder.ensure(path, through="2026-12-31")
+        assert len(ds) == 5

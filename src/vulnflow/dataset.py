@@ -348,6 +348,22 @@ class VulnDataset:
         merged._provenance["transforms"] = all_transforms
         merged._provenance["created_at"] = min(created_dates)
 
+        # Merge date ranges (min of mins, max of maxes)
+        date_mins = [
+            ds._provenance["date_min"]
+            for ds in datasets
+            if "date_min" in ds._provenance
+        ]
+        date_maxes = [
+            ds._provenance["date_max"]
+            for ds in datasets
+            if "date_max" in ds._provenance
+        ]
+        if date_mins:
+            merged._provenance["date_min"] = min(date_mins)
+        if date_maxes:
+            merged._provenance["date_max"] = max(date_maxes)
+
         return merged
 
     def filter(self, mask: np.ndarray) -> VulnDataset:
@@ -377,6 +393,28 @@ class VulnDataset:
         for col_name, col_data in self._data.items():
             result._data[col_name] = col_data[mask]
         result._provenance = copy.deepcopy(self._provenance)
+
+        # Recompute date range from filtered nvd_published_at
+        if "nvd_published_at" in result._data:
+            pub_dates = result._data["nvd_published_at"]
+            non_null = [d for d in pub_dates if d is not None]
+            if non_null:
+                date_min = min(non_null)
+                date_max = max(non_null)
+                result._provenance["date_min"] = (
+                    date_min.isoformat()
+                    if hasattr(date_min, "isoformat")
+                    else str(date_min)
+                )
+                result._provenance["date_max"] = (
+                    date_max.isoformat()
+                    if hasattr(date_max, "isoformat")
+                    else str(date_max)
+                )
+            else:
+                result._provenance.pop("date_min", None)
+                result._provenance.pop("date_max", None)
+
         return result
 
     def count_by(

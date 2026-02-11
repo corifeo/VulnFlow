@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
-from typing import TYPE_CHECKING
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -25,6 +26,45 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 NVD_BASE_URL = "https://nvd.nist.gov/feeds/json/cve/2.0"
+
+
+def _parse_duration(value: str | timedelta) -> timedelta:
+    """Parse duration from string ('7d', '24h') or pass through timedelta."""
+    if isinstance(value, timedelta):
+        return value
+    if not isinstance(value, str):
+        msg = f"Cannot parse duration from {type(value).__name__}"
+        raise ValueError(msg)
+    stripped = value.strip().lower()
+    try:
+        if stripped.endswith("d"):
+            return timedelta(days=float(stripped[:-1]))
+        if stripped.endswith("h"):
+            return timedelta(hours=float(stripped[:-1]))
+    except ValueError:
+        pass
+    msg = f"Cannot parse duration: '{value}'. Use '7d' or '24h' format."
+    raise ValueError(msg)
+
+
+def _read_parquet_provenance(path: Path) -> dict[str, Any] | None:
+    """Read provenance metadata from parquet file without loading data.
+
+    Uses pq.read_schema() for minimal I/O (reads only footer metadata).
+    Returns None if file doesn't exist or has no provenance.
+    """
+    if not path.exists():
+        return None
+    import pyarrow.parquet as pq
+
+    schema = pq.read_schema(path)
+    meta = schema.metadata or {}
+    prov_bytes = meta.get(b"vulnflow:provenance")
+    if not prov_bytes:
+        return None
+    from vulnflow.utils import json as vjson
+
+    return vjson.loads(prov_bytes)  # type: ignore[no-any-return]
 
 
 class CacheBuilder:
@@ -272,6 +312,82 @@ class CacheBuilder:
                     os.environ.pop("TQDM_DISABLE", None)
                 else:
                     os.environ["TQDM_DISABLE"] = old_tqdm_disable
+
+    def ensure(
+        self,
+        path: str | Path,
+        *,
+        max_age: str | timedelta | None = None,
+        through: str | None = None,
+        recent: bool = False,
+        timeout: float = 120.0,
+        **build_kwargs: Any,
+    ) -> VulnDataset:
+        """Ensure cache file meets freshness requirements.
+
+        Checks existing parquet file and updates or rebuilds as needed.
+
+        Args:
+            path: Path to parquet cache file.
+            max_age: Maximum cache age ('7d', '24h', or timedelta).
+                Rebuilds if exceeded.
+            through: ISO date string. Rebuilds if date_max < through.
+            recent: If True, apply modified feed delta on top of cache.
+            timeout: HTTP timeout per feed.
+            **build_kwargs: Passed to build() (cvss, epss, kev, etc.)
+        """
+        from vulnflow.dataset import VulnDataset
+        from vulnflow.loaders.files import ParquetLoader
+
+        path = Path(path)
+
+        # 1. File missing → full build
+        if not path.exists():
+            logger.info("Cache file missing, building: %s", path)
+            ds = self.build(timeout=timeout, **build_kwargs)
+            ParquetLoader(path).load(ds)
+            return ds
+
+        # 2. Read provenance (lightweight, no data load)
+        prov = _read_parquet_provenance(path)
+
+        # 3. Determine if rebuild is needed
+        needs_rebuild = False
+
+        if max_age is not None and prov is not None:
+            updated_at = prov.get("updated_at")
+            if updated_at is not None:
+                from datetime import UTC
+
+                cache_time = datetime.fromisoformat(updated_at)
+                age_limit = datetime.now(UTC) - _parse_duration(max_age)
+                if cache_time < age_limit:
+                    logger.info("Cache stale (max_age), rebuilding")
+                    needs_rebuild = True
+            else:
+                needs_rebuild = True
+
+        if not needs_rebuild and through is not None:
+            date_max = prov.get("date_max") if prov else None
+            if date_max is None:
+                logger.info("Cache missing date_max, rebuilding for through=%s", through)
+                needs_rebuild = True
+            elif date_max < through:
+                logger.info(
+                    "Cache date_max=%s < through=%s, rebuilding", date_max, through
+                )
+                needs_rebuild = True
+
+        # 4. Fresh and no recent → return cached
+        if not needs_rebuild and not recent:
+            logger.info("Cache fresh, loading: %s", path)
+            return VulnDataset.from_parquet(str(path))
+
+        # 5. Rebuild: full build, save, return
+        logger.info("Rebuilding cache: %s", path)
+        ds = self.build(timeout=timeout, **build_kwargs)
+        ParquetLoader(path).load(ds)
+        return ds
 
     @classmethod
     def feed_url(cls, feed: int | str) -> str:

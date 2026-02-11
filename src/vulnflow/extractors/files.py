@@ -149,6 +149,10 @@ class ParquetExtractor(BaseExtractor):
             dataset._provenance["created_at"] = stored_prov.get(
                 "created_at", dataset._provenance["created_at"]
             )
+            if "date_min" in stored_prov:
+                dataset._provenance["date_min"] = stored_prov["date_min"]
+            if "date_max" in stored_prov:
+                dataset._provenance["date_max"] = stored_prov["date_max"]
 
         # Record this extraction in provenance
         dataset._record_provenance(extractor=self.provenance_label)

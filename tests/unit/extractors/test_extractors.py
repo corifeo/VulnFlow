@@ -800,3 +800,39 @@ def test_nvd_extractor_parses_cvss_v40(nvd_sample_dataset: VulnDataset) -> None:
     assert v40["user_interaction"] == "PASSIVE"
     assert v40["vuln_confidentiality_impact"] == "LOW"
     assert v40["sub_confidentiality_impact"] == "LOW"
+
+
+class TestNVDExtractorProvenance:
+    def test_provenance_date_range_populated(self, nvd_sample_path: Path) -> None:
+        """NVDExtractor sets date_min/date_max from nvd_published_at."""
+        extractor = NVDExtractor(str(nvd_sample_path))
+        ds = extractor.extract()
+        prov = ds.provenance
+        assert prov["date_min"] is not None
+        assert prov["date_max"] is not None
+        assert prov["date_min"] <= prov["date_max"]
+
+    def test_provenance_date_range_none_for_empty(self, tmp_path: Path) -> None:
+        """Empty dataset has None date_min/date_max."""
+        empty = tmp_path / "empty.json"
+        empty.write_text('{"vulnerabilities": []}')
+        extractor = NVDExtractor(str(empty))
+        ds = extractor.extract()
+        prov = ds.provenance
+        assert prov.get("date_min") is None
+        assert prov.get("date_max") is None
+
+    def test_parquet_roundtrip_preserves_date_range(
+        self, tmp_path: Path, nvd_sample_path: Path
+    ) -> None:
+        """date_min/date_max survive parquet round-trip."""
+        ds = NVDExtractor(str(nvd_sample_path)).extract()
+        original_min = ds._provenance.get("date_min")
+        original_max = ds._provenance.get("date_max")
+        assert original_min is not None  # Prerequisite from Task 1
+
+        ds.to_parquet(tmp_path / "test.parquet")
+        ds2 = VulnDataset.from_parquet(str(tmp_path / "test.parquet"))
+
+        assert ds2._provenance.get("date_min") == original_min
+        assert ds2._provenance.get("date_max") == original_max
