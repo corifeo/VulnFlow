@@ -200,3 +200,54 @@ def test_nvd_api_extractor_provenance_label():
     ext = NVDAPIExtractor(cve_id="CVE-2024-3094")
     assert "NVDAPIExtractor" in ext.provenance_label
     assert "nvd_api" in ext.provenance_label or "CVE-2024-3094" in ext.provenance_label
+
+
+@patch("vulnflow.extractors.nvd_api.HttpFetcher")
+def test_nvd_api_extractor_http_error(MockFetcher):
+    """NVDAPIExtractor propagates HTTP errors from fetch_sync."""
+    import httpx
+
+    from vulnflow.extractors.nvd_api import NVDAPIExtractor
+
+    instance = MockFetcher.return_value
+    instance.fetch_sync.side_effect = httpx.ConnectError("Connection refused")
+
+    extractor = NVDAPIExtractor(cve_id="CVE-2024-0001")
+    with pytest.raises(httpx.ConnectError, match="Connection refused"):
+        extractor.extract()
+
+
+@patch("vulnflow.extractors.nvd_api.HttpFetcher")
+def test_nvd_api_extractor_timings_populated(MockFetcher):
+    """NVDAPIExtractor populates _timings dict after extract."""
+    from vulnflow.extractors.nvd_api import NVDAPIExtractor
+
+    response = _make_api_response(["CVE-2024-0001"])
+    instance = MockFetcher.return_value
+    instance.fetch_sync.return_value = (json.dumps(response).encode(), "json")
+
+    extractor = NVDAPIExtractor(cve_id="CVE-2024-0001")
+    extractor.extract()
+
+    assert hasattr(extractor, "_timings")
+    assert "fetch" in extractor._timings
+    assert "populate" in extractor._timings
+    assert extractor._timings["fetch"] >= 0
+    assert extractor._timings["populate"] >= 0
+
+
+@patch("vulnflow.extractors.nvd_api.HttpFetcher")
+def test_nvd_api_extractor_provenance_date_range(MockFetcher):
+    """NVDAPIExtractor sets date_min/date_max in provenance."""
+    from vulnflow.extractors.nvd_api import NVDAPIExtractor
+
+    response = _make_api_response(["CVE-2024-0001", "CVE-2024-0002"])
+    instance = MockFetcher.return_value
+    instance.fetch_sync.return_value = (json.dumps(response).encode(), "json")
+
+    extractor = NVDAPIExtractor(keyword="test")
+    dataset = extractor.extract()
+
+    prov = dataset.provenance
+    assert prov.get("date_min") is not None
+    assert prov.get("date_max") is not None

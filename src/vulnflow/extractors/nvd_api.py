@@ -13,13 +13,14 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime
+from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.registry import Registry
 from vulnflow.utils import json
 from vulnflow.utils.http import HttpFetcher
-from vulnflow.utils.nvd import populate_columns
+from vulnflow.utils.nvd import parse_timestamp, populate_columns
 from vulnflow.utils.nvd_api import (
     DEFAULT_RESULTS_PER_PAGE,
     NVD_CVE_API_URL,
@@ -29,25 +30,12 @@ from vulnflow.utils.nvd_api import (
     parse_api_page,
     resolve_api_key,
 )
+from vulnflow.utils.progress import progress_bar
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
 logger = logging.getLogger(__name__)
-
-
-def _to_datetime(value: str | datetime | None) -> datetime | None:
-    """Convert a string or datetime to a timezone-aware datetime.
-
-    Accepts ISO 8601 strings (with or without timezone) and datetime objects.
-    Returns None for None input.
-    """
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value
-    # Handle Z suffix and parse ISO 8601
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 @Registry.register_extractor("nvd_api")
@@ -147,10 +135,10 @@ class NVDAPIExtractor(BaseExtractor):
         self._cve_id = cve_id
         self._keyword = keyword
         self._keyword_exact_match = keyword_exact_match
-        self._pub_start_date = _to_datetime(pub_start_date)
-        self._pub_end_date = _to_datetime(pub_end_date)
-        self._mod_start_date = _to_datetime(mod_start_date)
-        self._mod_end_date = _to_datetime(mod_end_date)
+        self._pub_start_date = parse_timestamp(pub_start_date)
+        self._pub_end_date = parse_timestamp(pub_end_date)
+        self._mod_start_date = parse_timestamp(mod_start_date)
+        self._mod_end_date = parse_timestamp(mod_end_date)
         self._cpe_name = cpe_name
         self._cvss_v3_severity = cvss_v3_severity
         self._has_kev = has_kev
@@ -188,6 +176,9 @@ class NVDAPIExtractor(BaseExtractor):
         Handles pagination within each date chunk. Date ranges exceeding
         120 days are automatically split. Results are deduplicated by CVE ID.
 
+        Populates self._timings with per-phase durations (fetch, populate)
+        for progress reporting.
+
         Returns:
             VulnDataset with columnar storage populated
 
@@ -195,6 +186,8 @@ class NVDAPIExtractor(BaseExtractor):
             HttpError: On network or HTTP errors
         """
         from vulnflow.dataset import VulnDataset
+
+        timings: dict[str, float] = {}
 
         fetcher = HttpFetcher(
             cache_dir=self._cache_dir,
@@ -208,11 +201,13 @@ class NVDAPIExtractor(BaseExtractor):
         # Collect all vulnerability dicts across chunks and pages
         all_vulns: list[dict[str, Any]] = []
 
+        t0 = perf_counter()
         for chunk_start, chunk_end in date_chunks:
             chunk_vulns = self._fetch_chunk(
                 fetcher, chunk_start, chunk_end, sleep_interval
             )
             all_vulns.extend(chunk_vulns)
+        timings["fetch"] = perf_counter() - t0
 
         # Deduplicate by CVE ID (last-seen wins)
         seen: dict[str, int] = {}
@@ -227,15 +222,23 @@ class NVDAPIExtractor(BaseExtractor):
                 unique_vulns.append(vuln)
 
         if not unique_vulns:
+            self._timings = timings
             return VulnDataset()
 
+        t0 = perf_counter()
         arrays = populate_columns(unique_vulns)
+        timings["populate"] = perf_counter() - t0
+
         if not arrays:
+            self._timings = timings
             return VulnDataset()
 
         dataset = VulnDataset()
         dataset._data = arrays
         dataset._record_provenance(extractor=self.provenance_label)
+        self._record_date_provenance(dataset, arrays)
+
+        self._timings = timings
         return dataset
 
     def _get_date_chunks(self) -> list[tuple[datetime | None, datetime | None]]:
@@ -277,55 +280,76 @@ class NVDAPIExtractor(BaseExtractor):
         vulns: list[dict[str, Any]] = []
         start_index = 0
         total_results: int | None = None
+        pbar = None
 
-        while True:
-            # Build query params for this page
-            query_params = build_query_params(
-                cve_id=self._cve_id,
-                pub_start_date=chunk_start or self._pub_start_date,
-                pub_end_date=chunk_end or self._pub_end_date,
-                mod_start_date=self._mod_start_date,
-                mod_end_date=self._mod_end_date,
-                keyword=self._keyword,
-                keyword_exact_match=self._keyword_exact_match,
-                cpe_name=self._cpe_name,
-                cvss_v3_severity=self._cvss_v3_severity,
-                has_kev=self._has_kev,
-                no_rejected=self._no_rejected,
-                results_per_page=self._results_per_page,
-                start_index=start_index,
-                extra_params=self._extra_params,
-            )
+        try:
+            while True:
+                # Build query params for this page
+                query_params = build_query_params(
+                    cve_id=self._cve_id,
+                    pub_start_date=chunk_start or self._pub_start_date,
+                    pub_end_date=chunk_end or self._pub_end_date,
+                    mod_start_date=self._mod_start_date,
+                    mod_end_date=self._mod_end_date,
+                    keyword=self._keyword,
+                    keyword_exact_match=self._keyword_exact_match,
+                    cpe_name=self._cpe_name,
+                    cvss_v3_severity=self._cvss_v3_severity,
+                    has_kev=self._has_kev,
+                    no_rejected=self._no_rejected,
+                    results_per_page=self._results_per_page,
+                    start_index=start_index,
+                    extra_params=self._extra_params,
+                )
 
-            # Build URL with query string
-            # Future: Add API key as apiKey header for better security
-            url = self._build_url(query_params)
+                # Build URL with query string
+                url = self._build_url(query_params)
 
-            # Fetch the page
-            # Future: Add page-level disk caching to resume interrupted fetches
-            content, _ = fetcher.fetch_sync(
-                url,
-                cache_ttl=self._cache_ttl,
-            )
-            data: dict[str, Any] = json.loads(content)
-            page_total, page_start, page_vulns = parse_api_page(data)
+                # Fetch the page
+                content, _ = fetcher.fetch_sync(
+                    url,
+                    cache_ttl=self._cache_ttl,
+                )
+                data: dict[str, Any] = json.loads(content)
+                page_total, page_start, page_vulns = parse_api_page(data)
 
-            vulns.extend(page_vulns)
+                vulns.extend(page_vulns)
 
-            # Update total from first page response
-            if total_results is None:
-                total_results = page_total
+                # Update total from first page response
+                if total_results is None:
+                    total_results = page_total
+                    # Create progress bar for multi-page fetches
+                    if total_results > len(page_vulns):
+                        pbar = progress_bar(
+                            total=total_results,
+                            desc=f"Fetching {self.label}",
+                            unit="CVEs",
+                        )
+                        pbar.update(len(page_vulns))
 
-            # Check if we have all results
-            fetched_so_far = start_index + len(page_vulns)
-            if fetched_so_far >= total_results or len(page_vulns) == 0:
-                break
+                elif pbar is not None:
+                    pbar.update(len(page_vulns))
 
-            # Advance to next page
-            start_index = fetched_so_far
+                # Log per-page progress
+                fetched_so_far = start_index + len(page_vulns)
+                logger.info(
+                    "NVD API: fetched %d/%d CVEs",
+                    fetched_so_far,
+                    total_results,
+                )
 
-            # Rate limit between pages
-            time.sleep(sleep_interval)
+                # Check if we have all results
+                if fetched_so_far >= total_results or len(page_vulns) == 0:
+                    break
+
+                # Advance to next page
+                start_index = fetched_so_far
+
+                # Rate limit between pages
+                time.sleep(sleep_interval)
+        finally:
+            if pbar is not None:
+                pbar.close()
 
         return vulns
 

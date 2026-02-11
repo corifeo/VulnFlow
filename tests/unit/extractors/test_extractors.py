@@ -836,3 +836,152 @@ class TestNVDExtractorProvenance:
 
         assert ds2._provenance.get("date_min") == original_min
         assert ds2._provenance.get("date_max") == original_max
+
+
+# Gzip format tests
+
+
+def test_nvd_extractor_reads_gzip(nvd_sample_path: Path) -> None:
+    """NVDExtractor reads .json.gz files correctly."""
+    import gzip
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        gz_path = Path(tmpdir) / "nvd_sample.json.gz"
+        raw = nvd_sample_path.read_bytes()
+        gz_path.write_bytes(gzip.compress(raw))
+
+        extractor = NVDExtractor(str(gz_path))
+        dataset = extractor.extract()
+
+        assert len(dataset) == 5
+        assert "cve_id" in dataset.columns
+
+
+def test_nvd_extractor_reads_jsonl(nvd_sample_path: Path) -> None:
+    """NVDExtractor reads .jsonl (newline-delimited JSON) files."""
+    raw = nvd_sample_path.read_bytes()
+    data = json.loads(raw)
+    vulns = data["vulnerabilities"]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        jsonl_path = Path(tmpdir) / "nvd_sample.jsonl"
+        lines = [json.dumps(v) for v in vulns]
+        jsonl_path.write_text("\n".join(lines), encoding="utf-8")
+
+        extractor = NVDExtractor(str(jsonl_path))
+        dataset = extractor.extract()
+
+        assert len(dataset) == 5
+        assert "cve_id" in dataset.columns
+
+
+def test_nvd_extractor_corrupt_gzip_raises() -> None:
+    """NVDExtractor raises ExtractorError on corrupt .gz file."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        corrupt_path = Path(tmpdir) / "corrupt.json.gz"
+        # Write gzip magic bytes followed by garbage
+        corrupt_path.write_bytes(b"\x1f\x8b" + b"\x00" * 20)
+
+        extractor = NVDExtractor(str(corrupt_path))
+        with pytest.raises(ExtractorError, match="Failed to decompress"):
+            extractor.extract()
+
+
+# URL download path tests
+
+
+def test_nvd_extractor_url_path(nvd_sample_path: Path) -> None:
+    """NVDExtractor uses HttpFetcher for URL paths."""
+    from unittest.mock import patch
+
+    raw = nvd_sample_path.read_bytes()
+
+    with patch("vulnflow.extractors.nvd.is_url", return_value=True):
+        with patch("vulnflow.extractors.nvd.HttpFetcher") as MockFetcher:
+            instance = MockFetcher.return_value
+            instance.fetch_sync.return_value = (raw, "json")
+
+            extractor = NVDExtractor("https://example.com/nvd.json")
+            dataset = extractor.extract()
+
+            instance.fetch_sync.assert_called_once()
+            assert len(dataset) == 5
+
+
+# Parquet multi-file upsert tests
+
+
+def test_parquet_extractor_multi_file_upsert(tmp_path: Path) -> None:
+    """ParquetExtractor deduplicates overlapping CVE IDs across files (later wins)."""
+    import numpy as np
+
+    ds1 = VulnDataset()
+    ds1._data = {
+        "cve_id": np.array(["CVE-2024-0001", "CVE-2024-0002"], dtype=object),
+        "description": np.array(["old-1", "old-2"], dtype=object),
+    }
+    ds1.to_parquet(tmp_path / "file1.parquet")
+
+    ds2 = VulnDataset()
+    ds2._data = {
+        "cve_id": np.array(["CVE-2024-0002", "CVE-2024-0003"], dtype=object),
+        "description": np.array(["new-2", "new-3"], dtype=object),
+    }
+    ds2.to_parquet(tmp_path / "file2.parquet")
+
+    extractor = ParquetExtractor([
+        str(tmp_path / "file1.parquet"),
+        str(tmp_path / "file2.parquet"),
+    ])
+    merged = extractor.extract()
+
+    assert len(merged) == 3
+    cve_ids = list(merged.get_column("cve_id"))
+    descriptions = list(merged.get_column("description"))
+
+    # CVE-2024-0002 should have the value from file2 (later wins)
+    idx = cve_ids.index("CVE-2024-0002")
+    assert descriptions[idx] == "new-2"
+
+
+# Malformed input tests
+
+
+@pytest.mark.parametrize(
+    "content,suffix,error_type",
+    [
+        pytest.param(
+            b"not valid json {{{",
+            ".json",
+            Exception,
+            id="invalid_json",
+        ),
+        pytest.param(
+            b"",
+            ".json",
+            Exception,
+            id="empty_file",
+        ),
+        pytest.param(
+            json.dumps({"format": "NVD_CVE", "version": "2.0"}).encode(),
+            ".json",
+            None,  # No error — returns empty dataset with warning
+            id="json_no_vulnerabilities_key",
+        ),
+    ],
+)
+def test_nvd_extractor_malformed_input(
+    content: bytes, suffix: str, error_type: type | None
+) -> None:
+    """NVDExtractor handles malformed inputs gracefully."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / f"malformed{suffix}"
+        path.write_bytes(content)
+
+        extractor = NVDExtractor(str(path))
+        if error_type is not None:
+            with pytest.raises(error_type):
+                extractor.extract()
+        else:
+            dataset = extractor.extract()
+            assert len(dataset) == 0
