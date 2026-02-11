@@ -27,10 +27,13 @@ from vulnflow.transforms.base import (
 )
 from vulnflow.transforms.flatten import (
     BaseFlatten,
+    CAPECFlattenTransform,
     CPEFlattenTransform,
     CVSSFlattenTransform,
     CWEFlattenTransform,
     EPSSFlattenTransform,
+    KEVFlattenTransform,
+    STRIDEFlattenTransform,
 )
 
 __all__ = [
@@ -42,8 +45,11 @@ __all__ = [
     "Enricher",
     "Transform",
     "Inference",
-    "CVSSFlattenTransform",
-    "EPSSFlattenTransform",
+    "CAPECFlattenTransform",
     "CPEFlattenTransform",
+    "CVSSFlattenTransform",
     "CWEFlattenTransform",
+    "EPSSFlattenTransform",
+    "KEVFlattenTransform",
+    "STRIDEFlattenTransform",
 ]
