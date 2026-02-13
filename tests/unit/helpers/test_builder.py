@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -215,7 +217,9 @@ class TestCacheBuilderBuild:
         from vulnflow.helpers.builder import CacheBuilder
         from vulnflow.transforms.enrichers import epss as epss_mod
 
-        monkeypatch.setattr(epss_mod, "DEFAULT_EPSS_URL", "tests/fixtures/epss_sample.csv")
+        monkeypatch.setattr(
+            epss_mod, "DEFAULT_EPSS_URL", "tests/fixtures/epss_sample.csv"
+        )
 
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
@@ -284,9 +288,7 @@ class TestCacheBuilderBuild:
         from vulnflow.helpers.builder import CacheBuilder
         from vulnflow.transforms.enrichers import cwe as cwe_mod
 
-        monkeypatch.setattr(
-            cwe_mod, "DEFAULT_CWE_URL", "tests/fixtures/cwe_sample.xml"
-        )
+        monkeypatch.setattr(cwe_mod, "DEFAULT_CWE_URL", "tests/fixtures/cwe_sample.xml")
 
         builder = CacheBuilder(years=[2024])
         builder._urls = [str(nvd_sample_path)]
@@ -460,7 +462,12 @@ class TestCacheBuilderEnsure:
 
         # Write a parquet file without date_min/date_max in provenance
         table = pa.table({"cve_id": ["CVE-2024-0001"]})
-        prov = {"extractors": ["test"], "transforms": [], "created_at": "2026-01-01T00:00:00+00:00", "updated_at": "2026-01-01T00:00:00+00:00"}
+        prov = {
+            "extractors": ["test"],
+            "transforms": [],
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+        }
         prov_bytes = vjson.dumps(prov).encode("utf-8")
         table = table.replace_schema_metadata({b"vulnflow:provenance": prov_bytes})
         path = tmp_path / "old.parquet"
@@ -471,3 +478,357 @@ class TestCacheBuilderEnsure:
         # through requires date_max; missing means rebuild
         ds = builder.ensure(path, through="2026-12-31")
         assert len(ds) == 5
+
+
+class TestBuildTransforms:
+    """Test _build_transforms() returns correct transform types."""
+
+    def test_default_returns_expected_transforms(self):
+        """Default args return enrichers + flatten transforms for all 5 defaults."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        transforms = CacheBuilder._build_transforms()
+        names = [t.name for t in transforms]
+        # Enrichers
+        assert "EPSSEnricher" in names
+        assert "KEVEnricher" in names
+        assert "CWEEnricher" in names
+        # Flatten companions
+        assert "CVSSFlattenTransform" in names
+        assert "EPSSFlattenTransform" in names
+        assert "KEVFlattenTransform" in names
+        assert "CPEFlattenTransform" in names
+        assert "CWEFlattenTransform" in names
+        # Should be exactly 8 transforms (3 enrichers + 5 flattens)
+        assert len(transforms) == 8
+
+    def test_all_false_returns_empty(self):
+        from vulnflow.helpers.builder import CacheBuilder
+
+        transforms = CacheBuilder._build_transforms(
+            cvss=False, epss=False, kev=False, cpe=False, cwe=False
+        )
+        assert transforms == []
+
+    def test_events_auto_enables_kev(self):
+        """events=True should auto-enable KEV (dependency)."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        transforms = CacheBuilder._build_transforms(
+            cvss=False,
+            epss=False,
+            kev=False,
+            cpe=False,
+            cwe=False,
+            events=True,
+        )
+        names = [t.name for t in transforms]
+        assert "KEVEnricher" in names
+        assert "KEVFlattenTransform" in names
+        assert "EventInference" in names
+        # KEV must come before EventInference (dependency ordering)
+        kev_idx = names.index("KEVEnricher")
+        event_idx = names.index("EventInference")
+        assert kev_idx < event_idx
+
+    def test_events_with_kev_already_true_no_duplicates(self):
+        """events=True + kev=True should not create duplicate KEV transforms."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        transforms = CacheBuilder._build_transforms(
+            cvss=False,
+            epss=False,
+            kev=True,
+            cpe=False,
+            cwe=False,
+            events=True,
+        )
+        names = [t.name for t in transforms]
+        assert names.count("KEVEnricher") == 1
+        assert names.count("KEVFlattenTransform") == 1
+
+    def test_cvd_state_auto_enables_events_and_kev(self):
+        """cvd_state=True should auto-enable events and kev."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        transforms = CacheBuilder._build_transforms(
+            cvss=False,
+            epss=False,
+            kev=False,
+            cpe=False,
+            cwe=False,
+            cvd_state=True,
+        )
+        names = [t.name for t in transforms]
+        assert "KEVEnricher" in names
+        assert "KEVFlattenTransform" in names
+        assert "EventInference" in names
+        assert "CVDStateTransform" in names
+        # Ordering: KEV < EventInference < CVDStateTransform
+        assert names.index("KEVEnricher") < names.index("EventInference")
+        assert names.index("EventInference") < names.index("CVDStateTransform")
+
+    def test_tags_no_auto_enable(self):
+        """tags=True doesn't auto-enable anything extra (deps are all defaults)."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        transforms = CacheBuilder._build_transforms(tags=True)
+        names = [t.name for t in transforms]
+        assert "TagInference" in names
+
+    def test_nvd_history(self):
+        from vulnflow.helpers.builder import CacheBuilder
+
+        transforms = CacheBuilder._build_transforms(
+            cvss=False,
+            epss=False,
+            kev=False,
+            cpe=False,
+            cwe=False,
+            nvd_history=True,
+        )
+        names = [t.name for t in transforms]
+        assert len(transforms) == 1
+        assert names == ["NVDHistoryEnricher"]
+
+    def test_exploit(self):
+        from vulnflow.helpers.builder import CacheBuilder
+
+        transforms = CacheBuilder._build_transforms(
+            cvss=False,
+            epss=False,
+            kev=False,
+            cpe=False,
+            cwe=False,
+            exploit=True,
+        )
+        names = [t.name for t in transforms]
+        assert len(transforms) == 1
+        assert names == ["ExploitDBEnricher"]
+
+    def test_capec_auto_enables_cwe(self):
+        """capec=True with cwe=False auto-enables CWEEnricher."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        transforms = CacheBuilder._build_transforms(
+            cvss=False,
+            epss=False,
+            kev=False,
+            cpe=False,
+            cwe=False,
+            capec=True,
+        )
+        names = [t.name for t in transforms]
+        assert "CWEEnricher" in names
+        assert "CAPECEnricher" in names
+        assert "CAPECFlattenTransform" in names
+
+    def test_stride_auto_enables_capec_and_cwe(self):
+        """stride=True with capec=False and cwe=False enables entire chain."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        transforms = CacheBuilder._build_transforms(
+            cvss=False,
+            epss=False,
+            kev=False,
+            cpe=False,
+            cwe=False,
+            stride=True,
+        )
+        names = [t.name for t in transforms]
+        assert "CWEEnricher" in names
+        assert "CAPECEnricher" in names
+        assert "CAPECFlattenTransform" in names
+        assert "STRIDEInference" in names
+        assert "STRIDEFlattenTransform" in names
+
+    def test_stride_with_capec_no_duplicate_capec(self):
+        """stride=True + capec=True should not duplicate CAPEC transforms."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        transforms = CacheBuilder._build_transforms(
+            cvss=False,
+            epss=False,
+            kev=False,
+            cpe=False,
+            cwe=False,
+            capec=True,
+            stride=True,
+        )
+        names = [t.name for t in transforms]
+        assert names.count("CAPECEnricher") == 1
+        assert names.count("CAPECFlattenTransform") == 1
+
+
+class TestQuery:
+    """Test CacheBuilder.query() classmethod."""
+
+    def test_query_creates_nvd_api_extractor(self, monkeypatch):
+        """query() uses NVDAPIExtractor and returns the pipeline dataset."""
+        import vulnflow.extractors.nvd_api as nvd_api_mod
+        import vulnflow.pipeline as pipeline_mod
+        from vulnflow.helpers.builder import CacheBuilder
+
+        mock_dataset = MagicMock()
+        mock_dataset.__len__ = MagicMock(return_value=5)
+
+        mock_result = MagicMock()
+        mock_result.dataset = mock_dataset
+
+        mock_pipeline_inst = MagicMock()
+        mock_pipeline_inst.run.return_value = mock_result
+
+        monkeypatch.setattr(
+            nvd_api_mod, "NVDAPIExtractor", MagicMock(return_value=MagicMock())
+        )
+        monkeypatch.setattr(
+            pipeline_mod, "VulnPipeline", MagicMock(return_value=mock_pipeline_inst)
+        )
+
+        ds = CacheBuilder.query(
+            cve_id="CVE-2024-3094",
+            quiet=True,
+            cvss=False,
+            epss=False,
+            kev=False,
+            cpe=False,
+            cwe=False,
+        )
+
+        # Verify NVDAPIExtractor was called with correct params
+        nvd_api_mod.NVDAPIExtractor.assert_called_once()
+        call_kwargs = nvd_api_mod.NVDAPIExtractor.call_args[1]
+        assert call_kwargs["cve_id"] == "CVE-2024-3094"
+        # Verify pipeline.run() was called and result returned
+        mock_pipeline_inst.run.assert_called_once()
+        assert ds is mock_dataset
+
+    def test_query_maps_params_correctly(self, monkeypatch):
+        """query() maps pub_start->pub_start_date, cvss_severity->cvss_v3_severity."""
+        import vulnflow.extractors.nvd_api as nvd_api_mod
+        import vulnflow.pipeline as pipeline_mod
+        from vulnflow.helpers.builder import CacheBuilder
+
+        mock_dataset = MagicMock()
+        mock_dataset.__len__ = MagicMock(return_value=1)
+        mock_result = MagicMock()
+        mock_result.dataset = mock_dataset
+        mock_pipeline = MagicMock()
+        mock_pipeline.run.return_value = mock_result
+
+        monkeypatch.setattr(
+            nvd_api_mod, "NVDAPIExtractor", MagicMock(return_value=MagicMock())
+        )
+        monkeypatch.setattr(
+            pipeline_mod, "VulnPipeline", MagicMock(return_value=mock_pipeline)
+        )
+
+        CacheBuilder.query(
+            pub_start="2024-01-01",
+            pub_end="2024-06-30",
+            cvss_severity="HIGH",
+            quiet=True,
+            cvss=False,
+            epss=False,
+            kev=False,
+            cpe=False,
+            cwe=False,
+        )
+
+        call_kwargs = nvd_api_mod.NVDAPIExtractor.call_args[1]
+        assert call_kwargs["pub_start_date"] == "2024-01-01"
+        assert call_kwargs["pub_end_date"] == "2024-06-30"
+        assert call_kwargs["cvss_v3_severity"] == "HIGH"
+
+    def test_query_exploit_flag(self, monkeypatch):
+        """query(exploit=True) includes ExploitDBEnricher in transforms."""
+        import vulnflow.extractors.nvd_api as nvd_api_mod
+        import vulnflow.pipeline as pipeline_mod
+        from vulnflow.helpers.builder import CacheBuilder
+
+        mock_dataset = MagicMock()
+        mock_dataset.__len__ = MagicMock(return_value=1)
+        mock_result = MagicMock()
+        mock_result.dataset = mock_dataset
+        mock_pipeline = MagicMock()
+        mock_pipeline.run.return_value = mock_result
+
+        captured_transformers: list[Any] = []
+
+        def capture_pipeline(*args: Any, **kwargs: Any) -> MagicMock:
+            captured_transformers.extend(kwargs.get("transformers", []))
+            return mock_pipeline
+
+        monkeypatch.setattr(
+            nvd_api_mod, "NVDAPIExtractor", MagicMock(return_value=MagicMock())
+        )
+        monkeypatch.setattr(pipeline_mod, "VulnPipeline", capture_pipeline)
+
+        CacheBuilder.query(
+            keyword="test",
+            exploit=True,
+            quiet=True,
+            cvss=False,
+            epss=False,
+            kev=False,
+            cpe=False,
+            cwe=False,
+        )
+
+        names = [t.name for t in captured_transformers]
+        assert "ExploitDBEnricher" in names
+
+    def test_query_raises_on_none_dataset(self, monkeypatch):
+        """query() raises RuntimeError when API returns no results."""
+        import vulnflow.extractors.nvd_api as nvd_api_mod
+        import vulnflow.pipeline as pipeline_mod
+        from vulnflow.helpers.builder import CacheBuilder
+
+        mock_result = MagicMock()
+        mock_result.dataset = None
+        mock_pipeline = MagicMock()
+        mock_pipeline.run.return_value = mock_result
+
+        monkeypatch.setattr(
+            nvd_api_mod, "NVDAPIExtractor", MagicMock(return_value=MagicMock())
+        )
+        monkeypatch.setattr(
+            pipeline_mod, "VulnPipeline", MagicMock(return_value=mock_pipeline)
+        )
+
+        with pytest.raises(RuntimeError, match="no results"):
+            CacheBuilder.query(
+                keyword="nonexistent",
+                quiet=True,
+                cvss=False,
+                epss=False,
+                kev=False,
+                cpe=False,
+                cwe=False,
+            )
+
+
+class TestEnsureRecent:
+    """Test ensure() recent=True delta merge path."""
+
+    def test_ensure_recent_applies_delta(
+        self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
+    ) -> None:
+        """ensure(recent=True) on fresh cache does delta merge, not full rebuild."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024])
+        monkeypatch.setattr(builder, "_urls", [str(nvd_sample_path)])
+        path = tmp_path / "cache.parquet"
+
+        # First build creates cache
+        ds_initial = builder.ensure(path)
+        assert path.exists()
+        initial_count = len(ds_initial)
+
+        # Recent should do delta merge (create temp delta file, merge, cleanup)
+        ds = builder.ensure(path, recent=True)
+        assert len(ds) >= initial_count
+        # Verify delta file was cleaned up
+        delta_path = path.parent / f".{path.stem}_delta.parquet"
+        assert not delta_path.exists()
