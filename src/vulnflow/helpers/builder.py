@@ -173,6 +173,121 @@ class CacheBuilder:
 
         return urls
 
+    @staticmethod
+    def _build_transforms(
+        *,
+        cvss: bool = True,
+        epss: bool = True,
+        kev: bool = True,
+        cpe: bool = True,
+        cwe: bool = True,
+        capec: bool = False,
+        stride: bool = False,
+        events: bool = False,
+        cvd_state: bool = False,
+        tags: bool = False,
+        nvd_history: bool = False,
+        exploit: bool = False,
+    ) -> list[BaseTransform]:
+        """Assemble transform list from feature flags.
+
+        Auto-wiring rules:
+        - cvd_state=True → auto-enables events
+        - events=True → auto-enables kev (KEVFlattenTransform dependency)
+        - stride=True → auto-enables capec chain
+        - capec=True → auto-enables cwe enricher
+        """
+        # Auto-wiring
+        if cvd_state:
+            events = True
+        if events:
+            kev = True
+
+        transformers: list[BaseTransform] = []
+
+        if cvss:
+            from vulnflow.transforms.flatten import CVSSFlattenTransform
+
+            transformers.append(CVSSFlattenTransform())
+
+        if epss:
+            from vulnflow.transforms.enrichers.epss import EPSSEnricher
+            from vulnflow.transforms.flatten import EPSSFlattenTransform
+
+            transformers.extend([EPSSEnricher(), EPSSFlattenTransform()])
+
+        if kev:
+            from vulnflow.transforms.enrichers.kev import KEVEnricher
+            from vulnflow.transforms.flatten import KEVFlattenTransform
+
+            transformers.extend([KEVEnricher(), KEVFlattenTransform()])
+
+        if cpe:
+            from vulnflow.transforms.flatten import CPEFlattenTransform
+
+            transformers.append(CPEFlattenTransform())
+
+        if cwe:
+            from vulnflow.transforms.enrichers.cwe import CWEEnricher
+            from vulnflow.transforms.flatten import CWEFlattenTransform
+
+            transformers.extend([CWEEnricher(), CWEFlattenTransform()])
+
+        if capec:
+            from vulnflow.transforms.enrichers.capec import CAPECEnricher
+            from vulnflow.transforms.flatten import CAPECFlattenTransform
+
+            if not cwe:
+                from vulnflow.transforms.enrichers.cwe import CWEEnricher
+
+                transformers.append(CWEEnricher())
+
+            transformers.extend([CAPECEnricher(), CAPECFlattenTransform()])
+
+        if stride:
+            from vulnflow.transforms.flatten.stride import STRIDEFlattenTransform
+            from vulnflow.transforms.inferences.stride import STRIDEInference
+
+            if not capec:
+                from vulnflow.transforms.enrichers.capec import CAPECEnricher
+                from vulnflow.transforms.flatten import CAPECFlattenTransform
+
+                if not cwe:
+                    from vulnflow.transforms.enrichers.cwe import CWEEnricher
+
+                    transformers.append(CWEEnricher())
+
+                transformers.extend([CAPECEnricher(), CAPECFlattenTransform()])
+
+            transformers.extend([STRIDEInference(), STRIDEFlattenTransform()])
+
+        if events:
+            from vulnflow.transforms.inferences.events import EventInference
+
+            transformers.append(EventInference())
+
+        if cvd_state:
+            from vulnflow.transforms.computed.cvd_state import CVDStateTransform
+
+            transformers.append(CVDStateTransform())
+
+        if tags:
+            from vulnflow.transforms.inferences.tags import TagInference
+
+            transformers.append(TagInference())
+
+        if nvd_history:
+            from vulnflow.transforms.enrichers.nvd_history import NVDHistoryEnricher
+
+            transformers.append(NVDHistoryEnricher())
+
+        if exploit:
+            from vulnflow.transforms.enrichers.exploit import ExploitDBEnricher
+
+            transformers.append(ExploitDBEnricher())
+
+        return transformers
+
     def build(
         self,
         timeout: float = 120.0,
@@ -183,6 +298,10 @@ class CacheBuilder:
         cwe: bool = True,
         capec: bool = False,
         stride: bool = False,
+        events: bool = False,
+        cvd_state: bool = False,
+        tags: bool = False,
+        nvd_history: bool = False,
     ) -> VulnDataset:
         """Build vulnerability dataset with concurrent extraction.
 
@@ -199,6 +318,11 @@ class CacheBuilder:
             cwe: Enrich with CWE weakness names and categories (default: True).
             capec: Enrich with CAPEC attack patterns (default: False).
             stride: Infer STRIDE threat categories (default: False).
+            events: Infer CVD timeline event timestamps (default: False).
+            cvd_state: Compute CVD state analytics (default: False).
+                Auto-enables events.
+            tags: Infer vulnerability tags (default: False).
+            nvd_history: Enrich with NVD change history (default: False).
 
         Returns:
             Merged VulnDataset with all extracted records.
@@ -212,7 +336,6 @@ class CacheBuilder:
             len(self._urls),
         )
 
-        # Suppress progress output when quiet mode is enabled
         old_tqdm_disable = os.environ.get("TQDM_DISABLE")
         suppress_token = None
         if self._quiet:
@@ -223,65 +346,19 @@ class CacheBuilder:
             extractors: list[BaseExtractor] = [
                 NVDExtractor(url, timeout=timeout) for url in self._urls
             ]
-            transformers: list[BaseTransform] = []
-
-            if cvss:
-                from vulnflow.transforms.flatten import CVSSFlattenTransform
-
-                transformers.append(CVSSFlattenTransform())
-
-            if epss:
-                from vulnflow.transforms.enrichers.epss import EPSSEnricher
-                from vulnflow.transforms.flatten import EPSSFlattenTransform
-
-                transformers.extend([EPSSEnricher(), EPSSFlattenTransform()])
-
-            if kev:
-                from vulnflow.transforms.enrichers.kev import KEVEnricher
-                from vulnflow.transforms.flatten import KEVFlattenTransform
-
-                transformers.extend([KEVEnricher(), KEVFlattenTransform()])
-
-            if cpe:
-                from vulnflow.transforms.flatten import CPEFlattenTransform
-
-                transformers.append(CPEFlattenTransform())
-
-            if cwe:
-                from vulnflow.transforms.enrichers.cwe import CWEEnricher
-                from vulnflow.transforms.flatten import CWEFlattenTransform
-
-                transformers.extend([CWEEnricher(), CWEFlattenTransform()])
-
-            if capec:
-                from vulnflow.transforms.enrichers.capec import CAPECEnricher
-                from vulnflow.transforms.flatten import CAPECFlattenTransform
-
-                # Auto-enable CWE enricher if not already included
-                if not cwe:
-                    from vulnflow.transforms.enrichers.cwe import CWEEnricher
-
-                    transformers.append(CWEEnricher())
-
-                transformers.extend([CAPECEnricher(), CAPECFlattenTransform()])
-
-            if stride:
-                from vulnflow.transforms.flatten.stride import STRIDEFlattenTransform
-                from vulnflow.transforms.inferences.stride import STRIDEInference
-
-                # Auto-enable CAPEC chain if not already included
-                if not capec:
-                    from vulnflow.transforms.enrichers.capec import CAPECEnricher
-                    from vulnflow.transforms.flatten import CAPECFlattenTransform
-
-                    if not cwe:
-                        from vulnflow.transforms.enrichers.cwe import CWEEnricher
-
-                        transformers.append(CWEEnricher())
-
-                    transformers.extend([CAPECEnricher(), CAPECFlattenTransform()])
-
-                transformers.extend([STRIDEInference(), STRIDEFlattenTransform()])
+            transformers = self._build_transforms(
+                cvss=cvss,
+                epss=epss,
+                kev=kev,
+                cpe=cpe,
+                cwe=cwe,
+                capec=capec,
+                stride=stride,
+                events=events,
+                cvd_state=cvd_state,
+                tags=tags,
+                nvd_history=nvd_history,
+            )
 
             pipeline = VulnPipeline(
                 extractors=extractors,
@@ -304,8 +381,93 @@ class CacheBuilder:
             return dataset
 
         finally:
-            # Restore progress suppression state
             if self._quiet:
+                if suppress_token is not None:
+                    _suppress_progress.reset(suppress_token)
+                if old_tqdm_disable is None:
+                    os.environ.pop("TQDM_DISABLE", None)
+                else:
+                    os.environ["TQDM_DISABLE"] = old_tqdm_disable
+
+    @classmethod
+    def query(
+        cls,
+        *,
+        cve_id: str | None = None,
+        keyword: str | None = None,
+        pub_start: str | None = None,
+        pub_end: str | None = None,
+        cvss_severity: str | None = None,
+        has_kev: bool = False,
+        no_rejected: bool = True,
+        exploit: bool = False,
+        quiet: bool = False,
+        timeout: float = 120.0,
+        **build_kwargs: Any,
+    ) -> VulnDataset:
+        """Query NVD API directly and return enriched dataset.
+
+        Uses NVDAPIExtractor for targeted queries instead of bulk feeds.
+
+        Args:
+            cve_id: Specific CVE ID to fetch.
+            keyword: Keyword search string.
+            pub_start: Published date range start (ISO 8601).
+            pub_end: Published date range end (ISO 8601).
+            cvss_severity: CVSS v3 severity filter (LOW/MEDIUM/HIGH/CRITICAL).
+            has_kev: Filter to CVEs in CISA KEV catalog.
+            no_rejected: Exclude rejected CVEs (default: True).
+            exploit: Enrich with ExploitDB data (default: False).
+            quiet: Suppress progress output.
+            timeout: HTTP timeout in seconds.
+            **build_kwargs: Transform flags (cvss, epss, kev, cpe, cwe, etc.)
+
+        Returns:
+            Enriched VulnDataset from API results.
+        """
+        from vulnflow.extractors.nvd_api import NVDAPIExtractor
+        from vulnflow.pipeline import VulnPipeline
+        from vulnflow.utils.progress import _suppress_progress
+
+        old_tqdm_disable = os.environ.get("TQDM_DISABLE")
+        suppress_token = None
+        if quiet:
+            os.environ["TQDM_DISABLE"] = "1"
+            suppress_token = _suppress_progress.set(True)
+
+        try:
+            extractor = NVDAPIExtractor(
+                cve_id=cve_id,
+                keyword=keyword,
+                pub_start_date=pub_start,
+                pub_end_date=pub_end,
+                cvss_v3_severity=cvss_severity,
+                has_kev=has_kev,
+                no_rejected=no_rejected,
+                timeout=timeout,
+            )
+
+            transformers = cls._build_transforms(exploit=exploit, **build_kwargs)
+
+            pipeline = VulnPipeline(
+                extractors=[extractor],
+                transformers=transformers,
+            )
+
+            result = pipeline.run(
+                quiet=quiet,
+                extract_desc="Querying NVD API",
+                transform_desc="Enriching & transforming",
+            )
+            dataset = result.dataset
+
+            if dataset is None:
+                raise RuntimeError("NVD API query returned no results")
+
+            return dataset
+
+        finally:
+            if quiet:
                 if suppress_token is not None:
                     _suppress_progress.reset(suppress_token)
                 if old_tqdm_disable is None:
@@ -370,7 +532,9 @@ class CacheBuilder:
         if not needs_rebuild and through is not None:
             date_max = prov.get("date_max") if prov else None
             if date_max is None:
-                logger.info("Cache missing date_max, rebuilding for through=%s", through)
+                logger.info(
+                    "Cache missing date_max, rebuilding for through=%s", through
+                )
                 needs_rebuild = True
             elif date_max < through:
                 logger.info(
@@ -383,7 +547,21 @@ class CacheBuilder:
             logger.info("Cache fresh, loading: %s", path)
             return VulnDataset.from_parquet(str(path))
 
-        # 5. Rebuild: full build, save, return
+        # 5. Recent delta merge (cache exists but needs update)
+        if recent and not needs_rebuild:
+            logger.info("Applying recent delta to cache: %s", path)
+            delta_builder = CacheBuilder(modified_only=True, quiet=self._quiet)
+            delta = delta_builder.build(timeout=timeout, **build_kwargs)
+            delta_path = path.parent / f".{path.stem}_delta.parquet"
+            try:
+                ParquetLoader(delta_path).load(delta)
+                ds = VulnDataset.from_parquet([str(path), str(delta_path)])
+            finally:
+                delta_path.unlink(missing_ok=True)
+            ParquetLoader(path).load(ds)
+            return ds
+
+        # 6. Full rebuild
         logger.info("Rebuilding cache: %s", path)
         ds = self.build(timeout=timeout, **build_kwargs)
         ParquetLoader(path).load(ds)

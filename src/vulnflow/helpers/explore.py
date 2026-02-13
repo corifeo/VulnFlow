@@ -2,8 +2,10 @@
 
 All functions return JSON-serializable dicts/lists.
 
-Public API (10): load, data_info, describe, summary, severity, trend,
-nested, search, lookup, status_distribution.
+Public API (19): load, data_info, describe, summary, severity, trend,
+nested, search, lookup, status_distribution,
+describe_severity, describe_nested, describe_yearly, describe_monthly,
+risk_priority, exploitation, attack_surface, vendor_risk, weakness_profile.
 """
 
 from __future__ import annotations
@@ -26,6 +28,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_PATH = Path("data/complete_library.parquet")
+
+__all__ = [
+    "load",
+    "data_info",
+    "describe",
+    "summary",
+    "severity",
+    "trend",
+    "nested",
+    "search",
+    "lookup",
+    "status_distribution",
+    "describe_severity",
+    "describe_nested",
+    "describe_yearly",
+    "describe_monthly",
+    "risk_priority",
+    "exploitation",
+    "attack_surface",
+    "vendor_risk",
+    "weakness_profile",
+]
 
 _AV_ALIASES: dict[str, str] = {
     "NETWORK": "N",
@@ -121,6 +145,32 @@ def _find_column(ds_or_cols: Any, *names: str) -> str | None:
         if name in cols:
             return name
     return None
+
+
+def _get_column_or_none(ds: VulnDataset, name: str) -> np.ndarray | None:
+    """Get column from dataset, returning None if missing."""
+    result: np.ndarray | None = ds.get_column_or_none(name)
+    return result
+
+
+def _get_float_column(
+    ds: VulnDataset, name: str, mask: np.ndarray
+) -> np.ndarray | None:
+    """Get a column as float64, coercing object arrays. Returns None if missing."""
+    col = ds.get_column_or_none(name)
+    if col is None:
+        return None
+    filtered = col[mask]
+    result: np.ndarray
+    if filtered.dtype == object:
+        import pandas as pd_module
+
+        result = pd_module.to_numeric(
+            pd_module.Series(filtered), errors="coerce"
+        ).to_numpy()
+    else:
+        result = filtered.astype(np.float64)
+    return result
 
 
 def _parse_json_cell(cell: Any) -> Any:
@@ -298,6 +348,11 @@ def _load_by_extension(path: Path) -> VulnDataset:
         return VulnDataset.from_json(path)
     msg = f"Unsupported file extension: {ext} (expected .parquet or .json)"
     raise ValueError(msg)
+
+
+# ============================================================================
+# Public API: Core functions
+# ============================================================================
 
 
 @_supports_fmt
@@ -574,6 +629,12 @@ def search(
     keyword: str | None = None,
     cwe: str | None = None,
     attack_vector: str | None = None,
+    is_kev: bool | None = None,
+    min_epss: float | None = None,
+    max_epss: float | None = None,
+    vendor: str | None = None,
+    product: str | None = None,
+    ransomware: bool | None = None,
     limit: int = 20,
     columns: list[str] | None = None,
 ) -> list[dict[str, Any]]:
@@ -607,6 +668,24 @@ def search(
         mask = mask & (
             df["cvss_attack_vector"] == _normalize_attack_vector(attack_vector)
         )
+    if is_kev is not None and "is_kev" in df.columns:
+        mask = mask & (df["is_kev"] == is_kev)
+    if min_epss is not None and "epss_probability" in df.columns:
+        epss_vals = pd_module.to_numeric(df["epss_probability"], errors="coerce")
+        mask = mask & (epss_vals >= min_epss)
+    if max_epss is not None and "epss_probability" in df.columns:
+        epss_vals = pd_module.to_numeric(df["epss_probability"], errors="coerce")
+        mask = mask & (epss_vals <= max_epss)
+    if vendor is not None:
+        vendor_col = _find_column(df, "cpe_vendor", "primary_vendor")
+        if vendor_col is not None:
+            mask = mask & (df[vendor_col].str.lower() == vendor.lower())
+    if product is not None:
+        product_col = _find_column(df, "cpe_product", "primary_product")
+        if product_col is not None:
+            mask = mask & (df[product_col].str.lower() == product.lower())
+    if ransomware is not None and "kev_ransomware" in df.columns:
+        mask = mask & (df["kev_ransomware"] == ransomware)
 
     if columns is None:
         preferred = [
@@ -617,6 +696,10 @@ def search(
             "nvd_status",
             "nvd_published_at",
         ]
+        # Add enriched columns when present
+        for extra in ["epss_probability", "is_kev"]:
+            if extra in df.columns:
+                preferred.append(extra)
         for col_name in [
             _find_column(ds, "primary_cwe_id", "cwe_id"),
             _find_column(ds, "primary_vendor", "cpe_vendor"),
@@ -658,3 +741,589 @@ def lookup(ds: VulnDataset, cve_id: str) -> dict[str, Any] | None:
 def status_distribution(ds: VulnDataset) -> dict[str, int]:
     """NVD status counts."""
     return ds.get_status_distribution()
+
+
+# ============================================================================
+# Skill aliases (delegate to core functions)
+# ============================================================================
+
+
+@_supports_fmt
+def describe_severity(
+    ds: VulnDataset,
+    *,
+    attack_vector: str | None = None,
+    min_score: float | None = None,
+) -> dict[str, Any]:
+    """Alias for severity() - severity breakdown with optional filters."""
+    result: dict[str, Any] = severity(
+        ds, attack_vector=attack_vector, min_score=min_score
+    )
+    return result
+
+
+@_supports_fmt
+def describe_nested(
+    ds: VulnDataset, column: str, field: str | None = None, n: int = 10
+) -> dict[str, int]:
+    """Alias for nested() - top values from a nested JSON column."""
+    result: dict[str, int] = nested(ds, column, field, n)
+    return result
+
+
+@_supports_fmt
+def describe_yearly(ds: VulnDataset) -> dict[str, int]:
+    """Alias for trend(by='year') - yearly CVE counts."""
+    result: dict[str, int] = trend(ds, by="year")
+    return result
+
+
+@_supports_fmt
+def describe_monthly(ds: VulnDataset, *, year: int | None = None) -> dict[str, int]:
+    """Alias for trend(by='month') - monthly CVE counts."""
+    result: dict[str, int] = trend(ds, by="month", year=year)
+    return result
+
+
+# ============================================================================
+# Domain analysis functions
+# ============================================================================
+
+
+@_supports_fmt
+def risk_priority(ds: VulnDataset, *, limit: int = 20) -> dict[str, Any]:
+    """Risk prioritization: what should I patch first?
+
+    Combines CVSS severity + EPSS probability + KEV status into risk
+    quadrants with a ranked top-N urgent list.
+    """
+    mask = _analysis_mask(ds)
+    n = int(np.sum(mask))
+
+    sev_col = _get_column_or_none(ds, "cvss_base_severity")
+    score_col = _get_float_column(ds, "cvss_base_score", mask)
+    epss_col = _get_float_column(ds, "epss_probability", mask)
+    kev_col = _get_column_or_none(ds, "is_kev")
+
+    sev_arr = sev_col[mask] if sev_col is not None else None
+    kev_arr = kev_col[mask] if kev_col is not None else None
+
+    # Build boolean masks for severity and exploitation signals
+    is_high_crit = np.zeros(n, dtype=bool)
+    if sev_arr is not None:
+        valid_sev = _valid_mask(sev_arr)
+        upper = np.where(valid_sev, np.char.upper(sev_arr.astype("U20")), "")
+        is_high_crit = (upper == "HIGH") | (upper == "CRITICAL")
+
+    has_kev = np.zeros(n, dtype=bool)
+    if kev_arr is not None:
+        if kev_arr.dtype == bool:
+            has_kev = kev_arr
+        else:
+            has_kev = kev_arr == True  # noqa: E712
+
+    has_high_epss = np.zeros(n, dtype=bool)
+    epss_valid = np.zeros(n, dtype=bool)
+    epss_vals = np.zeros(n, dtype=np.float64)
+    if epss_col is not None:
+        epss_valid = ~np.isnan(epss_col)
+        epss_vals = np.where(epss_valid, epss_col, 0.0)
+        has_high_epss = epss_vals > 0.7
+
+    # Quadrants
+    actively_exploited = has_kev | has_high_epss
+    critical_exploited = is_high_crit & actively_exploited
+    critical_unlikely = is_high_crit & ~actively_exploited
+    sleeper = ~is_high_crit & (epss_vals > 0.3)
+    low_risk = ~critical_exploited & ~critical_unlikely & ~sleeper
+
+    quadrants = {
+        "critical_exploited": int(np.sum(critical_exploited)),
+        "critical_unlikely": int(np.sum(critical_unlikely)),
+        "sleeper_threats": int(np.sum(sleeper)),
+        "low_risk": int(np.sum(low_risk)),
+    }
+
+    # Risk score = cvss_score * epss * (2 if kev else 1)
+    cvss_vals = np.zeros(n, dtype=np.float64)
+    if score_col is not None:
+        score_valid = ~np.isnan(score_col)
+        cvss_vals = np.where(score_valid, score_col, 0.0)
+
+    kev_mult = np.where(has_kev, 2.0, 1.0)
+    risk_scores = cvss_vals * epss_vals * kev_mult
+
+    # Top-N urgent
+    top_indices = np.argsort(-risk_scores)[:limit]
+    cve_ids = ds.get_column("cve_id")[mask]
+    top_urgent: list[dict[str, Any]] = []
+    for idx in top_indices:
+        if risk_scores[idx] <= 0:
+            break
+        entry: dict[str, Any] = {
+            "cve_id": str(cve_ids[idx]),
+            "risk_score": round(float(risk_scores[idx]), 4),
+        }
+        if score_col is not None:
+            entry["cvss_score"] = _serialize_value(score_col[idx])
+        if epss_col is not None:
+            entry["epss"] = _serialize_value(epss_col[idx])
+        entry["is_kev"] = bool(has_kev[idx])
+        top_urgent.append(entry)
+
+    # Signal coverage
+    signal_coverage = {
+        "has_cvss": int(np.sum(cvss_vals > 0)),
+        "has_epss": int(np.sum(epss_valid)),
+        "has_kev": int(np.sum(has_kev)),
+        "has_all_three": int(np.sum((cvss_vals > 0) & epss_valid & has_kev)),
+    }
+
+    return {
+        "total": n,
+        "quadrants": quadrants,
+        "top_urgent": top_urgent,
+        "signal_coverage": signal_coverage,
+    }
+
+
+@_supports_fmt
+def exploitation(ds: VulnDataset) -> dict[str, Any]:
+    """Exploitation intelligence: what's being exploited?
+
+    Three sections: KEV stats, EPSS distribution, overlap analysis.
+    """
+    mask = _analysis_mask(ds)
+    n = int(np.sum(mask))
+    result: dict[str, Any] = {"total": n}
+
+    # KEV section
+    kev_col = _get_column_or_none(ds, "is_kev")
+    kev_section: dict[str, Any] = {"total": 0}
+    has_kev = np.zeros(n, dtype=bool)
+
+    if kev_col is not None:
+        kev_arr = kev_col[mask]
+        if kev_arr.dtype == bool:
+            has_kev = kev_arr
+        else:
+            has_kev = kev_arr == True  # noqa: E712
+        kev_section["total"] = int(np.sum(has_kev))
+
+        # Ransomware count
+        ransomware_col = _get_column_or_none(ds, "kev_ransomware")
+        if ransomware_col is not None:
+            rw_arr = ransomware_col[mask]
+            if rw_arr.dtype == bool:
+                kev_section["ransomware"] = int(np.sum(rw_arr & has_kev))
+            else:
+                rw_mask = (rw_arr == True) | (rw_arr == "Known")  # noqa: E712
+                kev_section["ransomware"] = int(np.sum(rw_mask & has_kev))
+
+        # Top vendors
+        vendor_col = _get_column_or_none(ds, "kev_vendor")
+        if vendor_col is not None:
+            kev_vendors = vendor_col[mask][has_kev]
+            vm = _valid_mask(kev_vendors)
+            if np.sum(vm) > 0:
+                kev_section["top_vendors"] = _value_counts(kev_vendors[vm], 10)
+
+        # Recent additions (30d, 90d) and overdue
+        _add_kev_date_stats(ds, mask, has_kev, kev_section)
+
+    result["kev"] = kev_section
+
+    # EPSS section
+    epss_col = _get_float_column(ds, "epss_probability", mask)
+    epss_section: dict[str, Any] = {}
+    has_high_epss = np.zeros(n, dtype=bool)
+
+    if epss_col is not None:
+        epss_valid = ~np.isnan(epss_col)
+        valid_epss = epss_col[epss_valid]
+        has_high_epss = epss_valid & (epss_col > 0.5)
+
+        epss_section["high"] = int(np.sum(epss_col[epss_valid] > 0.5))
+        epss_section["very_high"] = int(np.sum(epss_col[epss_valid] > 0.9))
+        if len(valid_epss) > 0:
+            epss_section["percentiles"] = {
+                "p50": round(float(np.percentile(valid_epss, 50)), 4),
+                "p90": round(float(np.percentile(valid_epss, 90)), 4),
+                "p99": round(float(np.percentile(valid_epss, 99)), 4),
+            }
+
+    result["epss"] = epss_section
+
+    # Overlap section
+    overlap: dict[str, int] = {}
+    overlap["kev_and_high_epss"] = int(np.sum(has_kev & has_high_epss))
+    if epss_col is not None:
+        epss_valid_mask = ~np.isnan(epss_col)
+        low_epss = epss_valid_mask & (epss_col < 0.1)
+        overlap["kev_and_low_epss"] = int(np.sum(has_kev & low_epss))
+        overlap["high_epss_not_kev"] = int(np.sum(has_high_epss & ~has_kev))
+
+    result["overlap"] = overlap
+    return result
+
+
+def _add_kev_date_stats(
+    ds: VulnDataset,
+    mask: np.ndarray,
+    has_kev: np.ndarray,
+    section: dict[str, Any],
+) -> None:
+    """Add date-based KEV stats (recent additions, overdue)."""
+    from datetime import UTC, timedelta
+
+    now = datetime.now(UTC)
+
+    date_added_col = _get_column_or_none(ds, "kev_date_added")
+    if date_added_col is not None:
+        added_arr = date_added_col[mask][has_kev]
+        recent_30d = 0
+        recent_90d = 0
+        cutoff_30 = now - timedelta(days=30)
+        cutoff_90 = now - timedelta(days=90)
+
+        for val in added_arr:
+            if val is None:
+                continue
+            try:
+                if isinstance(val, str):
+                    dt = datetime.fromisoformat(val)
+                elif isinstance(val, np.datetime64):
+                    if np.isnat(val):
+                        continue
+                    dt = val.astype("datetime64[us]").item()
+                else:
+                    dt = val
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=UTC)
+                if dt >= cutoff_30:
+                    recent_30d += 1
+                if dt >= cutoff_90:
+                    recent_90d += 1
+            except (AttributeError, TypeError, ValueError, OverflowError):
+                continue
+
+        section["recent_30d"] = recent_30d
+        section["recent_90d"] = recent_90d
+
+    due_col = _get_column_or_none(ds, "kev_due_date")
+    if due_col is not None:
+        due_arr = due_col[mask][has_kev]
+        overdue = 0
+        for val in due_arr:
+            if val is None:
+                continue
+            try:
+                if isinstance(val, str):
+                    dt = datetime.fromisoformat(val)
+                elif isinstance(val, np.datetime64):
+                    if np.isnat(val):
+                        continue
+                    dt = val.astype("datetime64[us]").item()
+                else:
+                    dt = val
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=UTC)
+                if dt < now:
+                    overdue += 1
+            except (AttributeError, TypeError, ValueError, OverflowError):
+                continue
+        section["overdue"] = overdue
+
+
+@_supports_fmt
+def attack_surface(ds: VulnDataset) -> dict[str, Any]:
+    """Attack surface profile: CVSS component distributions and worst-case metrics."""
+    mask = _analysis_mask(ds)
+    result: dict[str, Any] = {"total": int(np.sum(mask))}
+
+    # Component distributions
+    component_map = {
+        "by_vector": "cvss_attack_vector",
+        "by_complexity": "cvss_attack_complexity",
+        "by_privileges": "cvss_privileges_required",
+        "by_interaction": "cvss_user_interaction",
+    }
+    for key, col_name in component_map.items():
+        col = _get_column_or_none(ds, col_name)
+        if col is not None:
+            filtered = col[mask]
+            vm = _valid_mask(filtered)
+            result[key] = _value_counts(filtered[vm])
+        else:
+            result[key] = {}
+
+    # Worst-case metrics
+    av_col = _get_column_or_none(ds, "cvss_attack_vector")
+    pr_col = _get_column_or_none(ds, "cvss_privileges_required")
+    ui_col = _get_column_or_none(ds, "cvss_user_interaction")
+    scope_col = _get_column_or_none(ds, "cvss_scope")
+
+    worst_case: dict[str, int] = {}
+    if av_col is not None and pr_col is not None:
+        av = av_col[mask]
+        pr = pr_col[mask]
+        remote_no_auth = (av == "N") & ((pr == "N") | (pr == "NONE"))
+        worst_case["no_auth_remote"] = int(np.sum(remote_no_auth))
+
+        if ui_col is not None:
+            ui = ui_col[mask]
+            no_interaction = remote_no_auth & ((ui == "N") | (ui == "NONE"))
+            worst_case["no_interaction"] = int(np.sum(no_interaction))
+
+    if scope_col is not None:
+        sc = scope_col[mask]
+        worst_case["scope_changed"] = int(np.sum((sc == "C") | (sc == "CHANGED")))
+
+    result["worst_case"] = worst_case
+
+    # CIA impact distributions
+    cia: dict[str, dict[str, int]] = {}
+    for impact_name, col_name in [
+        ("confidentiality", "cvss_confidentiality"),
+        ("integrity", "cvss_integrity"),
+        ("availability", "cvss_availability"),
+    ]:
+        col = _get_column_or_none(ds, col_name)
+        if col is not None:
+            filtered = col[mask]
+            vm = _valid_mask(filtered)
+            cia[impact_name] = _value_counts(filtered[vm])
+
+    result["by_cia"] = cia
+    return result
+
+
+@_supports_fmt
+def vendor_risk(
+    ds: VulnDataset, vendor: str | None = None, *, top_n: int = 15
+) -> dict[str, Any]:
+    """Vendor risk analysis: top vendors by risk score or single vendor detail."""
+    mask = _analysis_mask(ds)
+
+    vendor_col_name = _find_column(ds, "cpe_vendor", "primary_vendor")
+    if vendor_col_name is None:
+        return {"error": "No vendor column found (run with cpe=True)"}
+
+    vendor_arr = ds.get_column(vendor_col_name)[mask]
+    vm = _valid_mask(vendor_arr)
+
+    if vendor is not None:
+        return _vendor_detail(ds, mask, vendor_arr, vm, vendor)
+
+    # Top-N vendors by composite risk score
+    unique_vendors, vendor_counts = np.unique(vendor_arr[vm], return_counts=True)
+    if len(unique_vendors) == 0:
+        return {"vendors": []}
+
+    score_col = _get_float_column(ds, "cvss_base_score", mask)
+    kev_col = _get_column_or_none(ds, "is_kev")
+    kev_arr = kev_col[mask] if kev_col is not None else None
+
+    vendors_list: list[dict[str, Any]] = []
+    for v, count in zip(unique_vendors, vendor_counts, strict=True):
+        v_mask = vm & (vendor_arr == v)
+        entry: dict[str, Any] = {"vendor": str(v), "count": int(count)}
+
+        avg_cvss = 0.0
+        if score_col is not None:
+            v_scores = score_col[v_mask]
+            valid_scores = v_scores[~np.isnan(v_scores)]
+            if len(valid_scores) > 0:
+                avg_cvss = float(np.mean(valid_scores))
+                entry["avg_cvss"] = round(avg_cvss, 2)
+
+        kev_ratio = 0.0
+        if kev_arr is not None:
+            v_kev = kev_arr[v_mask]
+            if v_kev.dtype == bool:
+                kev_count = int(np.sum(v_kev))
+            else:
+                kev_count = int(np.sum(v_kev == True))  # noqa: E712
+            entry["kev_count"] = kev_count
+            if count > 0:
+                kev_ratio = kev_count / count
+
+        # Composite: count * avg_cvss * (1 + kev_ratio)
+        entry["risk_score"] = round(count * avg_cvss * (1 + kev_ratio), 2)
+        vendors_list.append(entry)
+
+    vendors_list.sort(key=lambda x: x["risk_score"], reverse=True)
+    return {"vendors": vendors_list[:top_n]}
+
+
+def _vendor_detail(
+    ds: VulnDataset,
+    mask: np.ndarray,
+    vendor_arr: np.ndarray,
+    vm: np.ndarray,
+    vendor: str,
+) -> dict[str, Any]:
+    """Single-vendor detail profile."""
+    v_mask = vm & (np.char.lower(vendor_arr.astype("U100")) == vendor.lower())
+    count = int(np.sum(v_mask))
+    if count == 0:
+        return {"vendor": vendor, "count": 0}
+
+    result: dict[str, Any] = {"vendor": vendor, "count": count}
+
+    # Severity distribution
+    sev_col = _get_column_or_none(ds, "cvss_base_severity")
+    if sev_col is not None:
+        sev_arr = sev_col[mask][v_mask]
+        sev_vm = _valid_mask(sev_arr)
+        result["severity"] = _value_counts(sev_arr[sev_vm])
+
+    # EPSS distribution
+    epss_col = _get_float_column(ds, "epss_probability", mask)
+    if epss_col is not None:
+        v_epss = epss_col[v_mask]
+        valid_epss = v_epss[~np.isnan(v_epss)]
+        if len(valid_epss) > 0:
+            result["epss"] = {
+                "mean": round(float(np.mean(valid_epss)), 4),
+                "p90": round(float(np.percentile(valid_epss, 90)), 4),
+            }
+
+    # KEV count
+    kev_col = _get_column_or_none(ds, "is_kev")
+    if kev_col is not None:
+        v_kev = kev_col[mask][v_mask]
+        if v_kev.dtype == bool:
+            result["kev_count"] = int(np.sum(v_kev))
+        else:
+            result["kev_count"] = int(np.sum(v_kev == True))  # noqa: E712
+
+    # Top products
+    product_col_name = _find_column(ds, "cpe_product", "primary_product")
+    if product_col_name is not None:
+        prod_arr = ds.get_column(product_col_name)[mask][v_mask]
+        prod_vm = _valid_mask(prod_arr)
+        if np.sum(prod_vm) > 0:
+            result["top_products"] = _value_counts(prod_arr[prod_vm], 10)
+
+    # Top CWEs
+    cwe_col_name = _find_column(ds, "cwe_id", "primary_cwe_id")
+    if cwe_col_name is not None:
+        cwe_arr = ds.get_column(cwe_col_name)[mask][v_mask]
+        cwe_vm = _valid_mask(cwe_arr)
+        if np.sum(cwe_vm) > 0:
+            result["top_cwes"] = _value_counts(cwe_arr[cwe_vm], 10)
+
+    return result
+
+
+@_supports_fmt
+def weakness_profile(
+    ds: VulnDataset, *, year: int | None = None, top_n: int = 15
+) -> dict[str, Any]:
+    """Weakness profile: top CWEs with enriched metrics per weakness."""
+    mask = _analysis_mask(ds)
+
+    cwe_col_name = _find_column(ds, "cwe_id", "primary_cwe_id")
+    if cwe_col_name is None:
+        return {"error": "No CWE column found (run with cwe=True)"}
+
+    cwe_arr = ds.get_column(cwe_col_name)[mask]
+    cwe_vm = _valid_mask(cwe_arr)
+
+    # Optional year filter
+    if year is not None:
+        cve_ids = ds.get_column("cve_id")[mask]
+        years = _extract_years(cve_ids)
+        year_mask = years == year
+        cwe_vm = cwe_vm & year_mask
+
+    valid_cwes = cwe_arr[cwe_vm]
+    if len(valid_cwes) == 0:
+        return {"weaknesses": []}
+
+    unique_cwes, cwe_counts = np.unique(valid_cwes, return_counts=True)
+    order = np.argsort(-cwe_counts)[:top_n]
+
+    score_col = _get_float_column(ds, "cvss_base_score", mask)
+    epss_col = _get_float_column(ds, "epss_probability", mask)
+    kev_col = _get_column_or_none(ds, "is_kev")
+    kev_arr = kev_col[mask] if kev_col is not None else None
+
+    cwe_name_col_name = _find_column(ds, "cwe_name", "primary_cwe_name")
+    cwe_name_arr = ds.get_column(cwe_name_col_name)[mask] if cwe_name_col_name else None
+
+    weaknesses: list[dict[str, Any]] = []
+    for idx in order:
+        cwe_id = str(unique_cwes[idx])
+        cwe_mask = cwe_vm & (cwe_arr == cwe_id)
+        entry: dict[str, Any] = {
+            "id": cwe_id,
+            "count": int(cwe_counts[idx]),
+        }
+
+        # CWE name
+        if cwe_name_arr is not None:
+            names = cwe_name_arr[cwe_mask]
+            name_vm = _valid_mask(names)
+            valid_names = names[name_vm]
+            if len(valid_names) > 0:
+                entry["name"] = str(valid_names[0])
+
+        # Average CVSS
+        if score_col is not None:
+            c_scores = score_col[cwe_mask]
+            valid_scores = c_scores[~np.isnan(c_scores)]
+            if len(valid_scores) > 0:
+                entry["avg_cvss"] = round(float(np.mean(valid_scores)), 2)
+
+        # Average EPSS
+        if epss_col is not None:
+            c_epss = epss_col[cwe_mask]
+            valid_epss = c_epss[~np.isnan(c_epss)]
+            if len(valid_epss) > 0:
+                entry["avg_epss"] = round(float(np.mean(valid_epss)), 4)
+
+        # KEV count
+        if kev_arr is not None:
+            c_kev = kev_arr[cwe_mask]
+            if c_kev.dtype == bool:
+                entry["kev_count"] = int(np.sum(c_kev))
+            else:
+                entry["kev_count"] = int(np.sum(c_kev == True))  # noqa: E712
+
+        weaknesses.append(entry)
+
+    result: dict[str, Any] = {"weaknesses": weaknesses}
+
+    # Year comparison if year filter provided
+    if year is not None:
+        prior_year = year - 1
+        cve_ids_all = ds.get_column("cve_id")[mask]
+        years_all = _extract_years(cve_ids_all)
+        prior_mask = cwe_vm & (years_all == prior_year)  # recompute without year filter
+        # Need mask without year filter for prior year
+        cwe_vm_all = _valid_mask(cwe_arr)
+        prior_mask = cwe_vm_all & (years_all == prior_year)
+
+        if np.sum(prior_mask) > 0:
+            prior_cwes = cwe_arr[prior_mask]
+            prior_unique, prior_counts = np.unique(prior_cwes, return_counts=True)
+            prior_map = {
+                str(c): int(n) for c, n in zip(prior_unique, prior_counts, strict=True)
+            }
+
+            rising: list[str] = []
+            declining: list[str] = []
+            for w in weaknesses:
+                wid = w["id"]
+                current = w["count"]
+                prior = prior_map.get(wid, 0)
+                if prior > 0 and current > prior * 1.2:
+                    rising.append(wid)
+                elif prior > 0 and current < prior * 0.8:
+                    declining.append(wid)
+            result["rising"] = rising
+            result["declining"] = declining
+
+    return result
