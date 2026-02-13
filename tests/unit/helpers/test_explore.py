@@ -1074,6 +1074,56 @@ class TestSearchFilters:
         assert "is_kev" in results[0]
         assert "epss_probability" in results[0]
 
+    def test_default_columns_include_epss_bucket(self) -> None:
+        """Default columns include epss_bucket when present."""
+        ds = make_dataset(
+            {
+                "cve_id": ["CVE-2024-0001", "CVE-2024-0002"],
+                "description": ["vuln a", "vuln b"],
+                "nvd_status": ["analyzed", "analyzed"],
+                "cvss_base_severity": ["HIGH", "MEDIUM"],
+                "cvss_base_score": [9.8, 5.3],
+            }
+        )
+        ds._data["epss_probability"] = np.array([0.9, 0.05], dtype=object)
+        ds._data["epss_bucket"] = np.array(["high", "low"], dtype=object)
+        results = search(ds)
+        assert len(results) == 2
+        assert "epss_bucket" in results[0]
+        assert results[0]["epss_bucket"] == "high"
+        assert results[1]["epss_bucket"] == "low"
+
+    def test_filter_epss_bucket(self) -> None:
+        """search(epss_bucket='high') filters correctly."""
+        ds = make_dataset(
+            {
+                "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
+                "description": ["vuln a", "vuln b", "vuln c"],
+                "nvd_status": ["analyzed", "analyzed", "analyzed"],
+                "cvss_base_severity": ["CRITICAL", "HIGH", "LOW"],
+                "cvss_base_score": [9.8, 7.5, 3.1],
+            }
+        )
+        ds._data["epss_bucket"] = np.array(["high", "medium", "very_low"], dtype=object)
+        results = search(ds, epss_bucket="high")
+        assert len(results) == 1
+        assert results[0]["cve_id"] == "CVE-2024-0001"
+
+    def test_filter_epss_bucket_medium(self) -> None:
+        """search(epss_bucket='medium') returns correct records."""
+        ds = make_dataset(
+            {
+                "cve_id": ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"],
+                "description": ["vuln a", "vuln b", "vuln c"],
+                "nvd_status": ["analyzed", "analyzed", "analyzed"],
+            }
+        )
+        ds._data["epss_bucket"] = np.array(["high", "medium", "medium"], dtype=object)
+        results = search(ds, epss_bucket="medium")
+        assert len(results) == 2
+        cve_ids = {r["cve_id"] for r in results}
+        assert cve_ids == {"CVE-2024-0002", "CVE-2024-0003"}
+
 
 # ============================================================================
 # Tests: RiskPriority

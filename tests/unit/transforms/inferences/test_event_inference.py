@@ -8,6 +8,7 @@ Dependencies: dataset, KEV enricher
 
 from __future__ import annotations
 
+import numpy as np
 from tests.conftest import make_dataset
 
 from vulnflow.dataset import VulnDataset
@@ -151,12 +152,14 @@ def test_overwrite_preserves_existing():
     from datetime import UTC, datetime
 
     sentinel = datetime(2000, 1, 1, tzinfo=UTC)
-    ds = make_dataset({
-        "cve_id": ["CVE-2024-0001"],
-        "nvd_published_at": [datetime(2024, 1, 15, tzinfo=UTC)],
-        "p_timestamp": [sentinel],
-        "p_confidence": [0.99],
-    })
+    ds = make_dataset(
+        {
+            "cve_id": ["CVE-2024-0001"],
+            "nvd_published_at": [datetime(2024, 1, 15, tzinfo=UTC)],
+            "p_timestamp": [sentinel],
+            "p_confidence": [0.99],
+        }
+    )
 
     EventInference(overwrite=False).transform(ds)
 
@@ -170,12 +173,14 @@ def test_overwrite_replaces():
     from datetime import UTC, datetime
 
     sentinel = datetime(2000, 1, 1, tzinfo=UTC)
-    ds = make_dataset({
-        "cve_id": ["CVE-2024-0001"],
-        "nvd_published_at": [datetime(2024, 1, 15, tzinfo=UTC)],
-        "p_timestamp": [sentinel],
-        "p_confidence": [0.99],
-    })
+    ds = make_dataset(
+        {
+            "cve_id": ["CVE-2024-0001"],
+            "nvd_published_at": [datetime(2024, 1, 15, tzinfo=UTC)],
+            "p_timestamp": [sentinel],
+            "p_confidence": [0.99],
+        }
+    )
 
     EventInference(overwrite=True).transform(ds)
 
@@ -217,8 +222,14 @@ def test_event_inference_empty_dataset() -> None:
     """EventInference handles 0-row dataset without error."""
     ds = make_dataset({"cve_id": []})
     EventInference().transform(ds)
-    for col in ["v_timestamp", "f_timestamp", "d_timestamp",
-                 "p_timestamp", "x_timestamp", "a_timestamp"]:
+    for col in [
+        "v_timestamp",
+        "f_timestamp",
+        "d_timestamp",
+        "p_timestamp",
+        "x_timestamp",
+        "a_timestamp",
+    ]:
         assert len(ds.get_column(col)) == 0
 
 
@@ -226,3 +237,97 @@ def test_should_run_respects_threshold() -> None:
     """EventInference uses BaseInference tier gating."""
     inf = EventInference(confidence_threshold=1.5)
     assert inf._should_run(1) is False
+
+
+# ============================================================================
+# EPSS bucket → X inference
+# ============================================================================
+
+
+def test_epss_bucket_high_infers_x():
+    """epss_bucket='high' triggers X inference at P timestamp with confidence 0.50."""
+    from datetime import UTC, datetime
+
+    p_time = datetime(2024, 6, 15, tzinfo=UTC)
+    ds = make_dataset(
+        {
+            "cve_id": ["CVE-2024-0001"],
+            "nvd_published_at": [p_time],
+        }
+    )
+    ds._data["epss_bucket"] = np.array(["high"], dtype=object)
+
+    # Use all tiers up to 4 (default threshold 0.7 runs tiers 1-3,
+    # so lower threshold to include tier 4)
+    EventInference(confidence_threshold=0.4).transform(ds)
+
+    x_ts = ds.get_column("x_timestamp")[0]
+    x_conf = ds.get_column("x_confidence")[0]
+    assert x_ts is not None
+    assert x_ts == p_time
+    assert x_conf == 0.50
+
+
+def test_epss_bucket_medium_does_not_infer_x():
+    """epss_bucket='medium' does NOT trigger X inference."""
+    from datetime import UTC, datetime
+
+    p_time = datetime(2024, 6, 15, tzinfo=UTC)
+    ds = make_dataset(
+        {
+            "cve_id": ["CVE-2024-0001"],
+            "nvd_published_at": [p_time],
+        }
+    )
+    ds._data["epss_bucket"] = np.array(["medium"], dtype=object)
+
+    # Tiers 1-4 only, no references to trigger X from other tier 4 rules
+    EventInference(confidence_threshold=0.4, tiers=[1, 4]).transform(ds)
+
+    x_ts = ds.get_column("x_timestamp")[0]
+    # X should only come from EPSS high, not medium.
+    # Tier 4 V=P rule fires, but X should remain None unless
+    # other structural signals exist (no exploit URLs, no KEV A).
+    assert x_ts is None
+
+
+def test_epss_bucket_none_graceful_skip():
+    """EventInference works without epss_bucket column."""
+    from datetime import UTC, datetime
+
+    ds = make_dataset(
+        {
+            "cve_id": ["CVE-2024-0001"],
+            "nvd_published_at": [datetime(2024, 6, 15, tzinfo=UTC)],
+        }
+    )
+    # No epss_bucket column at all
+    assert "epss_bucket" not in ds.columns
+
+    EventInference(confidence_threshold=0.4).transform(ds)
+
+    # Should not crash, P should still be inferred
+    assert ds.get_column("p_timestamp")[0] is not None
+
+
+def test_epss_bucket_no_overwrite_existing_x():
+    """EPSS bucket X inference does not overwrite existing X from earlier tier."""
+    from datetime import UTC, datetime
+
+    p_time = datetime(2024, 6, 15, tzinfo=UTC)
+    x_time = datetime(2024, 3, 1, tzinfo=UTC)
+    ds = make_dataset(
+        {
+            "cve_id": ["CVE-2024-0001"],
+            "nvd_published_at": [p_time],
+            "x_timestamp": [x_time],
+            "x_confidence": [0.80],
+        }
+    )
+    ds._data["epss_bucket"] = np.array(["high"], dtype=object)
+
+    EventInference(confidence_threshold=0.4, overwrite=False).transform(ds)
+
+    # Existing X should be preserved (not overwritten by EPSS bucket)
+    assert ds.get_column("x_timestamp")[0] == x_time
+    assert ds.get_column("x_confidence")[0] == 0.80

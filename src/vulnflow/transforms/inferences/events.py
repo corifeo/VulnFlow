@@ -183,7 +183,7 @@ class EventInference(BaseInference):
     """
 
     name: str = "EventInference"
-    depends_on: list[str] = ["KEVFlattenTransform"]
+    depends_on: list[str] = ["KEVFlattenTransform", "EPSSFlattenTransform"]
 
     TIER_THRESHOLDS: dict[int, float] = {
         1: 0.95,  # Authoritative sources
@@ -397,12 +397,13 @@ class EventInference(BaseInference):
         x_conf: np.ndarray,
         a_ts: np.ndarray,
     ) -> dict[str, int]:
-        """Tier 4: Structural signals (CPE, URL patterns, coordinated disclosure)."""
+        """Tier 4: Structural signals (CPE, URL patterns, EPSS bucket, coordinated disclosure)."""
         stats = {"v": 0, "f": 0, "x": 0}
         n = len(dataset)
 
         # Check for CPE fix version indicator
         cpes = dataset.get_column_or_none("cpes")
+        epss_bucket = dataset.get_column_or_none("epss_bucket")
 
         for i in range(n):
             if p_ts[i] is None:
@@ -430,6 +431,11 @@ class EventInference(BaseInference):
             # X from A (attack implies exploit existed)
             if a_ts[i] is not None:
                 if self._assign(x_ts, x_conf, i, a_ts[i], 0.50):
+                    stats["x"] += 1
+
+            # X from EPSS bucket "high" (>0.5 probability = strong exploitation signal)
+            if epss_bucket is not None and epss_bucket[i] == "high":
+                if self._assign(x_ts, x_conf, i, p_ts[i], 0.50):
                     stats["x"] += 1
 
             # V = P (coordinated disclosure assumption)
@@ -545,7 +551,11 @@ class EventInference(BaseInference):
 
         logger.info(
             "EventInference coverage: V=%s F=%s P=%s X=%s A=%s",
-            pct(v_ts), pct(f_ts), pct(p_ts), pct(x_ts), pct(a_ts),
+            pct(v_ts),
+            pct(f_ts),
+            pct(p_ts),
+            pct(x_ts),
+            pct(a_ts),
         )
 
     def transform(self, dataset: VulnDataset) -> None:
