@@ -635,6 +635,7 @@ def search(
     vendor: str | None = None,
     product: str | None = None,
     ransomware: bool | None = None,
+    epss_bucket: str | None = None,
     limit: int = 20,
     columns: list[str] | None = None,
 ) -> list[dict[str, Any]]:
@@ -686,6 +687,8 @@ def search(
             mask = mask & (df[product_col].str.lower() == product.lower())
     if ransomware is not None and "kev_ransomware" in df.columns:
         mask = mask & (df["kev_ransomware"] == ransomware)
+    if epss_bucket is not None and "epss_bucket" in df.columns:
+        mask = mask & (df["epss_bucket"] == epss_bucket)
 
     if columns is None:
         preferred = [
@@ -697,7 +700,7 @@ def search(
             "nvd_published_at",
         ]
         # Add enriched columns when present
-        for extra in ["epss_probability", "is_kev"]:
+        for extra in ["epss_probability", "epss_bucket", "is_kev"]:
             if extra in df.columns:
                 preferred.append(extra)
         for col_name in [

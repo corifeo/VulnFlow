@@ -487,7 +487,7 @@ def test_epss_flatten_handles_empty_array():
 
 
 def test_epss_flatten_extracts_all_columns():
-    """EPSSFlattenTransform extracts all 4 columns."""
+    """EPSSFlattenTransform extracts all 5 columns including bucket."""
     from vulnflow.transforms.flatten.epss import EPSSFlattenTransform
 
     ds = VulnDataset()
@@ -515,6 +515,260 @@ def test_epss_flatten_extracts_all_columns():
     assert "epss_percentile" in ds.columns
     assert "epss_date" in ds.columns
     assert "epss_model" in ds.columns
+    assert "epss_bucket" in ds.columns
+
+
+# =============================================================================
+# EPSS Bucketing Tests
+# =============================================================================
+
+
+def test_epss_bucket_high():
+    """EPSS >= 0.5 maps to 'high' bucket."""
+    from vulnflow.transforms.flatten.epss import EPSSFlattenTransform
+
+    ds = VulnDataset()
+    ds._data = {
+        "cve_id": np.array(["CVE-2024-0001"]),
+        "epss_scores": np.array(
+            [
+                vulnflow_json.dumps(
+                    [
+                        {
+                            "probability": 0.75,
+                            "percentile": 0.9,
+                            "date": "2024-01-01",
+                            "model": 3,
+                        }
+                    ]
+                )
+            ]
+        ),
+    }
+    EPSSFlattenTransform().transform(ds)
+    assert ds.get_column("epss_bucket")[0] == "high"
+
+
+def test_epss_bucket_high_at_boundary():
+    """EPSS exactly 0.5 maps to 'high' bucket."""
+    from vulnflow.transforms.flatten.epss import EPSSFlattenTransform
+
+    ds = VulnDataset()
+    ds._data = {
+        "cve_id": np.array(["CVE-2024-0001"]),
+        "epss_scores": np.array(
+            [
+                vulnflow_json.dumps(
+                    [
+                        {
+                            "probability": 0.5,
+                            "percentile": 0.8,
+                            "date": "2024-01-01",
+                            "model": 3,
+                        }
+                    ]
+                )
+            ]
+        ),
+    }
+    EPSSFlattenTransform().transform(ds)
+    assert ds.get_column("epss_bucket")[0] == "high"
+
+
+def test_epss_bucket_medium():
+    """EPSS >= 0.1 and < 0.5 maps to 'medium' bucket."""
+    from vulnflow.transforms.flatten.epss import EPSSFlattenTransform
+
+    ds = VulnDataset()
+    ds._data = {
+        "cve_id": np.array(["CVE-2024-0001"]),
+        "epss_scores": np.array(
+            [
+                vulnflow_json.dumps(
+                    [
+                        {
+                            "probability": 0.25,
+                            "percentile": 0.6,
+                            "date": "2024-01-01",
+                            "model": 3,
+                        }
+                    ]
+                )
+            ]
+        ),
+    }
+    EPSSFlattenTransform().transform(ds)
+    assert ds.get_column("epss_bucket")[0] == "medium"
+
+
+def test_epss_bucket_medium_at_boundary():
+    """EPSS exactly 0.1 maps to 'medium' bucket."""
+    from vulnflow.transforms.flatten.epss import EPSSFlattenTransform
+
+    ds = VulnDataset()
+    ds._data = {
+        "cve_id": np.array(["CVE-2024-0001"]),
+        "epss_scores": np.array(
+            [
+                vulnflow_json.dumps(
+                    [
+                        {
+                            "probability": 0.1,
+                            "percentile": 0.5,
+                            "date": "2024-01-01",
+                            "model": 3,
+                        }
+                    ]
+                )
+            ]
+        ),
+    }
+    EPSSFlattenTransform().transform(ds)
+    assert ds.get_column("epss_bucket")[0] == "medium"
+
+
+def test_epss_bucket_low():
+    """EPSS >= 0.01 and < 0.1 maps to 'low' bucket."""
+    from vulnflow.transforms.flatten.epss import EPSSFlattenTransform
+
+    ds = VulnDataset()
+    ds._data = {
+        "cve_id": np.array(["CVE-2024-0001"]),
+        "epss_scores": np.array(
+            [
+                vulnflow_json.dumps(
+                    [
+                        {
+                            "probability": 0.05,
+                            "percentile": 0.3,
+                            "date": "2024-01-01",
+                            "model": 3,
+                        }
+                    ]
+                )
+            ]
+        ),
+    }
+    EPSSFlattenTransform().transform(ds)
+    assert ds.get_column("epss_bucket")[0] == "low"
+
+
+def test_epss_bucket_low_at_boundary():
+    """EPSS exactly 0.01 maps to 'low' bucket."""
+    from vulnflow.transforms.flatten.epss import EPSSFlattenTransform
+
+    ds = VulnDataset()
+    ds._data = {
+        "cve_id": np.array(["CVE-2024-0001"]),
+        "epss_scores": np.array(
+            [
+                vulnflow_json.dumps(
+                    [
+                        {
+                            "probability": 0.01,
+                            "percentile": 0.2,
+                            "date": "2024-01-01",
+                            "model": 3,
+                        }
+                    ]
+                )
+            ]
+        ),
+    }
+    EPSSFlattenTransform().transform(ds)
+    assert ds.get_column("epss_bucket")[0] == "low"
+
+
+def test_epss_bucket_very_low():
+    """EPSS < 0.01 maps to 'very_low' bucket."""
+    from vulnflow.transforms.flatten.epss import EPSSFlattenTransform
+
+    ds = VulnDataset()
+    ds._data = {
+        "cve_id": np.array(["CVE-2024-0001"]),
+        "epss_scores": np.array(
+            [
+                vulnflow_json.dumps(
+                    [
+                        {
+                            "probability": 0.005,
+                            "percentile": 0.1,
+                            "date": "2024-01-01",
+                            "model": 3,
+                        }
+                    ]
+                )
+            ]
+        ),
+    }
+    EPSSFlattenTransform().transform(ds)
+    assert ds.get_column("epss_bucket")[0] == "very_low"
+
+
+def test_epss_bucket_none_probability():
+    """None probability results in None bucket."""
+    from vulnflow.transforms.flatten.epss import EPSSFlattenTransform
+
+    ds = VulnDataset()
+    ds._data = {
+        "cve_id": np.array(["CVE-2024-0001"]),
+        "epss_scores": np.array(["[]"]),
+    }
+    EPSSFlattenTransform().transform(ds)
+    assert ds.get_column("epss_bucket")[0] is None
+
+
+def test_epss_bucket_mixed_records():
+    """Multiple records get correct buckets based on individual probabilities."""
+    from vulnflow.transforms.flatten.epss import EPSSFlattenTransform
+
+    ds = VulnDataset()
+    ds._data = {
+        "cve_id": np.array(
+            ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003", "CVE-2024-0004"]
+        ),
+        "epss_scores": np.array(
+            [
+                vulnflow_json.dumps(
+                    [
+                        {
+                            "probability": 0.9,
+                            "percentile": 0.99,
+                            "date": "2024-01-01",
+                            "model": 3,
+                        }
+                    ]
+                ),
+                vulnflow_json.dumps(
+                    [
+                        {
+                            "probability": 0.15,
+                            "percentile": 0.55,
+                            "date": "2024-01-01",
+                            "model": 3,
+                        }
+                    ]
+                ),
+                vulnflow_json.dumps(
+                    [
+                        {
+                            "probability": 0.005,
+                            "percentile": 0.05,
+                            "date": "2024-01-01",
+                            "model": 3,
+                        }
+                    ]
+                ),
+                "[]",
+            ]
+        ),
+    }
+    EPSSFlattenTransform().transform(ds)
+    buckets = ds.get_column("epss_bucket")
+    assert buckets[0] == "high"
+    assert buckets[1] == "medium"
+    assert buckets[2] == "very_low"
+    assert buckets[3] is None
 
 
 # =============================================================================

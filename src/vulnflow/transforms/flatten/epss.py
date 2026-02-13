@@ -4,7 +4,7 @@ Layer: Transform/Flatten
 Dependencies: transforms.flatten.base
 
 Selects the EPSS entry with the latest date from the epss_scores array.
-Extracts 4 scalar columns from the selected entry.
+Extracts 5 scalar columns from the selected entry (including epss_bucket).
 """
 
 from __future__ import annotations
@@ -20,13 +20,21 @@ from vulnflow.utils import json
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
+# EPSS bucket thresholds (descending order, first match wins)
+EPSS_BUCKET_THRESHOLDS: tuple[tuple[float, str], ...] = (
+    (0.5, "high"),
+    (0.1, "medium"),
+    (0.01, "low"),
+)
+EPSS_BUCKET_DEFAULT = "very_low"
+
 
 @register_transform(default=True)
 class EPSSFlattenTransform(BaseFlatten):
     """Select most recent EPSS score and extract components.
 
-    Output columns (4):
-    - epss_probability, epss_percentile, epss_date, epss_model
+    Output columns (5):
+    - epss_probability, epss_percentile, epss_date, epss_model, epss_bucket
     """
 
     name: str = "EPSSFlattenTransform"
@@ -47,6 +55,9 @@ class EPSSFlattenTransform(BaseFlatten):
         FieldDefinition("epss_date", "str", "EPSS score date", "EPSSFlattenTransform"),
         FieldDefinition(
             "epss_model", "int", "EPSS model version", "EPSSFlattenTransform"
+        ),
+        FieldDefinition(
+            "epss_bucket", "str", "EPSS risk bucket", "EPSSFlattenTransform"
         ),
     ]
 
@@ -76,10 +87,20 @@ class EPSSFlattenTransform(BaseFlatten):
             selected = max(scores, key=get_date)
 
             # Extract scalar fields
-            out["epss_probability"][i] = selected.get("probability")
+            prob = selected.get("probability")
+            out["epss_probability"][i] = prob
             out["epss_percentile"][i] = selected.get("percentile")
             out["epss_date"][i] = selected.get("date")
             out["epss_model"][i] = selected.get("model")
+
+            # Compute bucket from probability
+            if prob is not None:
+                bucket = EPSS_BUCKET_DEFAULT
+                for threshold, label in EPSS_BUCKET_THRESHOLDS:
+                    if float(prob) >= threshold:
+                        bucket = label
+                        break
+                out["epss_bucket"][i] = bucket
 
         # Insert columns right after input_column (epss_scores)
         dataset.insert_columns_after(self.input_column, out)
