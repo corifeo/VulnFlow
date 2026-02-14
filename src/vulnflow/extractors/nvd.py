@@ -15,7 +15,9 @@ for reuse by other extractors (e.g., future CVE.org extractor).
 from __future__ import annotations
 
 import gzip
+import io
 import logging
+import zipfile
 from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
@@ -85,7 +87,7 @@ class NVDExtractor(BaseExtractor):
         Examples: nvdcve-2.0-2023, nvdcve-2.0-modified
         """
         name = Path(self.path).name
-        for ext in (".gz", ".json", ".jsonl", ".ndjson"):
+        for ext in (".gz", ".zip", ".json", ".jsonl", ".ndjson"):
             if name.endswith(ext):
                 name = name[: -len(ext)]
         return name
@@ -103,8 +105,8 @@ class NVDExtractor(BaseExtractor):
             VulnDataset with columnar storage populated
 
         Raises:
-            FileNotFoundError: If NVD JSON file doesn't exist
-            httpx.HTTPError: On network or HTTP errors for URLs
+            ExtractorError: On any failure (missing file, HTTP error,
+                bad format, corrupt archive, invalid JSON)
         """
         from vulnflow.dataset import VulnDataset
 
@@ -154,38 +156,63 @@ class NVDExtractor(BaseExtractor):
             HttpError: On network or HTTP errors for URLs
         """
         if is_url(self.path):
+            from vulnflow.utils.http import HttpError
+
             fetcher = HttpFetcher(
                 cache_dir=self.cache_dir or Path(".cache/nvd"),
                 timeout=self.timeout,
             )
-            content, _ = fetcher.fetch_sync(
-                self.path,
-                self.cache_ttl,
-                decompress=False,
-                progress_desc=f"Downloading {self.label}",
-            )
+            try:
+                content, _ = fetcher.fetch_sync(
+                    self.path,
+                    self.cache_ttl,
+                    decompress=False,
+                    progress_desc=f"Downloading {self.label}",
+                )
+            except HttpError as e:
+                raise ExtractorError(str(e)) from None
             return content
-        return Path(self.path).read_bytes()
+        try:
+            return Path(self.path).read_bytes()
+        except (FileNotFoundError, OSError) as e:
+            raise ExtractorError(
+                f"Failed to read {self.path}: {e}"
+            ) from None
 
     def _decompress(self, raw: bytes) -> bytes:
-        """Decompress gzip if detected by magic bytes.
+        """Decompress gzip or zip if detected by magic bytes.
 
         Args:
-            raw: Raw content bytes (possibly gzip-compressed)
+            raw: Raw content bytes (possibly gzip/zip-compressed)
 
         Returns:
-            Decompressed content, or original bytes if not gzip
+            Decompressed content, or original bytes if not compressed
 
         Raises:
-            ExtractorError: If gzip decompression fails (corrupt data)
+            ExtractorError: If decompression fails (corrupt data)
         """
+        # Gzip: magic bytes 1f 8b
         if raw[:2] == b"\x1f\x8b":
             try:
                 return gzip.decompress(raw)
             except (gzip.BadGzipFile, OSError) as e:
                 raise ExtractorError(
                     f"Failed to decompress gzip data from {self.path}: {e}"
-                ) from e
+                ) from None
+        # Zip: magic bytes PK\x03\x04
+        if raw[:4] == b"PK\x03\x04":
+            try:
+                with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                    names = zf.namelist()
+                    # Find the first .json file, or fall back to first entry
+                    json_name = next(
+                        (n for n in names if n.endswith(".json")), names[0]
+                    )
+                    return zf.read(json_name)
+            except (zipfile.BadZipFile, KeyError, IndexError) as e:
+                raise ExtractorError(
+                    f"Failed to decompress zip data from {self.path}: {e}"
+                ) from None
         return raw
 
     def _parse_content(self, content: bytes) -> list[dict[str, Any]]:
@@ -201,10 +228,12 @@ class NVDExtractor(BaseExtractor):
         Returns:
             List of vulnerability dicts
         """
-        # Detect format from path
+        # Detect format from path (strip compression extensions)
         path_lower = self.path.lower()
         if path_lower.endswith(".gz"):
             path_lower = path_lower[:-3]
+        elif path_lower.endswith(".zip"):
+            path_lower = path_lower[:-4]
 
         is_jsonl = path_lower.endswith((".jsonl", ".ndjson"))
 
@@ -221,8 +250,16 @@ class NVDExtractor(BaseExtractor):
 
         Returns:
             List of vulnerability dicts from "vulnerabilities" array
+
+        Raises:
+            ExtractorError: If content is not valid JSON
         """
-        data = json.loads(content)
+        try:
+            data = json.loads(content)
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            raise ExtractorError(
+                f"Failed to parse JSON from {self.path}: {e}"
+            ) from None
         if "vulnerabilities" not in data:
             logger.warning(
                 "JSON from %s has no 'vulnerabilities' key — returning empty list",
@@ -239,14 +276,22 @@ class NVDExtractor(BaseExtractor):
 
         Returns:
             List of vulnerability dicts
+
+        Raises:
+            ExtractorError: If content is not valid JSONL
         """
-        vulnerabilities: list[dict[str, Any]] = []
-        for line in content.decode("utf-8").splitlines():
-            line = line.strip()
-            if line:
-                obj = json.loads(line)
-                # Wrap in vulnerability structure if needed
-                if "cve" not in obj:
-                    obj = {"cve": obj}
-                vulnerabilities.append(obj)
-        return vulnerabilities
+        try:
+            vulnerabilities: list[dict[str, Any]] = []
+            for line in content.decode("utf-8").splitlines():
+                line = line.strip()
+                if line:
+                    obj = json.loads(line)
+                    # Wrap in vulnerability structure if needed
+                    if "cve" not in obj:
+                        obj = {"cve": obj}
+                    vulnerabilities.append(obj)
+            return vulnerabilities
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            raise ExtractorError(
+                f"Failed to parse JSONL from {self.path}: {e}"
+            ) from None

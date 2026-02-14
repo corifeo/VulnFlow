@@ -375,7 +375,7 @@ def test_json_extractor_validates_json_format():
         with open(output_path, "w") as f:
             json.dump({"not": "a list"}, f)
 
-        with pytest.raises(ValueError, match="Expected JSON array"):
+        with pytest.raises(ExtractorError, match="Expected JSON array"):
             VulnDataset.from_json(output_path)
 
 
@@ -681,10 +681,10 @@ def test_parquet_extractor_direct_load():
 
 
 def test_parquet_extractor_file_not_found():
-    """ParquetExtractor raises FileNotFoundError for missing file."""
+    """ParquetExtractor raises ExtractorError for missing file."""
     extractor = ParquetExtractor("nonexistent.parquet")
 
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ExtractorError, match="not found"):
         extractor.extract()
 
 
@@ -838,7 +838,47 @@ class TestNVDExtractorProvenance:
         assert ds2._provenance.get("date_max") == original_max
 
 
-# Gzip format tests
+# Compression format tests
+
+
+def test_nvd_extractor_reads_zip(nvd_sample_path: Path) -> None:
+    """NVDExtractor reads .json.zip files correctly."""
+    import zipfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = Path(tmpdir) / "nvd_sample.json.zip"
+        raw = nvd_sample_path.read_bytes()
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("nvd_sample.json", raw)
+
+        extractor = NVDExtractor(str(zip_path))
+        dataset = extractor.extract()
+
+        assert len(dataset) == 5
+        assert "cve_id" in dataset.columns
+
+
+def test_nvd_extractor_zip_url_decompresses(nvd_sample_path: Path) -> None:
+    """NVDExtractor decompresses zip content fetched from URL-like .zip path."""
+    import zipfile
+    from io import BytesIO
+
+    # Create zip bytes in memory
+    raw = nvd_sample_path.read_bytes()
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("nvdcve-2.0-modified.json", raw)
+    zip_bytes = buf.getvalue()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = Path(tmpdir) / "nvdcve-2.0-modified.json.zip"
+        zip_path.write_bytes(zip_bytes)
+
+        extractor = NVDExtractor(str(zip_path))
+        dataset = extractor.extract()
+
+        assert len(dataset) == 5
+        assert "cve_id" in dataset.columns
 
 
 def test_nvd_extractor_reads_gzip(nvd_sample_path: Path) -> None:
@@ -953,13 +993,13 @@ def test_parquet_extractor_multi_file_upsert(tmp_path: Path) -> None:
         pytest.param(
             b"not valid json {{{",
             ".json",
-            Exception,
+            ExtractorError,
             id="invalid_json",
         ),
         pytest.param(
             b"",
             ".json",
-            Exception,
+            ExtractorError,
             id="empty_file",
         ),
         pytest.param(
@@ -985,3 +1025,73 @@ def test_nvd_extractor_malformed_input(
         else:
             dataset = extractor.extract()
             assert len(dataset) == 0
+
+
+# HTTP 404 and unrecognized content tests
+
+
+def test_nvd_extractor_missing_file_raises_extractor_error() -> None:
+    """NVDExtractor raises ExtractorError for missing local file."""
+    extractor = NVDExtractor("nonexistent_file_12345.json")
+    with pytest.raises(ExtractorError, match="nonexistent_file_12345"):
+        extractor.extract()
+
+
+def test_nvd_extractor_http_404_raises_extractor_error() -> None:
+    """NVDExtractor wraps HTTP 404 into clean ExtractorError without chained tracebacks."""
+    from unittest.mock import patch
+
+    from vulnflow.utils.http import HttpError
+
+    with patch("vulnflow.extractors.nvd.is_url", return_value=True):
+        with patch("vulnflow.extractors.nvd.HttpFetcher") as MockFetcher:
+            instance = MockFetcher.return_value
+            instance.fetch_sync.side_effect = HttpError(
+                "Failed to fetch https://example.com/nvd.json: 404 Not Found"
+            )
+
+            extractor = NVDExtractor("https://example.com/nvd.json")
+            with pytest.raises(ExtractorError, match="404") as exc_info:
+                extractor.extract()
+            # Chain must be suppressed (from None) so Jupyter shows one traceback
+            assert exc_info.value.__cause__ is None
+
+
+def test_nvd_extractor_http_error_wraps_as_extractor_error() -> None:
+    """NVDExtractor wraps generic HTTP errors into ExtractorError."""
+    from unittest.mock import patch
+
+    from vulnflow.utils.http import HttpError
+
+    with patch("vulnflow.extractors.nvd.is_url", return_value=True):
+        with patch("vulnflow.extractors.nvd.HttpFetcher") as MockFetcher:
+            instance = MockFetcher.return_value
+            instance.fetch_sync.side_effect = HttpError("Connection refused")
+
+            extractor = NVDExtractor("https://example.com/nvd.json")
+            with pytest.raises(ExtractorError, match="Connection refused"):
+                extractor.extract()
+
+
+def test_nvd_extractor_unrecognized_binary_raises_extractor_error() -> None:
+    """NVDExtractor raises ExtractorError for unrecognized binary content."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "mystery.json"
+        # Write random binary that isn't gz, zip, or valid JSON
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        extractor = NVDExtractor(str(path))
+        with pytest.raises(ExtractorError, match="Failed to parse"):
+            extractor.extract()
+
+
+def test_nvd_extractor_corrupt_zip_raises_extractor_error() -> None:
+    """NVDExtractor raises ExtractorError on corrupt .zip file."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        corrupt_path = Path(tmpdir) / "corrupt.json.zip"
+        # Write zip magic bytes followed by garbage
+        corrupt_path.write_bytes(b"PK\x03\x04" + b"\x00" * 20)
+
+        extractor = NVDExtractor(str(corrupt_path))
+        with pytest.raises(ExtractorError, match="Failed to decompress zip"):
+            extractor.extract()

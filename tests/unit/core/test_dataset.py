@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 
 from vulnflow.dataset import VulnDataset
+from vulnflow.exceptions import ExtractorError, LoaderError
 
 
 def test_dataset_from_nvd():
@@ -652,3 +653,68 @@ class TestProvenanceDateRangeMerge:
         merged = VulnDataset.merge([ds1, ds2])
         assert merged._provenance["date_min"] == "2024-01-01T00:00:00+00:00"
         assert merged._provenance["date_max"] == "2024-06-30T00:00:00+00:00"
+
+
+class TestErrorWrapping:
+    """Tests for consistent exception handling at API boundaries."""
+
+    def test_from_pandas_wraps_error_as_extractor_error(self) -> None:
+        """from_pandas() wraps internal errors as ExtractorError."""
+        with pytest.raises(ExtractorError):
+            VulnDataset.from_pandas(None)  # type: ignore[arg-type]
+
+    def test_from_pandas_suppresses_exception_chain(self) -> None:
+        """from_pandas() uses from None to suppress chained tracebacks."""
+        with pytest.raises(ExtractorError) as exc_info:
+            VulnDataset.from_pandas(None)  # type: ignore[arg-type]
+        assert exc_info.value.__cause__ is None
+
+    def test_from_polars_wraps_error_as_extractor_error(self) -> None:
+        """from_polars() wraps internal errors as ExtractorError."""
+        with pytest.raises(ExtractorError):
+            VulnDataset.from_polars(None)  # type: ignore[arg-type]
+
+    def test_from_polars_suppresses_exception_chain(self) -> None:
+        """from_polars() uses from None to suppress chained tracebacks."""
+        with pytest.raises(ExtractorError) as exc_info:
+            VulnDataset.from_polars(None)  # type: ignore[arg-type]
+        assert exc_info.value.__cause__ is None
+
+    def test_to_parquet_wraps_error_as_loader_error(self, tmp_path: Path) -> None:
+        """to_parquet() wraps internal errors as LoaderError."""
+        ds = VulnDataset()
+        ds.set_column("cve_id", np.array(["CVE-1"], dtype=object))
+        # Create a directory at the target path so write fails
+        target = tmp_path / "blocker.parquet"
+        target.mkdir()
+        with pytest.raises(LoaderError):
+            ds.to_parquet(target)
+
+    def test_to_parquet_suppresses_exception_chain(self, tmp_path: Path) -> None:
+        """to_parquet() uses from None to suppress chained tracebacks."""
+        ds = VulnDataset()
+        ds.set_column("cve_id", np.array(["CVE-1"], dtype=object))
+        target = tmp_path / "blocker.parquet"
+        target.mkdir()
+        with pytest.raises(LoaderError) as exc_info:
+            ds.to_parquet(target)
+        assert exc_info.value.__cause__ is None
+
+    def test_to_json_wraps_error_as_loader_error(self, tmp_path: Path) -> None:
+        """to_json() wraps internal errors as LoaderError."""
+        ds = VulnDataset()
+        ds.set_column("cve_id", np.array(["CVE-1"], dtype=object))
+        target = tmp_path / "blocker.json"
+        target.mkdir()
+        with pytest.raises(LoaderError):
+            ds.to_json(target)
+
+    def test_to_json_suppresses_exception_chain(self, tmp_path: Path) -> None:
+        """to_json() uses from None to suppress chained tracebacks."""
+        ds = VulnDataset()
+        ds.set_column("cve_id", np.array(["CVE-1"], dtype=object))
+        target = tmp_path / "blocker.json"
+        target.mkdir()
+        with pytest.raises(LoaderError) as exc_info:
+            ds.to_json(target)
+        assert exc_info.value.__cause__ is None

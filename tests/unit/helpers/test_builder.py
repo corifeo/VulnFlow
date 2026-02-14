@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from vulnflow.exceptions import PipelineError
 from vulnflow.extractors.nvd import NVDExtractor
 
 
@@ -194,13 +195,14 @@ class TestCacheBuilderBuild:
         assert "cvss_base_severity" in ds.columns
 
     def test_build_failure_raises(self):
-        """build() raises when extraction fails."""
+        """build() raises ExtractorError when extraction fails."""
+        from vulnflow.exceptions import ExtractorError
         from vulnflow.helpers.builder import CacheBuilder
 
         builder = CacheBuilder(modified_only=True)
         builder._urls = ["/nonexistent/file.json"]
 
-        with pytest.raises((FileNotFoundError, OSError, RuntimeError)):
+        with pytest.raises(ExtractorError):
             builder.build()
 
     def test_build_rejects_workers_param(self):
@@ -779,7 +781,7 @@ class TestQuery:
         assert "ExploitDBEnricher" in names
 
     def test_query_raises_on_none_dataset(self, monkeypatch):
-        """query() raises RuntimeError when API returns no results."""
+        """query() raises PipelineError when API returns no results."""
         import vulnflow.extractors.nvd_api as nvd_api_mod
         import vulnflow.pipeline as pipeline_mod
         from vulnflow.helpers.builder import CacheBuilder
@@ -796,7 +798,7 @@ class TestQuery:
             pipeline_mod, "VulnPipeline", MagicMock(return_value=mock_pipeline)
         )
 
-        with pytest.raises(RuntimeError, match="no results"):
+        with pytest.raises(PipelineError, match="no results"):
             CacheBuilder.query(
                 keyword="nonexistent",
                 quiet=True,
