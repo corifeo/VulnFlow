@@ -130,7 +130,9 @@ class ParquetExtractor(BaseExtractor):
         from vulnflow.dataset import VulnDataset
 
         if not path.exists():
-            raise FileNotFoundError(f"Parquet file not found: {path}")
+            from vulnflow.exceptions import ExtractorError
+
+            raise ExtractorError(f"Parquet file not found: {path}")
 
         table = pq.read_table(path)
 
@@ -267,7 +269,9 @@ class JSONExtractor(BaseExtractor):
         data = self._read_json_safely(path)
 
         if not isinstance(data, list):
-            raise ValueError(f"Expected JSON array, got {type(data).__name__}")
+            from vulnflow.exceptions import ExtractorError
+
+            raise ExtractorError(f"Expected JSON array, got {type(data).__name__}")
 
         if not data:
             return VulnDataset()

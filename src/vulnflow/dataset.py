@@ -278,15 +278,27 @@ class VulnDataset:
         """Load dataset from NVD JSON file.
 
         Args:
-            path: Path to NVD JSON file
+            path: Path to NVD JSON file or URL
 
         Returns:
             VulnDataset with records from NVD file
+
+        Raises:
+            ExtractorError: On any failure (missing file, HTTP 404,
+                bad format, corrupt archive, invalid JSON)
         """
+        from vulnflow.exceptions import ExtractorError
         from vulnflow.extractors.nvd import NVDExtractor
 
-        extractor = NVDExtractor(str(path))
-        return extractor.extract()
+        try:
+            extractor = NVDExtractor(str(path))
+            return extractor.extract()
+        except ExtractorError as e:
+            raise ExtractorError(str(e)) from None
+        except Exception as e:
+            raise ExtractorError(
+                f"Failed to load NVD data from {path}: {e}"
+            ) from None
 
     @classmethod
     def merge(cls, datasets: list[VulnDataset]) -> VulnDataset:
@@ -498,22 +510,44 @@ class VulnDataset:
 
         Args:
             path: Output file path
+
+        Raises:
+            LoaderError: On any failure (permission denied, I/O error)
         """
+        from vulnflow.exceptions import LoaderError
         from vulnflow.loaders.files import ParquetLoader
 
-        loader = ParquetLoader(path)
-        loader.load(self)
+        try:
+            loader = ParquetLoader(path)
+            loader.load(self)
+        except LoaderError as e:
+            raise LoaderError(str(e)) from None
+        except Exception as e:
+            raise LoaderError(
+                f"Failed to write Parquet to {path}: {e}"
+            ) from None
 
     def to_json(self, path: str | Path) -> None:
         """Export dataset to JSON file (lossless, no filtering).
 
         Args:
             path: Output file path
+
+        Raises:
+            LoaderError: On any failure (permission denied, I/O error)
         """
+        from vulnflow.exceptions import LoaderError
         from vulnflow.loaders.files import JSONLoader
 
-        loader = JSONLoader(path)
-        loader.load(self)
+        try:
+            loader = JSONLoader(path)
+            loader.load(self)
+        except LoaderError as e:
+            raise LoaderError(str(e)) from None
+        except Exception as e:
+            raise LoaderError(
+                f"Failed to write JSON to {path}: {e}"
+            ) from None
 
     @classmethod
     def from_parquet(cls, path: str | list[str]) -> VulnDataset:
@@ -545,10 +579,18 @@ class VulnDataset:
             >>> # Multi-file with delta update
             >>> dataset = VulnDataset.from_parquet(["cache.parquet", "delta.parquet"])
         """
+        from vulnflow.exceptions import ExtractorError
         from vulnflow.extractors.files import ParquetExtractor
 
-        extractor = ParquetExtractor(path)
-        return extractor.extract()
+        try:
+            extractor = ParquetExtractor(path)
+            return extractor.extract()
+        except ExtractorError as e:
+            raise ExtractorError(str(e)) from None
+        except Exception as e:
+            raise ExtractorError(
+                f"Failed to load Parquet from {path}: {e}"
+            ) from None
 
     @classmethod
     def from_json(cls, path: str | Path) -> VulnDataset:
@@ -563,10 +605,18 @@ class VulnDataset:
         Returns:
             VulnDataset with data from JSON file
         """
+        from vulnflow.exceptions import ExtractorError
         from vulnflow.extractors.files import JSONExtractor
 
-        extractor = JSONExtractor(str(path))
-        return extractor.extract()
+        try:
+            extractor = JSONExtractor(str(path))
+            return extractor.extract()
+        except ExtractorError as e:
+            raise ExtractorError(str(e)) from None
+        except Exception as e:
+            raise ExtractorError(
+                f"Failed to load JSON from {path}: {e}"
+            ) from None
 
     @classmethod
     def from_pandas(cls, dataframe: PandasDataFrame) -> VulnDataset:
@@ -577,11 +627,22 @@ class VulnDataset:
 
         Returns:
             VulnDataset with data from DataFrame
+
+        Raises:
+            ExtractorError: On any failure (invalid input, conversion error)
         """
+        from vulnflow.exceptions import ExtractorError
         from vulnflow.extractors.files import PandasExtractor
 
-        extractor = PandasExtractor(dataframe)
-        return extractor.extract()
+        try:
+            extractor = PandasExtractor(dataframe)
+            return extractor.extract()
+        except ExtractorError as e:
+            raise ExtractorError(str(e)) from None
+        except Exception as e:
+            raise ExtractorError(
+                f"Failed to load from pandas DataFrame: {e}"
+            ) from None
 
     def get_status_distribution(self) -> dict[str, int]:
         """Get distribution of nvd_status values.
@@ -607,8 +668,19 @@ class VulnDataset:
 
         Returns:
             VulnDataset with data from DataFrame
+
+        Raises:
+            ExtractorError: On any failure (invalid input, conversion error)
         """
+        from vulnflow.exceptions import ExtractorError
         from vulnflow.extractors.files import PolarsExtractor
 
-        extractor = PolarsExtractor(dataframe)
-        return extractor.extract()
+        try:
+            extractor = PolarsExtractor(dataframe)
+            return extractor.extract()
+        except ExtractorError as e:
+            raise ExtractorError(str(e)) from None
+        except Exception as e:
+            raise ExtractorError(
+                f"Failed to load from Polars DataFrame: {e}"
+            ) from None

@@ -373,7 +373,9 @@ class CacheBuilder:
             dataset = result.dataset
 
             if dataset is None:
-                raise RuntimeError(
+                from vulnflow.exceptions import PipelineError
+
+                raise PipelineError(
                     f"All {len(self._urls)} feeds failed; no data extracted"
                 )
 
@@ -462,7 +464,9 @@ class CacheBuilder:
             dataset = result.dataset
 
             if dataset is None:
-                raise RuntimeError("NVD API query returned no results")
+                from vulnflow.exceptions import PipelineError
+
+                raise PipelineError("NVD API query returned no results")
 
             return dataset
 

@@ -184,6 +184,6 @@ class BaseExtractor(ABC):
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
         except json.JSONDecodeError as e:
-            raise ExtractorError(f"Invalid JSON in {path}: {e}") from e
+            raise ExtractorError(f"Invalid JSON in {path}: {e}") from None
         except OSError as e:
-            raise ExtractorError(f"Cannot read file {path}: {e}") from e
+            raise ExtractorError(f"Cannot read file {path}: {e}") from None

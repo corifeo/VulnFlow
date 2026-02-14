@@ -141,7 +141,7 @@ def test_parquet_multi_file_missing_file_raises(tmp_path):
     # Try to load with missing file
     extractor = ParquetExtractor([str(file1), "nonexistent.parquet"])
 
-    with pytest.raises(FileNotFoundError, match="nonexistent.parquet"):
+    with pytest.raises(ExtractorError, match="nonexistent.parquet"):
         extractor.extract()
 
 
