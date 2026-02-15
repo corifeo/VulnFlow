@@ -35,6 +35,7 @@ class PipelineResult:
     successful_stages: list[str] = field(default_factory=list)
     failed_stages: list[str] = field(default_factory=list)
     duration: float = 0.0
+    timings: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -51,6 +52,7 @@ class VulnPipeline:
         strict: bool = False,
         *,
         quiet: bool = False,
+        timings: bool = False,
         extract_desc: str | None = None,
         transform_desc: str | None = None,
     ) -> PipelineResult:
@@ -64,7 +66,7 @@ class VulnPipeline:
         Returns:
             PipelineResult with dataset, metadata, and errors
         """
-        from vulnflow.utils.progress import _suppress_progress
+        from vulnflow.utils.progress import ProgressReporter, _suppress_progress
 
         suppress_token = None
         if quiet:
@@ -75,12 +77,25 @@ class VulnPipeline:
             errors: list[Exception] = []
             successful_stages: list[str] = []
             failed_stages: list[str] = []
+            stage_timings: dict[str, float] = {}
 
             # Stage 1: Extract (concurrent via ThreadPoolExecutor)
             if dataset is None and self.extractors:
-                dataset, ext_succ, ext_fail, ext_err = PipelineExecutor.run_extractors(
-                    self.extractors, desc=extract_desc
-                )
+                if timings:
+                    with ProgressReporter(
+                        extract_desc or "Processing feeds",
+                        total=len(self.extractors),
+                        unit="feeds",
+                        bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}{postfix}]",
+                    ) as ext_rpt:
+                        dataset, ext_succ, ext_fail, ext_err = PipelineExecutor.run_extractors(
+                            self.extractors, desc=extract_desc, reporter=ext_rpt
+                        )
+                    stage_timings.update(ext_rpt.timings)
+                else:
+                    dataset, ext_succ, ext_fail, ext_err = PipelineExecutor.run_extractors(
+                        self.extractors, desc=extract_desc
+                    )
                 successful_stages.extend(ext_succ)
                 failed_stages.extend(ext_fail)
                 errors.extend(ext_err)
@@ -94,8 +109,6 @@ class VulnPipeline:
                     nest_asyncio.apply()
                 except RuntimeError:
                     pass  # No running loop — normal case
-
-                from vulnflow.utils.progress import ProgressReporter
 
                 with ProgressReporter(
                     transform_desc or "Enriching & transforming",
@@ -112,6 +125,9 @@ class VulnPipeline:
                 failed_stages.extend(t_fail)
                 errors.extend(t_err)
 
+                if timings:
+                    stage_timings.update(rpt.timings)
+
                 # Record successful transforms in provenance
                 if dataset is not None:
                     for t_name in t_succ:
@@ -120,9 +136,18 @@ class VulnPipeline:
             # Stage 3: Load
             loader_outputs: dict[str, Any] = {}
             if self.loaders and dataset is not None:
-                loader_outputs, load_succ, load_fail, load_err = (
-                    PipelineExecutor.run_loaders(dataset, self.loaders)
-                )
+                if timings:
+                    with ProgressReporter(
+                        "Loading data", total=len(self.loaders), unit="loaders"
+                    ) as load_rpt:
+                        loader_outputs, load_succ, load_fail, load_err = (
+                            PipelineExecutor.run_loaders(dataset, self.loaders, reporter=load_rpt)
+                        )
+                    stage_timings.update(load_rpt.timings)
+                else:
+                    loader_outputs, load_succ, load_fail, load_err = (
+                        PipelineExecutor.run_loaders(dataset, self.loaders)
+                    )
                 successful_stages.extend(load_succ)
                 failed_stages.extend(load_fail)
                 errors.extend(load_err)
@@ -136,6 +161,7 @@ class VulnPipeline:
                 successful_stages=successful_stages,
                 failed_stages=failed_stages,
                 duration=duration,
+                timings=stage_timings,
             )
         finally:
             if suppress_token is not None:
