@@ -558,3 +558,61 @@ def test_reporter_bar_exit_clears_postfix() -> None:
         mock_bar.close.assert_called_once()
     finally:
         os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
+
+
+# =============================================================================
+# ProgressReporter — Timings Accumulation Tests
+# =============================================================================
+
+
+def test_reporter_accumulates_timings_on_completed() -> None:
+    """ProgressReporter.timings records duration for each completed stage."""
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "log"
+    try:
+        with ProgressReporter("Testing", total=2, unit="items") as rpt:
+            rpt.stage_started("A")
+            rpt.stage_completed("A", detail="100 records", duration=1.5)
+            rpt.stage_started("B")
+            rpt.stage_completed("B", duration=0.3)
+
+        assert rpt.timings == {"A": 1.5, "B": 0.3}
+    finally:
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
+
+
+def test_reporter_accumulates_timings_on_failed() -> None:
+    """ProgressReporter.timings records duration for failed stages too."""
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "log"
+    try:
+        with ProgressReporter("Testing", total=2, unit="items") as rpt:
+            rpt.stage_started("A")
+            rpt.stage_completed("A", duration=1.0)
+            rpt.stage_started("B")
+            rpt.stage_failed("B", error="timeout", duration=2.0)
+
+        assert rpt.timings == {"A": 1.0, "B": 2.0}
+    finally:
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
+
+
+def test_reporter_timings_uses_elapsed_when_no_duration() -> None:
+    """ProgressReporter.timings uses internal timer when duration not passed."""
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "log"
+    try:
+        with ProgressReporter("Testing", total=1, unit="items") as rpt:
+            rpt.stage_started("A")
+            time.sleep(0.05)
+            rpt.stage_completed("A")
+
+        assert "A" in rpt.timings
+        assert rpt.timings["A"] >= 0.04
+    finally:
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
+
+
+def test_reporter_timings_empty_by_default() -> None:
+    """ProgressReporter.timings starts as empty dict."""
+    with ProgressReporter("Testing", total=0, unit="items") as rpt:
+        pass
+
+    assert rpt.timings == {}
