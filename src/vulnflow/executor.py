@@ -267,6 +267,7 @@ class PipelineExecutor:
     def run_loaders(
         dataset: VulnDataset,
         loaders: list[BaseLoader],
+        reporter: ProgressReporter | None = None,
     ) -> tuple[dict[str, Any], list[str], list[str], list[Exception]]:
         """Execute loaders sequentially and collect outputs.
 
@@ -275,6 +276,9 @@ class PipelineExecutor:
         Args:
             dataset: Dataset to load
             loaders: List of loader instances
+            reporter: Optional ProgressReporter for stage tracking.
+                When provided, the caller owns the lifecycle (no ``with``).
+                When None, an internal reporter is created and managed.
 
         Returns:
             Tuple of (loader_outputs, successful_stages, failed_stages, errors)
@@ -282,8 +286,6 @@ class PipelineExecutor:
         Raises:
             Exception: If any loader fails
         """
-        from vulnflow.utils.progress import ProgressReporter
-
         if not loaders:
             return {}, [], [], []
 
@@ -293,9 +295,7 @@ class PipelineExecutor:
         errors: list[Exception] = []
         record_count = len(dataset)
 
-        with ProgressReporter(
-            "Loading data", total=len(loaders), unit="loaders"
-        ) as rpt:
+        def _run_with_reporter(rpt: ProgressReporter) -> None:
             for loader in loaders:
                 loader_name = PipelineExecutor._get_stage_name(loader)
                 rpt.stage_started(loader_name)
@@ -311,5 +311,15 @@ class PipelineExecutor:
                     errors.append(e)
                     rpt.stage_failed(loader_name, error=str(e))
                     raise
+
+        if reporter is not None:
+            _run_with_reporter(reporter)
+        else:
+            from vulnflow.utils.progress import ProgressReporter as _ProgressReporter
+
+            with _ProgressReporter(
+                "Loading data", total=len(loaders), unit="loaders"
+            ) as rpt:
+                _run_with_reporter(rpt)
 
         return loader_outputs, successful, failed, errors
