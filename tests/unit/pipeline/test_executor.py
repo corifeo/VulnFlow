@@ -9,6 +9,7 @@ Dependencies: dataset, extractors, transforms, loaders
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -17,44 +18,44 @@ import numpy as np
 import pytest
 
 from vulnflow.dataset import VulnDataset
-from vulnflow.executor import PipelineExecutor, get_stage_name
+from vulnflow.executor import PipelineExecutor
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.loaders.base import BaseLoader
 
 # =============================================================================
-# get_stage_name Tests
+# _get_stage_name Tests
 # =============================================================================
 
 
 def test_get_stage_name_prefers_label():
-    """get_stage_name() prefers label over name."""
+    """_get_stage_name() prefers label over name."""
 
     class TestStage:
         name = "generic"
         label = "nvdcve-2.0-2023"
 
     obj = TestStage()
-    assert get_stage_name(obj) == "nvdcve-2.0-2023"
+    assert PipelineExecutor._get_stage_name(obj) == "nvdcve-2.0-2023"
 
 
 def test_get_stage_name_falls_back_to_name():
-    """get_stage_name() falls back to name when no label."""
+    """_get_stage_name() falls back to name when no label."""
 
     class TestStage:
         name = "custom_name"
 
     obj = TestStage()
-    assert get_stage_name(obj) == "custom_name"
+    assert PipelineExecutor._get_stage_name(obj) == "custom_name"
 
 
 def test_get_stage_name_fallback_to_class_name():
-    """get_stage_name() falls back to class name."""
+    """_get_stage_name() falls back to class name."""
 
     class TestStage:
         pass
 
     obj = TestStage()
-    assert get_stage_name(obj) == "TestStage"
+    assert PipelineExecutor._get_stage_name(obj) == "TestStage"
 
 
 # =============================================================================
@@ -374,6 +375,29 @@ def test_run_extractors_concurrent_failure_raises():
         PipelineExecutor.run_extractors(extractors)
 
 
+def test_run_extractors_populates_reporter_timings(nvd_sample_path: Path):
+    """run_extractors() populates reporter.timings when reporter is provided."""
+    from vulnflow.extractors.nvd import NVDExtractor
+    from vulnflow.utils.progress import ProgressReporter
+
+    ext = NVDExtractor(str(nvd_sample_path))
+
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "log"
+    try:
+        with ProgressReporter("Test", total=1, unit="feeds") as rpt:
+            dataset, successful, failed, errors = PipelineExecutor.run_extractors(
+                [ext], reporter=rpt
+            )
+    finally:
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
+
+    assert len(dataset) == 5
+    assert len(rpt.timings) == 1
+    stage_name = successful[0]
+    assert stage_name in rpt.timings
+    assert rpt.timings[stage_name] >= 0
+
+
 # =============================================================================
 # run_loaders Tests
 # =============================================================================
@@ -465,13 +489,12 @@ def test_run_loaders_uses_name_attribute():
 
 def test_extractor_detail_includes_timing_breakdown():
     """_extractor_detail() returns detail and breakdown with sub-timings >= 0.1s."""
-    from vulnflow.executor import _extractor_detail
 
     class FakeExtractor:
         _timings = {"download": 10.5, "decompress": 1.2, "json": 0.04, "populate": 4.6}
 
     ext = FakeExtractor()
-    detail, breakdown = _extractor_detail(ext, 38951)
+    detail, breakdown = PipelineExecutor._extractor_detail(ext, 38951)
 
     assert detail == "38,951 CVEs"
     assert "download 10.5s" in breakdown
@@ -483,13 +506,12 @@ def test_extractor_detail_includes_timing_breakdown():
 
 def test_extractor_detail_no_timings():
     """_extractor_detail() falls back to count-only when no _timings."""
-    from vulnflow.executor import _extractor_detail
 
     class FakeExtractor:
         pass
 
     ext = FakeExtractor()
-    detail, breakdown = _extractor_detail(ext, 1000)
+    detail, breakdown = PipelineExecutor._extractor_detail(ext, 1000)
 
     assert detail == "1,000 CVEs"
     assert breakdown == ""
@@ -497,13 +519,12 @@ def test_extractor_detail_no_timings():
 
 def test_extractor_detail_all_sub_timings_below_threshold():
     """_extractor_detail() omits breakdown when all sub-timings < 0.1s."""
-    from vulnflow.executor import _extractor_detail
 
     class FakeExtractor:
         _timings = {"download": 0.05, "decompress": 0.01, "json": 0.02, "populate": 0.03}
 
     ext = FakeExtractor()
-    detail, breakdown = _extractor_detail(ext, 500)
+    detail, breakdown = PipelineExecutor._extractor_detail(ext, 500)
 
     assert detail == "500 CVEs"
     assert breakdown == ""
