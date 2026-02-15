@@ -526,6 +526,44 @@ def test_pipeline_multi_extract_transform_load(tmp_path):
     assert json_out.exists()
 
 
+def test_pipeline_run_collects_timings(tmp_path):
+    """pipeline.run(timings=True) populates PipelineResult.timings."""
+    from vulnflow.extractors.nvd import NVDExtractor
+    from vulnflow.loaders.files import ParquetLoader
+    from vulnflow.transforms.flatten.cvss import CVSSFlattenTransform
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[CVSSFlattenTransform()],
+        loaders=[ParquetLoader(tmp_path / "out.parquet")],
+    )
+
+    result = pipeline.run(timings=True, quiet=True)
+
+    assert result.timings  # non-empty
+    # Should have extractor, transform, and loader timings
+    assert any("NVDExtractor" in k or "nvd_sample" in k for k in result.timings)
+    assert "CVSSFlattenTransform" in result.timings
+    assert any("ParquetLoader" in k for k in result.timings)
+    # All values should be non-negative floats
+    for v in result.timings.values():
+        assert isinstance(v, float)
+        assert v >= 0
+
+
+def test_pipeline_run_timings_off_by_default():
+    """pipeline.run() returns empty timings by default."""
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+    )
+
+    result = pipeline.run(quiet=True)
+
+    assert result.timings == {}
+
+
 @pytest.mark.asyncio
 async def test_pipeline_run_from_async_context():
     """pipeline.run() works from within a running event loop (e.g. Jupyter)."""
