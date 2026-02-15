@@ -1,0 +1,288 @@
+{
+  "DocumentTitle": {
+    "Value": "April 2025 Security Updates"
+  },
+  "DocumentType": {
+    "Value": "Security Update"
+  },
+  "DocumentPublisher": {
+    "Type": 0
+  },
+  "DocumentTracking": {
+    "Identification": {
+      "ID": { "Value": "2025-Apr" },
+      "Alias": { "Value": "2025-Apr" }
+    },
+    "Status": 2,
+    "Version": "1.0",
+    "InitialReleaseDate": "2025-04-08T07:00:00",
+    "CurrentReleaseDate": "2025-04-08T07:00:00"
+  },
+  "ProductTree": {
+    "Branch": [
+      {
+        "Type": 0,
+        "Name": "Microsoft",
+        "Items": [
+          {
+            "Type": 1,
+            "Name": "Windows",
+            "Items": [
+              {
+                "Type": 10,
+                "Name": "Windows 11 Version 24H2 for x64-based Systems",
+                "Items": [
+                  {
+                    "ProductID": "11568",
+                    "Value": "Windows 11 Version 24H2 for x64-based Systems"
+                  }
+                ]
+              },
+              {
+                "Type": 10,
+                "Name": "Windows 11 Version 23H2 for x64-based Systems",
+                "Items": [
+                  {
+                    "ProductID": "11569",
+                    "Value": "Windows 11 Version 23H2 for x64-based Systems"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Type": 1,
+            "Name": "Microsoft Office",
+            "Items": [
+              {
+                "Type": 10,
+                "Name": "Microsoft Office 2019",
+                "Items": [
+                  {
+                    "ProductID": "11570",
+                    "Value": "Microsoft Office 2019"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "FullProductName": [
+      { "ProductID": "11568", "Value": "Windows 11 Version 24H2 for x64-based Systems" },
+      { "ProductID": "11569", "Value": "Windows 11 Version 23H2 for x64-based Systems" },
+      { "ProductID": "11570", "Value": "Microsoft Office 2019" }
+    ]
+  },
+  "Vulnerability": [
+    {
+      "Title": { "Value": "Windows Telephony Service Remote Code Execution Vulnerability" },
+      "CVE": "CVE-2025-27745",
+      "Notes": [
+        {
+          "Title": "Description",
+          "Type": 1,
+          "Ordinal": "0",
+          "Value": "A remote code execution vulnerability exists in Windows Telephony Service. An attacker who successfully exploited this vulnerability could execute arbitrary code on the target system."
+        },
+        {
+          "Title": "FAQ",
+          "Type": 2,
+          "Ordinal": "10",
+          "Value": "How could an attacker exploit this vulnerability?"
+        }
+      ],
+      "CWE": {
+        "ID": "CWE-122",
+        "Value": "Heap-based Buffer Overflow"
+      },
+      "ProductStatuses": [
+        {
+          "Type": 0,
+          "ProductID": ["11568", "11569"]
+        }
+      ],
+      "Threats": [
+        {
+          "Type": 0,
+          "Description": { "Value": "Remote Code Execution" },
+          "ProductID": ["11568", "11569"]
+        },
+        {
+          "Type": 1,
+          "Description": { "Value": "Exploitation Detected" },
+          "ProductID": ["11568", "11569"]
+        },
+        {
+          "Type": 3,
+          "Description": { "Value": "Critical" },
+          "ProductID": ["11568"]
+        },
+        {
+          "Type": 3,
+          "Description": { "Value": "Important" },
+          "ProductID": ["11569"]
+        }
+      ],
+      "CVSSScoreSets": [
+        {
+          "BaseScore": 9.8,
+          "TemporalScore": 8.5,
+          "Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/E:F/RL:O/RC:C",
+          "ProductID": ["11568", "11569"]
+        }
+      ],
+      "Remediations": [
+        {
+          "Type": 1,
+          "Description": { "Value": "5025221" },
+          "URL": "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5025221",
+          "ProductID": ["11568"],
+          "RestartRequired": { "Value": "Yes" },
+          "FixedBuild": "10.0.26100.3775",
+          "Supercedence": "5023696",
+          "SubType": "Security Update"
+        },
+        {
+          "Type": 1,
+          "Description": { "Value": "5025222" },
+          "URL": "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5025222",
+          "ProductID": ["11569"],
+          "RestartRequired": { "Value": "Yes" },
+          "SubType": "Security Update"
+        }
+      ],
+      "Acknowledgments": [
+        {
+          "Name": [{ "Value": "John Doe" }],
+          "URL": "https://example.com/researcher"
+        }
+      ]
+    },
+    {
+      "Title": { "Value": "Microsoft Office Elevation of Privilege Vulnerability" },
+      "CVE": "CVE-2025-27746",
+      "Notes": [
+        {
+          "Title": "Description",
+          "Type": 1,
+          "Ordinal": "0",
+          "Value": "An elevation of privilege vulnerability exists in Microsoft Office. An attacker who successfully exploited this vulnerability could gain elevated privileges."
+        }
+      ],
+      "CWE": {
+        "ID": "CWE-269",
+        "Value": "Improper Privilege Management"
+      },
+      "ProductStatuses": [
+        {
+          "Type": 0,
+          "ProductID": ["11570"]
+        }
+      ],
+      "Threats": [
+        {
+          "Type": 0,
+          "Description": { "Value": "Elevation of Privilege" },
+          "ProductID": ["11570"]
+        },
+        {
+          "Type": 1,
+          "Description": { "Value": "Publicly Disclosed" },
+          "ProductID": ["11570"]
+        },
+        {
+          "Type": 3,
+          "Description": { "Value": "Important" },
+          "ProductID": ["11570"]
+        }
+      ],
+      "CVSSScoreSets": [
+        {
+          "BaseScore": 7.8,
+          "TemporalScore": 6.8,
+          "Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+          "ProductID": ["11570"]
+        }
+      ],
+      "Remediations": [
+        {
+          "Type": 1,
+          "Description": { "Value": "5025300" },
+          "URL": "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5025300",
+          "ProductID": ["11570"],
+          "SubType": "Security Update"
+        }
+      ],
+      "Acknowledgments": []
+    },
+    {
+      "Title": { "Value": "Windows Kernel Information Disclosure Vulnerability" },
+      "CVE": "CVE-2025-27747",
+      "Notes": [
+        {
+          "Title": "Description",
+          "Type": 1,
+          "Ordinal": "0",
+          "Value": "An information disclosure vulnerability exists in the Windows Kernel. An attacker who successfully exploited this vulnerability could read kernel memory."
+        }
+      ],
+      "CWE": {
+        "ID": "CWE-200",
+        "Value": "Exposure of Sensitive Information to an Unauthorized Actor"
+      },
+      "ProductStatuses": [
+        {
+          "Type": 0,
+          "ProductID": ["11568", "11569"]
+        }
+      ],
+      "Threats": [
+        {
+          "Type": 0,
+          "Description": { "Value": "Information Disclosure" },
+          "ProductID": ["11568", "11569"]
+        },
+        {
+          "Type": 1,
+          "Description": { "Value": "Exploitation Less Likely" },
+          "ProductID": ["11568", "11569"]
+        },
+        {
+          "Type": 3,
+          "Description": { "Value": "Important" },
+          "ProductID": ["11568"]
+        },
+        {
+          "Type": 3,
+          "Description": { "Value": "Important" },
+          "ProductID": ["11569"]
+        }
+      ],
+      "CVSSScoreSets": [
+        {
+          "BaseScore": 5.5,
+          "TemporalScore": 4.8,
+          "Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N/E:U/RL:O/RC:C",
+          "ProductID": ["11568", "11569"]
+        }
+      ],
+      "Remediations": [
+        {
+          "Type": 1,
+          "Description": { "Value": "5025221" },
+          "URL": "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5025221",
+          "ProductID": ["11568", "11569"],
+          "RestartRequired": { "Value": "Yes" },
+          "SubType": "Security Update"
+        }
+      ],
+      "Acknowledgments": [
+        {
+          "Name": [{ "Value": "Jane Smith" }]
+        }
+      ]
+    }
+  ]
+}

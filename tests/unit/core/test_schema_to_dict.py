@@ -70,6 +70,7 @@ class TestCVSSv3EntryToDict:
             "source_url",
             "published_at",
             "updated_at",
+            "metadata",
         }
 
     def test_to_dict_does_not_contain_v4_fields(self) -> None:
@@ -169,6 +170,7 @@ class TestCVSSv4EntryToDict:
             "source_url",
             "published_at",
             "updated_at",
+            "metadata",
         }
 
     def test_to_dict_does_not_contain_v3_fields(self) -> None:
@@ -281,7 +283,9 @@ class TestCWEEntryToDict:
             name="Deserialization of Untrusted Data",
             category_id="CWE-913",
             abstraction_level="Base",
-            consequences=[{"scopes": ["Integrity"], "impacts": ["Execute Unauthorized Code"]}],
+            consequences=[
+                {"scopes": ["Integrity"], "impacts": ["Execute Unauthorized Code"]}
+            ],
             applicable_platforms=["Java", "Python"],
             modes_of_introduction=["Implementation"],
         )
