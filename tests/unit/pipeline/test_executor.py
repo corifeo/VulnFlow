@@ -482,6 +482,30 @@ def test_run_loaders_uses_name_attribute():
     assert outputs["custom_output_key"] == {"result": "success"}
 
 
+def test_run_loaders_populates_reporter_timings(tmp_path):
+    """run_loaders() populates reporter.timings when reporter is provided."""
+    from vulnflow.loaders.files import ParquetLoader
+    from vulnflow.utils.progress import ProgressReporter
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    loader = ParquetLoader(tmp_path / "out.parquet")
+
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "log"
+    try:
+        with ProgressReporter("Test", total=1, unit="loaders") as rpt:
+            outputs, successful, failed, errors = PipelineExecutor.run_loaders(
+                dataset, [loader], reporter=rpt
+            )
+    finally:
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
+
+    assert len(outputs) == 1
+    assert len(rpt.timings) == 1
+    stage_name = successful[0]
+    assert stage_name in rpt.timings
+    assert rpt.timings[stage_name] >= 0
+
+
 # =============================================================================
 # Extractor Timing Detail Tests
 # =============================================================================
