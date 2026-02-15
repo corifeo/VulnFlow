@@ -190,7 +190,7 @@ class VulnDataset:
             raise KeyError(msg)
 
         # Validate lengths
-        for name, data in columns.items(): # noqa: B007
+        for name, data in columns.items():  # noqa: B007
             if self._data and len(data) != len(self):
                 msg = f"Column length mismatch: expected {len(self)}, got {len(data)}"
                 raise ValueError(msg)
@@ -296,9 +296,7 @@ class VulnDataset:
         except ExtractorError as e:
             raise ExtractorError(str(e)) from None
         except Exception as e:
-            raise ExtractorError(
-                f"Failed to load NVD data from {path}: {e}"
-            ) from None
+            raise ExtractorError(f"Failed to load NVD data from {path}: {e}") from None
 
     @classmethod
     def merge(cls, datasets: list[VulnDataset]) -> VulnDataset:
@@ -478,7 +476,9 @@ class VulnDataset:
         """
         from vulnflow.loaders.dataframe import PandasLoader
 
-        return PandasLoader(include_nested=include_nested, start=start, end=end, **kwargs).load(self)
+        return PandasLoader(
+            include_nested=include_nested, start=start, end=end, **kwargs
+        ).load(self)
 
     def to_polars(
         self,
@@ -503,7 +503,9 @@ class VulnDataset:
         """
         from vulnflow.loaders.dataframe import PolarsLoader
 
-        return PolarsLoader(include_nested=include_nested, start=start, end=end, **kwargs).load(self)
+        return PolarsLoader(
+            include_nested=include_nested, start=start, end=end, **kwargs
+        ).load(self)
 
     def to_parquet(self, path: str | Path) -> None:
         """Export dataset to Parquet file (lossless, no filtering).
@@ -523,9 +525,7 @@ class VulnDataset:
         except LoaderError as e:
             raise LoaderError(str(e)) from None
         except Exception as e:
-            raise LoaderError(
-                f"Failed to write Parquet to {path}: {e}"
-            ) from None
+            raise LoaderError(f"Failed to write Parquet to {path}: {e}") from None
 
     def to_json(self, path: str | Path) -> None:
         """Export dataset to JSON file (lossless, no filtering).
@@ -545,9 +545,52 @@ class VulnDataset:
         except LoaderError as e:
             raise LoaderError(str(e)) from None
         except Exception as e:
-            raise LoaderError(
-                f"Failed to write JSON to {path}: {e}"
-            ) from None
+            raise LoaderError(f"Failed to write JSON to {path}: {e}") from None
+
+    @classmethod
+    def from_msrc(
+        cls,
+        *,
+        year: int | list[int] | None = None,
+        start: str | None = None,
+        end: str | None = None,
+        cache_dir: str = ".cache/msrc",
+        cache_ttl: int | None = None,
+        timeout: float = 120.0,
+    ) -> VulnDataset:
+        """Load dataset from MSRC Patch Tuesday API.
+
+        Args:
+            year: Filter to specific year(s).
+            start: Start month in YYYY-MM format (inclusive).
+            end: End month in YYYY-MM format (inclusive). Requires start.
+            cache_dir: Directory for HTTP response caching
+            cache_ttl: HTTP cache TTL in seconds
+            timeout: HTTP request timeout in seconds
+
+        Returns:
+            VulnDataset with MSRC vulnerability data
+
+        Raises:
+            ExtractorError: On HTTP failures or invalid parameters
+        """
+        from vulnflow.exceptions import ExtractorError
+        from vulnflow.extractors.msrc import MSRCExtractor
+
+        try:
+            extractor = MSRCExtractor(
+                year=year,
+                start=start,
+                end=end,
+                cache_dir=cache_dir,
+                cache_ttl=cache_ttl,
+                timeout=timeout,
+            )
+            return extractor.extract()
+        except ExtractorError as e:
+            raise ExtractorError(str(e)) from None
+        except Exception as e:
+            raise ExtractorError(f"Failed to load MSRC data: {e}") from None
 
     @classmethod
     def from_parquet(cls, path: str | list[str]) -> VulnDataset:
@@ -588,9 +631,7 @@ class VulnDataset:
         except ExtractorError as e:
             raise ExtractorError(str(e)) from None
         except Exception as e:
-            raise ExtractorError(
-                f"Failed to load Parquet from {path}: {e}"
-            ) from None
+            raise ExtractorError(f"Failed to load Parquet from {path}: {e}") from None
 
     @classmethod
     def from_json(cls, path: str | Path) -> VulnDataset:
@@ -614,9 +655,7 @@ class VulnDataset:
         except ExtractorError as e:
             raise ExtractorError(str(e)) from None
         except Exception as e:
-            raise ExtractorError(
-                f"Failed to load JSON from {path}: {e}"
-            ) from None
+            raise ExtractorError(f"Failed to load JSON from {path}: {e}") from None
 
     @classmethod
     def from_pandas(cls, dataframe: PandasDataFrame) -> VulnDataset:
@@ -640,9 +679,7 @@ class VulnDataset:
         except ExtractorError as e:
             raise ExtractorError(str(e)) from None
         except Exception as e:
-            raise ExtractorError(
-                f"Failed to load from pandas DataFrame: {e}"
-            ) from None
+            raise ExtractorError(f"Failed to load from pandas DataFrame: {e}") from None
 
     def get_status_distribution(self) -> dict[str, int]:
         """Get distribution of nvd_status values.
@@ -681,6 +718,4 @@ class VulnDataset:
         except ExtractorError as e:
             raise ExtractorError(str(e)) from None
         except Exception as e:
-            raise ExtractorError(
-                f"Failed to load from Polars DataFrame: {e}"
-            ) from None
+            raise ExtractorError(f"Failed to load from Polars DataFrame: {e}") from None

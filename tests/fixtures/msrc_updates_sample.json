@@ -1,0 +1,41 @@
+{
+  "@odata.context": "https://api.msrc.microsoft.com/$metadata#Updates",
+  "value": [
+    {
+      "ID": "2025-Jan",
+      "Alias": "2025-Jan",
+      "DocumentTitle": "January 2025 Security Updates",
+      "Severity": null,
+      "InitialReleaseDate": "2025-01-14T00:00:00Z",
+      "CurrentReleaseDate": "2025-01-20T00:00:00Z",
+      "CvrfUrl": "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2025-Jan"
+    },
+    {
+      "ID": "2025-Feb",
+      "Alias": "2025-Feb",
+      "DocumentTitle": "February 2025 Security Updates",
+      "Severity": null,
+      "InitialReleaseDate": "2025-02-11T00:00:00Z",
+      "CurrentReleaseDate": "2025-02-15T00:00:00Z",
+      "CvrfUrl": "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2025-Feb"
+    },
+    {
+      "ID": "2025-Mar",
+      "Alias": "2025-Mar",
+      "DocumentTitle": "March 2025 Security Updates",
+      "Severity": null,
+      "InitialReleaseDate": "2025-03-11T00:00:00Z",
+      "CurrentReleaseDate": "2025-03-15T00:00:00Z",
+      "CvrfUrl": "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2025-Mar"
+    },
+    {
+      "ID": "2025-Apr",
+      "Alias": "2025-Apr",
+      "DocumentTitle": "April 2025 Security Updates",
+      "Severity": null,
+      "InitialReleaseDate": "2025-04-08T00:00:00Z",
+      "CurrentReleaseDate": "2025-04-12T00:00:00Z",
+      "CvrfUrl": "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2025-Apr"
+    }
+  ]
+}
