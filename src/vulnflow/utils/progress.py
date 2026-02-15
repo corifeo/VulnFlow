@@ -167,6 +167,7 @@ class ProgressReporter:
         self._start_times: dict[str, float] = {}
         self._mode: ProgressMode = ProgressMode.LOG
         self._dot_count: int = 0
+        self.timings: dict[str, float] = {}
         self._old_tqdm_disable: str | None = None
 
     def stage_started(self, name: str) -> None:
@@ -198,6 +199,8 @@ class ProgressReporter:
             duration = self._elapsed(name)
         else:
             self._start_times.pop(name, None)
+
+        self.timings[name] = duration
 
         if self._mode is ProgressMode.SILENT:
             pass  # No output at all
@@ -233,6 +236,8 @@ class ProgressReporter:
             duration = self._elapsed(name)
         else:
             self._start_times.pop(name, None)
+
+        self.timings[name] = duration
 
         fail_line = f"  {_GLYPH_FAIL} {name}"
         if error:
