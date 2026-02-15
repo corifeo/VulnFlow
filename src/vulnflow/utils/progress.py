@@ -68,11 +68,13 @@ _GLYPH_DASH = "--"
 class ProgressMode(Enum):
     """Controls ProgressReporter output style.
 
-    QUIET: dots only (./!) -- for programmatic use
+    SILENT: no output at all -- for programmatic use (quiet=True)
+    QUIET: dots only (./!) -- for minimal interactive feedback
     BAR: tqdm bars only, no text lines -- for notebooks/interactive
     LOG: text lines only (+/x/>), no tqdm bars -- for CI/piped output
     """
 
+    SILENT = "silent"
     QUIET = "quiet"
     BAR = "bar"
     LOG = "log"
@@ -99,10 +101,10 @@ def _detect_mode() -> ProgressMode:
     3. Auto-detect: notebook/tty → BAR, otherwise → LOG
     """
     if _suppress_progress.get(False):
-        return ProgressMode.QUIET
+        return ProgressMode.SILENT
 
     env_mode = os.getenv("VULNFLOW_PROGRESS_MODE", "").lower()
-    if env_mode in ("quiet", "bar", "log"):
+    if env_mode in ("silent", "quiet", "bar", "log"):
         return ProgressMode(env_mode)
 
     if _is_notebook() or (hasattr(sys.stdout, "isatty") and sys.stdout.isatty()):
@@ -197,7 +199,9 @@ class ProgressReporter:
         else:
             self._start_times.pop(name, None)
 
-        if self._mode is ProgressMode.QUIET:
+        if self._mode is ProgressMode.SILENT:
+            pass  # No output at all
+        elif self._mode is ProgressMode.QUIET:
             print(".", end="", flush=True)  # noqa: T201
             self._dot_count += 1
         elif self._mode is ProgressMode.BAR:
@@ -235,7 +239,9 @@ class ProgressReporter:
             fail_line += f" {_GLYPH_DASH} {error}"
         fail_line += f" ({duration:.1f}s)"
 
-        if self._mode is ProgressMode.QUIET:
+        if self._mode is ProgressMode.SILENT:
+            pass  # No output at all
+        elif self._mode is ProgressMode.QUIET:
             print("!", end="", flush=True)  # noqa: T201
             self._dot_count += 1
         elif self._mode is ProgressMode.BAR:
@@ -276,7 +282,7 @@ class ProgressReporter:
                 **bar_kwargs,
             )
         else:
-            # LOG/QUIET: suppress inner bars via ContextVar + TQDM_DISABLE.
+            # SILENT/QUIET/LOG: suppress inner bars via ContextVar + TQDM_DISABLE.
             # Belt-and-suspenders: ContextVar may not propagate to threads.
             self._old_tqdm_disable = os.environ.get("TQDM_DISABLE")
             os.environ["TQDM_DISABLE"] = "1"
@@ -285,7 +291,7 @@ class ProgressReporter:
         return self
 
     def __exit__(self, *args: Any) -> None:
-        if self._mode is not ProgressMode.BAR:
+        if self._mode not in (ProgressMode.BAR,):
             # Restore TQDM_DISABLE env var
             if self._old_tqdm_disable is None:
                 os.environ.pop("TQDM_DISABLE", None)

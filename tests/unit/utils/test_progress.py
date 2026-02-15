@@ -174,8 +174,8 @@ def test_reporter_tracks_duration() -> None:
 def test_reporter_quiet_mode_prints_dots(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """ProgressReporter prints '.' per stage when _suppress_progress is set."""
-    token = _suppress_progress.set(True)
+    """ProgressReporter prints '.' per stage in QUIET mode."""
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "quiet"
     try:
         with ProgressReporter("Testing", total=3, unit="items") as rpt:
             rpt.stage_started("A")
@@ -185,7 +185,7 @@ def test_reporter_quiet_mode_prints_dots(
             rpt.stage_started("C")
             rpt.stage_completed("C")
     finally:
-        _suppress_progress.reset(token)
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
 
     captured = capsys.readouterr()
     assert captured.out == "..."
@@ -195,7 +195,7 @@ def test_reporter_quiet_mode_prints_bang_on_failure(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """ProgressReporter prints '!' for failed stages in quiet mode."""
-    token = _suppress_progress.set(True)
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "quiet"
     try:
         with ProgressReporter("Testing", total=3, unit="items") as rpt:
             rpt.stage_started("A")
@@ -205,7 +205,7 @@ def test_reporter_quiet_mode_prints_bang_on_failure(
             rpt.stage_started("C")
             rpt.stage_completed("C")
     finally:
-        _suppress_progress.reset(token)
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
 
     captured = capsys.readouterr()
     assert captured.out == ".!."
@@ -215,14 +215,14 @@ def test_reporter_quiet_mode_suppresses_summary(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """ProgressReporter.summary() is suppressed in quiet mode."""
-    token = _suppress_progress.set(True)
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "quiet"
     try:
         with ProgressReporter("Testing", total=1, unit="items") as rpt:
             rpt.stage_started("A")
             rpt.stage_completed("A")
             rpt.summary("55,034 CVEs total")
     finally:
-        _suppress_progress.reset(token)
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
 
     captured = capsys.readouterr()
     assert "CVEs" not in captured.out
@@ -233,7 +233,7 @@ def test_reporter_quiet_mode_no_unicode(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Quiet mode output contains no Unicode — safe for cp1252 consoles."""
-    token = _suppress_progress.set(True)
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "quiet"
     try:
         with ProgressReporter("Testing", total=2, unit="items") as rpt:
             rpt.stage_started("A")
@@ -241,10 +241,36 @@ def test_reporter_quiet_mode_no_unicode(
             rpt.stage_started("B")
             rpt.stage_failed("B", error="crash")
     finally:
-        _suppress_progress.reset(token)
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
 
     captured = capsys.readouterr()
     assert captured.out.isascii()
+
+
+# =============================================================================
+# ProgressReporter — SILENT Mode Tests
+# =============================================================================
+
+
+def test_reporter_silent_mode_no_output(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """ProgressReporter produces zero output in SILENT mode (_suppress_progress)."""
+    token = _suppress_progress.set(True)
+    try:
+        with ProgressReporter("Testing", total=3, unit="items") as rpt:
+            rpt.stage_started("A")
+            rpt.stage_completed("A", detail="100 records")
+            rpt.stage_started("B")
+            rpt.stage_failed("B", error="timeout")
+            rpt.stage_started("C")
+            rpt.stage_completed("C")
+            rpt.summary("done")
+    finally:
+        _suppress_progress.reset(token)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
 
 
 # =============================================================================
@@ -396,11 +422,11 @@ def test_reporter_bar_format_parameter() -> None:
 # =============================================================================
 
 
-def test_detect_mode_returns_quiet_when_suppressed() -> None:
-    """_detect_mode() returns QUIET when _suppress_progress ContextVar is True."""
+def test_detect_mode_returns_silent_when_suppressed() -> None:
+    """_detect_mode() returns SILENT when _suppress_progress ContextVar is True."""
     token = _suppress_progress.set(True)
     try:
-        assert _detect_mode() is ProgressMode.QUIET
+        assert _detect_mode() is ProgressMode.SILENT
     finally:
         _suppress_progress.reset(token)
 

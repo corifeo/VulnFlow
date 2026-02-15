@@ -46,6 +46,33 @@ NESTED_COLUMNS = frozenset(
     }
 )
 
+# Known datetime column suffixes for coercion
+_DATETIME_SUFFIXES = ("_at", "_timestamp", "_date", "_added", "_due_date")
+
+
+def _coerce_datetime_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert object-dtype columns containing datetime objects to datetime64[us, UTC].
+
+    Pandas doesn't auto-convert object arrays of Python datetime objects.
+    This detects datetime columns by suffix and sample inspection, then
+    converts to proper datetime64 for correct comparison and filtering.
+    """
+    import pandas as pd_
+
+    for col in df.columns:
+        if df[col].dtype != object:
+            continue
+        # Check by column name suffix
+        is_datetime_col = any(col.endswith(s) for s in _DATETIME_SUFFIXES)
+        if not is_datetime_col:
+            # Check by sampling first non-null value
+            first_val = df[col].dropna().iloc[0] if df[col].notna().any() else None
+            if first_val is not None and isinstance(first_val, datetime):
+                is_datetime_col = True
+        if is_datetime_col:
+            df[col] = pd_.to_datetime(df[col], utc=True)
+    return df
+
 
 # ============================================================================
 # DataFrame Loaders
@@ -64,6 +91,7 @@ class PandasLoader:
     """
 
     format: str = "pandas"
+    name: str = "PandasLoader"
 
     def __init__(
         self,
@@ -109,9 +137,11 @@ class PandasLoader:
             data = {
                 k: v[mask] for k, v in dataset._data.items() if k not in NESTED_COLUMNS
             }
-            return pd.DataFrame(data)
+        else:
+            data = {k: v[mask] for k, v in dataset._data.items()}
 
-        return pd.DataFrame({k: v[mask] for k, v in dataset._data.items()})
+        df = pd.DataFrame(data)
+        return _coerce_datetime_columns(df)
 
 
 @Registry.register_loader("polars")
@@ -128,6 +158,7 @@ class PolarsLoader:
     """
 
     format: str = "polars"
+    name: str = "PolarsLoader"
 
     def __init__(
         self,

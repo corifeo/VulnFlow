@@ -29,6 +29,56 @@ def test_parquet_loader_writes_file(tmp_path):
     assert result["record_count"] == 5
 
 
+def test_parquet_loader_handles_mixed_datetime_string(tmp_path):
+    """ParquetLoader handles object arrays with mixed datetime and string values."""
+    from datetime import UTC, datetime
+
+    import numpy as np
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Simulate what EventInference produces: mix of datetime objects and ISO strings
+    mixed = np.array(
+        [
+            datetime(2024, 1, 15, tzinfo=UTC),
+            "2024-02-20",
+            None,
+            datetime(2024, 3, 10, tzinfo=UTC),
+            "2024-04-05T12:00:00+00:00",
+        ],
+        dtype=object,
+    )
+    dataset.set_column("event_v_at", mixed)
+
+    output_path = tmp_path / "mixed.parquet"
+    loader = ParquetLoader(output_path)
+    result = loader.load(dataset)
+
+    assert output_path.exists()
+    assert result["record_count"] == 5
+
+
+def test_parquet_loader_handles_string_datetime_column(tmp_path):
+    """ParquetLoader converts string-only datetime columns by name suffix."""
+    import numpy as np
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+
+    # Simulate KEVFlattenTransform: all strings in a datetime-named column
+    dates = np.array(
+        ["2024-01-15", "2024-02-20", None, "2024-03-10", "2024-04-05"],
+        dtype=object,
+    )
+    dataset.set_column("kev_date_added", dates)
+
+    output_path = tmp_path / "string_dates.parquet"
+    loader = ParquetLoader(output_path)
+    result = loader.load(dataset)
+
+    assert output_path.exists()
+    assert result["record_count"] == 5
+
+
 def test_parquet_loader_in_pipeline(tmp_path):
     """Pipeline with ParquetLoader writes file."""
     from vulnflow.extractors.nvd import NVDExtractor
@@ -44,7 +94,7 @@ def test_parquet_loader_in_pipeline(tmp_path):
 
     assert output_path.exists()
     assert len(result.dataset) == 5
-    assert "parquet" in result.loader_outputs  # Uses name attribute, not class name
+    assert any("ParquetLoader" in k for k in result.loader_outputs)  # Uses label property
 
 
 def test_base_loader_validates_format_attribute() -> None:

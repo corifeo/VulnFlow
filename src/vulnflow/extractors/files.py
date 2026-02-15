@@ -228,6 +228,43 @@ class ParquetExtractor(BaseExtractor):
         for col, array in merged_data.items():
             result._data[col] = array[unique_indices]
 
+        # Merge provenance from all input datasets
+        import copy
+
+        all_extractors: list[str] = []
+        all_transforms: list[str] = []
+        created_dates: list[str] = []
+
+        for ds in datasets:
+            for ext in ds._provenance.get("extractors", []):
+                if ext not in all_extractors:
+                    all_extractors.append(ext)
+            for tfm in ds._provenance.get("transforms", []):
+                if tfm not in all_transforms:
+                    all_transforms.append(tfm)
+            created_dates.append(ds._provenance.get("created_at", ""))
+
+        result._provenance["extractors"] = all_extractors
+        result._provenance["transforms"] = all_transforms
+        if created_dates:
+            result._provenance["created_at"] = min(d for d in created_dates if d)
+
+        # Merge date ranges
+        date_mins = [
+            ds._provenance["date_min"]
+            for ds in datasets
+            if "date_min" in ds._provenance
+        ]
+        date_maxes = [
+            ds._provenance["date_max"]
+            for ds in datasets
+            if "date_max" in ds._provenance
+        ]
+        if date_mins:
+            result._provenance["date_min"] = min(date_mins)
+        if date_maxes:
+            result._provenance["date_max"] = max(date_maxes)
+
         return result
 
 

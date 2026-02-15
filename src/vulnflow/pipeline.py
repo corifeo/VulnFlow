@@ -112,6 +112,11 @@ class VulnPipeline:
                 failed_stages.extend(t_fail)
                 errors.extend(t_err)
 
+                # Record successful transforms in provenance
+                if dataset is not None:
+                    for t_name in t_succ:
+                        dataset._record_provenance(transform=t_name)
+
             # Stage 3: Load
             loader_outputs: dict[str, Any] = {}
             if self.loaders and dataset is not None:
