@@ -259,6 +259,8 @@ class NVDAPIExtractor(BaseExtractor):
         # No chunking needed - single pass with original params
         return [(None, None)]
 
+    _MAX_PAGES: int = 50
+
     def _fetch_chunk(
         self,
         fetcher: HttpFetcher,
@@ -281,9 +283,18 @@ class NVDAPIExtractor(BaseExtractor):
         start_index = 0
         total_results: int | None = None
         pbar = None
+        page_count = 0
 
         try:
             while True:
+                page_count += 1
+                if page_count > self._MAX_PAGES:
+                    logger.warning(
+                        "NVD API: hit max page limit (%d), stopping pagination",
+                        self._MAX_PAGES,
+                    )
+                    break
+
                 # Build query params for this page
                 query_params = build_query_params(
                     cve_id=self._cve_id,
@@ -305,6 +316,12 @@ class NVDAPIExtractor(BaseExtractor):
                 # Build URL with query string
                 url = self._build_url(query_params)
 
+                logger.info(
+                    "NVD API: fetching page %d (startIndex=%d)",
+                    page_count,
+                    start_index,
+                )
+
                 # Fetch the page
                 content, _ = fetcher.fetch_sync(
                     url,
@@ -315,7 +332,7 @@ class NVDAPIExtractor(BaseExtractor):
 
                 vulns.extend(page_vulns)
 
-                # Update total from first page response
+                # Update total on every page (API may report different totals)
                 if total_results is None:
                     total_results = page_total
                     # Create progress bar for multi-page fetches
@@ -326,16 +343,19 @@ class NVDAPIExtractor(BaseExtractor):
                             unit="CVEs",
                         )
                         pbar.update(len(page_vulns))
-
-                elif pbar is not None:
-                    pbar.update(len(page_vulns))
+                else:
+                    total_results = page_total
+                    if pbar is not None:
+                        pbar.total = total_results
+                        pbar.update(len(page_vulns))
 
                 # Log per-page progress
                 fetched_so_far = start_index + len(page_vulns)
                 logger.info(
-                    "NVD API: fetched %d/%d CVEs",
+                    "NVD API: fetched %d/%d CVEs (page %d)",
                     fetched_so_far,
                     total_results,
+                    page_count,
                 )
 
                 # Check if we have all results

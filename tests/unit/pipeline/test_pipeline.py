@@ -159,6 +159,33 @@ def test_pipeline_executes_transforms():
     assert "mock" in result.successful_stages  # Uses name attribute, not class name
 
 
+def test_pipeline_records_transforms_in_provenance():
+    """Pipeline records successful transforms in dataset provenance."""
+    import numpy as np
+
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    class ProvenanceTransform:
+        name = "provenance_test"
+        depends_on: list[str] = []
+
+        def transform(self, dataset):  # type: ignore[no-untyped-def]
+            dataset.set_column(
+                "prov_col", np.array(["X"] * len(dataset), dtype=object)
+            )
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[ProvenanceTransform()],
+    )
+
+    result = pipeline.run()
+
+    assert result.dataset is not None
+    prov = result.dataset.provenance
+    assert "provenance_test" in prov["transforms"]
+
+
 def test_pipeline_with_enrichers():
     """Pipeline runs async enrichers."""
     from vulnflow.extractors.nvd import NVDExtractor
