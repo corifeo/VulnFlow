@@ -170,9 +170,7 @@ def test_pipeline_records_transforms_in_provenance():
         depends_on: list[str] = []
 
         def transform(self, dataset):  # type: ignore[no-untyped-def]
-            dataset.set_column(
-                "prov_col", np.array(["X"] * len(dataset), dtype=object)
-            )
+            dataset.set_column("prov_col", np.array(["X"] * len(dataset), dtype=object))
 
     pipeline = VulnPipeline(
         extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
@@ -200,7 +198,7 @@ def test_pipeline_with_enrichers():
 
     assert result.dataset is not None
     assert "kev" in result.dataset.columns
-    assert "KEVEnricher" in result.successful_stages
+    assert "KEVEnricher()" in result.successful_stages
 
 
 def test_pipeline_strict_mode_raises_on_enricher_error():
@@ -252,7 +250,7 @@ def test_pipeline_lenient_mode_continues_on_error():
 
     assert len(result.errors) == 1
     assert "BrokenEnricher" in result.failed_stages
-    assert "KEVEnricher" in result.successful_stages
+    assert "KEVEnricher()" in result.successful_stages
     assert result.dataset is not None
 
 
@@ -515,8 +513,8 @@ def test_pipeline_multi_extract_transform_load(tmp_path):
     # Transform: phased — KEVEnricher (phase 0) → KEVFlattenTransform (phase 1)
     assert "kev" in result.dataset.columns
     assert "is_kev" in result.dataset.columns
-    assert "KEVEnricher" in result.successful_stages
-    assert "KEVFlattenTransform" in result.successful_stages
+    assert "KEVEnricher()" in result.successful_stages
+    assert "KEVFlattenTransform()" in result.successful_stages
 
     # No errors
     assert result.errors == []
@@ -543,7 +541,7 @@ def test_pipeline_run_collects_timings(tmp_path):
     assert result.timings  # non-empty
     # Should have extractor, transform, and loader timings
     assert any("NVDExtractor" in k or "nvd_sample" in k for k in result.timings)
-    assert "CVSSFlattenTransform" in result.timings
+    assert "CVSSFlattenTransform()" in result.timings
     assert any("ParquetLoader" in k for k in result.timings)
     # All values should be non-negative floats
     for v in result.timings.values():
@@ -586,5 +584,3 @@ async def test_pipeline_run_from_async_context():
     assert result.dataset is not None
     assert len(result.dataset) > 0
     assert result.errors == []
-
-

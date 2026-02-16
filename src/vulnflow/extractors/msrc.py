@@ -97,13 +97,14 @@ class MSRCExtractor(BaseExtractor):
     @property
     def label(self) -> str:
         """Short display name for progress reporting."""
+        cls = type(self).__name__
         if self._start:
             if self._end:
-                return f"msrc({self._start}..{self._end})"
-            return f"msrc({self._start})"
+                return f"{cls}({self._start}..{self._end})"
+            return f"{cls}({self._start})"
         if self._year:
-            return f"msrc({self._year})"
-        return "msrc"
+            return f"{cls}({self._year})"
+        return f"{cls}()"
 
     @property
     def provenance_label(self) -> str:

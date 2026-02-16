@@ -152,11 +152,12 @@ class NVDAPIExtractor(BaseExtractor):
     @property
     def label(self) -> str:
         """Short display name for progress reporting."""
+        cls = type(self).__name__
         if self._cve_id:
-            return self._cve_id
+            return f"{cls}({self._cve_id})"
         if self._keyword:
-            return f"nvd_api({self._keyword})"
-        return "nvd_api"
+            return f"{cls}({self._keyword})"
+        return f"{cls}()"
 
     @property
     def provenance_label(self) -> str:
