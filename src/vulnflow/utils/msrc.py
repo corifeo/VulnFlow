@@ -65,7 +65,7 @@ def to_msrc_month_id(iso_month: str) -> str:
 
 def _msrc_id_to_sort_key(msrc_id: str) -> tuple[int, int]:
     """Convert MSRC month ID to sortable (year, month) tuple."""
-    year_str, abbrev = msrc_id.split("-")
+    year_str, abbrev = msrc_id.split("-", maxsplit=1)
     return int(year_str), _ABBREV_TO_NUM.get(abbrev, 0)
 
 
@@ -238,26 +238,30 @@ def _parse_cvss_vector_components(vector: str) -> dict[str, str]:
 
 
 def parse_msrc_cwes(
-    cwe_data: dict[str, Any] | None,
+    cwe_data: dict[str, Any] | list[dict[str, Any]] | None,
 ) -> list[CWEEntry]:
     """Parse CWE from MSRC CVRF format.
 
-    MSRC uses a single CWE object (not array) per vulnerability.
+    MSRC may use a single CWE object or a list of CWE objects per vulnerability.
 
     Args:
-        cwe_data: MSRC CWE dict with "ID" and "Value" keys
+        cwe_data: MSRC CWE dict or list of dicts with "ID" and "Value" keys
 
     Returns:
-        List with 0 or 1 CWEEntry
+        List of CWEEntry instances
     """
     if not cwe_data:
         return []
 
-    cwe_id = cwe_data.get("ID", "")
-    if not cwe_id:
-        return []
+    # Normalize to list
+    items = cwe_data if isinstance(cwe_data, list) else [cwe_data]
 
-    return [CWEEntry(id=cwe_id, name=cwe_data.get("Value"))]
+    entries: list[CWEEntry] = []
+    for item in items:
+        cwe_id = item.get("ID", "")
+        if cwe_id:
+            entries.append(CWEEntry(id=cwe_id, name=item.get("Value")))
+    return entries
 
 
 def parse_msrc_references(

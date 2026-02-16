@@ -111,6 +111,16 @@ class TestResolveMonthIds:
         with pytest.raises(ValueError, match="No matching months"):
             resolve_month_ids(year=2023, start=None, end=None, available=self.AVAILABLE)
 
+    def test_hyphenated_month_id_ignored(self) -> None:
+        from vulnflow.utils.msrc import resolve_month_ids
+
+        available = ["2017-May", "2017-May-B", "2017-Jun"]
+        result = resolve_month_ids(year=2017, start=None, end=None, available=available)
+        # "2017-May-B" has unknown abbrev, gets sort key 0, but still included by year filter
+        # It won't cause a crash
+        assert "2017-May" in result
+        assert "2017-Jun" in result
+
 
 class TestParseMsrcCvss:
     """parse_msrc_cvss extracts CVSS entries from CVSSScoreSets."""
@@ -190,6 +200,18 @@ class TestParseMsrcCwes:
         from vulnflow.utils.msrc import parse_msrc_cwes
 
         assert parse_msrc_cwes({}) == []
+
+    def test_cwe_list(self) -> None:
+        from vulnflow.utils.msrc import parse_msrc_cwes
+
+        cwe_data = [
+            {"ID": "CWE-122", "Value": "Heap-based Buffer Overflow"},
+            {"ID": "CWE-787", "Value": "Out-of-bounds Write"},
+        ]
+        entries = parse_msrc_cwes(cwe_data)
+        assert len(entries) == 2
+        assert entries[0].id == "CWE-122"
+        assert entries[1].id == "CWE-787"
 
 
 class TestParseMsrcReferences:
