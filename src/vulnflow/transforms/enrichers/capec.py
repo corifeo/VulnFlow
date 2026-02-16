@@ -11,7 +11,6 @@ Used by: dataset.transform(), pipeline
 
 from __future__ import annotations
 
-import logging
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -27,8 +26,6 @@ from vulnflow.schema import CAPECEntry
 from vulnflow.transforms.base import BaseEnricher
 from vulnflow.utils import json
 from vulnflow.utils.http import HttpError, HttpFetcher, is_url
-
-logger = logging.getLogger(__name__)
 
 DEFAULT_CAPEC_URL = "https://capec.mitre.org/data/xml/capec_latest.xml"
 
@@ -144,7 +141,9 @@ class CAPECEnricher(BaseEnricher):
             enriched_count += len(entries)
 
         dataset.set_column("capecs", capecs_array)
-        logger.info("Enriched %d CAPEC entries across %d records", enriched_count, n)
+        self.logger.info(
+            "Enriched %d CAPEC entries across %d records", enriched_count, n
+        )
 
     def _build_cwe_to_capec_mapping(
         self,
@@ -164,13 +163,11 @@ class CAPECEnricher(BaseEnricher):
         # Direction 1: CWE→CAPEC from CWE mapping file
         capec_mapping_file = self.cache_dir / "mitre" / "cwe_capec_mapping.json"
         if capec_mapping_file.exists():
-            mapping: dict[str, list[str]] = json.loads(
-                capec_mapping_file.read_text()
-            )
+            mapping: dict[str, list[str]] = json.loads(capec_mapping_file.read_text())
             for cwe_id, capec_ids in mapping.items():
                 cwe_to_capec.setdefault(cwe_id, set()).update(capec_ids)
         else:
-            logger.warning(
+            self.logger.warning(
                 "CWE→CAPEC mapping file not found at %s, "
                 "using only CAPEC→CWE direction",
                 capec_mapping_file,
@@ -213,14 +210,14 @@ class CAPECEnricher(BaseEnricher):
         if cache_file.exists():
             age = time.time() - cache_file.stat().st_mtime
             if self.cache_ttl == 0 or age < self.cache_ttl:
-                logger.info("Using cached CAPEC database (age: %.0fs)", age)
+                self.logger.info("Using cached CAPEC database (age: %.0fs)", age)
                 cached_db: dict[str, dict[str, Any]] = json.loads(
                     cache_file.read_text()
                 )
                 return cached_db
 
         # Load from source
-        logger.info("Loading CAPEC database from %s", self.source)
+        self.logger.info("Loading CAPEC database from %s", self.source)
         if isinstance(self.source, Path):
             xml_path = self.source
             capec_db = self._parse_capec_xml(xml_path)
@@ -232,14 +229,14 @@ class CAPECEnricher(BaseEnricher):
                 if xml_path.exists():
                     xml_path.unlink()
             except HttpError as e:
-                logger.warning("Failed to download CAPEC XML: %s", e)
+                self.logger.warning("Failed to download CAPEC XML: %s", e)
                 return {}
             except Exception as e:
-                logger.warning("Failed to download CAPEC XML: %s", e)
+                self.logger.warning("Failed to download CAPEC XML: %s", e)
                 return {}
 
         cache_file.write_text(json.dumps(capec_db, indent=True))
-        logger.info("Cached %d CAPEC entries", len(capec_db))
+        self.logger.info("Cached %d CAPEC entries", len(capec_db))
         return capec_db
 
     async def _download_capec_xml(self) -> Path:
@@ -252,9 +249,7 @@ class CAPECEnricher(BaseEnricher):
         mitre_dir.mkdir(parents=True, exist_ok=True)
 
         if self._http_fetcher is None:
-            self._http_fetcher = HttpFetcher(
-                cache_dir=mitre_dir, timeout=self.timeout
-            )
+            self._http_fetcher = HttpFetcher(cache_dir=mitre_dir, timeout=self.timeout)
 
         xml_path = mitre_dir / "capec_latest.xml"
         content, _fmt = await self._http_fetcher.fetch(
@@ -279,7 +274,7 @@ class CAPECEnricher(BaseEnricher):
             tree = ET.parse(xml_path)
             root = tree.getroot()
         except ET.ParseError as e:
-            logger.error("Failed to parse CAPEC XML file %s: %s", xml_path, e)
+            self.logger.error("Failed to parse CAPEC XML file %s: %s", xml_path, e)
             raise ValueError(f"Invalid CAPEC XML format: {e}") from e
 
         capec_db: dict[str, dict[str, Any]] = {}
@@ -307,16 +302,8 @@ class CAPECEnricher(BaseEnricher):
             # Extract consequences (scopes + impacts per consequence)
             consequences: list[dict[str, list[str]]] = []
             for cons_el in attack_pattern.findall(".//{*}Consequence"):
-                scopes = [
-                    s.text
-                    for s in cons_el.findall("{*}Scope")
-                    if s.text
-                ]
-                impacts = [
-                    s.text
-                    for s in cons_el.findall("{*}Impact")
-                    if s.text
-                ]
+                scopes = [s.text for s in cons_el.findall("{*}Scope") if s.text]
+                impacts = [s.text for s in cons_el.findall("{*}Impact") if s.text]
                 if scopes or impacts:
                     consequences.append({"scopes": scopes, "impacts": impacts})
 

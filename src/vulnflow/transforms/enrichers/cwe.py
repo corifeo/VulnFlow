@@ -11,7 +11,6 @@ Used by: dataset.transform(), pipeline
 
 from __future__ import annotations
 
-import logging
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -28,8 +27,6 @@ from vulnflow.schema import CWEEntry
 from vulnflow.transforms.base import BaseEnricher
 from vulnflow.utils import json
 from vulnflow.utils.http import HttpError, HttpFetcher, is_url
-
-logger = logging.getLogger(__name__)
 
 DEFAULT_CWE_URL = "https://cwe.mitre.org/data/xml/cwec_latest.xml.zip"
 
@@ -123,21 +120,23 @@ class CWEEnricher(BaseEnricher):
                         abstraction_level=metadata.get("abstraction_level"),
                         likelihood_of_exploit=metadata.get("likelihood_of_exploit"),
                         consequences=metadata.get("consequences") or None,
-                        applicable_platforms=metadata.get("applicable_platforms") or None,
-                        modes_of_introduction=metadata.get("modes_of_introduction") or None,
+                        applicable_platforms=metadata.get("applicable_platforms")
+                        or None,
+                        modes_of_introduction=metadata.get("modes_of_introduction")
+                        or None,
                     )
                     enriched_entries.append(cwe_entry.to_dict())
                     enriched_count += 1
                 else:
                     # Keep original if not found in database
-                    logger.debug("CWE %s not found in database", cwe_id)
+                    self.logger.debug("CWE %s not found in database", cwe_id)
                     enriched_entries.append(cwe_dict)
 
             enriched_cwes[i] = json.dumps(enriched_entries)
 
         # Update column
         dataset.set_column("cwes", enriched_cwes)
-        logger.info("Enriched %d CWE entries across %d records", enriched_count, n)
+        self.logger.info("Enriched %d CWE entries across %d records", enriched_count, n)
 
     async def _get_cached_cwe_db(self) -> dict[str, dict[str, Any]]:
         """Get CWE database from cache or load fresh (async)."""
@@ -163,14 +162,14 @@ class CWEEnricher(BaseEnricher):
         if cache_file.exists() and capec_mapping_file.exists():
             age = time.time() - cache_file.stat().st_mtime
             if self.cache_ttl == 0 or age < self.cache_ttl:
-                logger.info("Using cached CWE database (age: %.0fs)", age)
+                self.logger.info("Using cached CWE database (age: %.0fs)", age)
                 cached_db: dict[str, dict[str, Any]] = json.loads(
                     cache_file.read_text()
                 )
                 return cached_db
 
         # Load from source
-        logger.info("Loading CWE database from %s", self.source)
+        self.logger.info("Loading CWE database from %s", self.source)
         if isinstance(self.source, Path):
             xml_path = self.source
         else:
@@ -192,7 +191,7 @@ class CWEEnricher(BaseEnricher):
             if intermediate.exists():
                 intermediate.unlink()
 
-        logger.info("Cached %d CWE entries", len(cwe_db))
+        self.logger.info("Cached %d CWE entries", len(cwe_db))
         return cwe_db
 
     async def _download_cwe_xml(self) -> Path | None:
@@ -205,22 +204,26 @@ class CWEEnricher(BaseEnricher):
         mitre_dir.mkdir(parents=True, exist_ok=True)
 
         if self._http_fetcher is None:
-            self._http_fetcher = HttpFetcher(
-                cache_dir=mitre_dir, timeout=self.timeout
-            )
+            self._http_fetcher = HttpFetcher(cache_dir=mitre_dir, timeout=self.timeout)
 
         # Download zip file
         zip_path = mitre_dir / "cwec_latest.xml.zip"
         try:
             content, _fmt = await self._http_fetcher.fetch(
-                str(self.source), self.cache_ttl, progress_desc="Downloading CWE database"
+                str(self.source),
+                self.cache_ttl,
+                progress_desc="Downloading CWE database",
             )
             zip_path.write_bytes(content)
         except HttpError as e:
-            logger.warning("Failed to download CWE XML from %s: %s", self.source, e)
+            self.logger.warning(
+                "Failed to download CWE XML from %s: %s", self.source, e
+            )
             return None
         except Exception as e:
-            logger.warning("Failed to download CWE XML from %s: %s", self.source, e)
+            self.logger.warning(
+                "Failed to download CWE XML from %s: %s", self.source, e
+            )
             return None
 
         # Extract XML
@@ -245,7 +248,7 @@ class CWEEnricher(BaseEnricher):
             tree = ET.parse(xml_path)
             root = tree.getroot()
         except ET.ParseError as e:
-            logger.error("Failed to parse CWE XML file %s: %s", xml_path, e)
+            self.logger.error("Failed to parse CWE XML file %s: %s", xml_path, e)
             raise ValueError(f"Invalid CWE XML format: {e}") from e
 
         # First pass: Build basic entries
@@ -261,12 +264,8 @@ class CWEEnricher(BaseEnricher):
             # Consequences (scopes + impacts per consequence)
             consequences: list[dict[str, list[str]]] = []
             for cons_el in weakness.findall(".//{*}Consequence"):
-                scopes = [
-                    s.text for s in cons_el.findall("{*}Scope") if s.text
-                ]
-                impacts = [
-                    s.text for s in cons_el.findall("{*}Impact") if s.text
-                ]
+                scopes = [s.text for s in cons_el.findall("{*}Scope") if s.text]
+                impacts = [s.text for s in cons_el.findall("{*}Impact") if s.text]
                 if scopes or impacts:
                     consequences.append({"scopes": scopes, "impacts": impacts})
 
@@ -281,7 +280,9 @@ class CWEEnricher(BaseEnricher):
 
             # Modes of introduction (Phase text from Introduction children)
             modes: list[str] = []
-            for intro_el in weakness.findall(".//{*}Modes_Of_Introduction/{*}Introduction"):
+            for intro_el in weakness.findall(
+                ".//{*}Modes_Of_Introduction/{*}Introduction"
+            ):
                 phase_el = intro_el.find("{*}Phase")
                 if phase_el is not None and phase_el.text:
                     modes.append(phase_el.text)

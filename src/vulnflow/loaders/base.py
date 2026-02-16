@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from vulnflow.exceptions import LoaderError
 from vulnflow.utils import json
+from vulnflow.utils.stage import StageObservability
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -49,7 +50,7 @@ class Loader(Protocol):
         ...
 
 
-class BaseLoader(ABC):
+class BaseLoader(StageObservability, ABC):
     """Base class for file loaders with format validation.
 
     File loaders are the *archive path* — always lossless, no filtering.
@@ -73,6 +74,7 @@ class BaseLoader(ABC):
         Raises:
             LoaderError: If format attribute is missing or empty
         """
+        self._init_observability()
         if not hasattr(self, "format") or not self.format:
             raise LoaderError(
                 f"{self.__class__.__name__} must define a non-empty 'format' class attribute"

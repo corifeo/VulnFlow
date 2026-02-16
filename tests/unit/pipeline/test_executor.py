@@ -328,9 +328,7 @@ async def test_run_transforms_sync_failure_through_to_thread():
 
     # Strict mode: error propagates
     with pytest.raises(TransformError, match="sync transform failed"):
-        await PipelineExecutor.run_transforms(
-            dataset, [FailingSync()], strict=True
-        )
+        await PipelineExecutor.run_transforms(dataset, [FailingSync()], strict=True)
 
     # Lenient mode: error collected
     successful, failed, errors = await PipelineExecutor.run_transforms(
@@ -507,18 +505,18 @@ def test_run_loaders_populates_reporter_timings(tmp_path):
 
 
 # =============================================================================
-# Extractor Timing Detail Tests
+# Stage Timing Detail Tests
 # =============================================================================
 
 
-def test_extractor_detail_includes_timing_breakdown():
-    """_extractor_detail() returns detail and breakdown with sub-timings >= 0.1s."""
+def test_stage_detail_includes_timing_breakdown():
+    """_stage_detail() returns detail and breakdown with sub-timings >= 0.1s."""
 
-    class FakeExtractor:
+    class FakeStage:
         _timings = {"download": 10.5, "decompress": 1.2, "json": 0.04, "populate": 4.6}
 
-    ext = FakeExtractor()
-    detail, breakdown = PipelineExecutor._extractor_detail(ext, 38951)
+    stage = FakeStage()
+    detail, breakdown = PipelineExecutor._stage_detail(stage, "38,951 CVEs")
 
     assert detail == "38,951 CVEs"
     assert "download 10.5s" in breakdown
@@ -528,27 +526,32 @@ def test_extractor_detail_includes_timing_breakdown():
     assert "json" not in breakdown
 
 
-def test_extractor_detail_no_timings():
-    """_extractor_detail() falls back to count-only when no _timings."""
+def test_stage_detail_no_timings():
+    """_stage_detail() falls back to detail-only when no _timings."""
 
-    class FakeExtractor:
+    class FakeStage:
         pass
 
-    ext = FakeExtractor()
-    detail, breakdown = PipelineExecutor._extractor_detail(ext, 1000)
+    stage = FakeStage()
+    detail, breakdown = PipelineExecutor._stage_detail(stage, "1,000 CVEs")
 
     assert detail == "1,000 CVEs"
     assert breakdown == ""
 
 
-def test_extractor_detail_all_sub_timings_below_threshold():
-    """_extractor_detail() omits breakdown when all sub-timings < 0.1s."""
+def test_stage_detail_all_sub_timings_below_threshold():
+    """_stage_detail() omits breakdown when all sub-timings < 0.1s."""
 
-    class FakeExtractor:
-        _timings = {"download": 0.05, "decompress": 0.01, "json": 0.02, "populate": 0.03}
+    class FakeStage:
+        _timings = {
+            "download": 0.05,
+            "decompress": 0.01,
+            "json": 0.02,
+            "populate": 0.03,
+        }
 
-    ext = FakeExtractor()
-    detail, breakdown = PipelineExecutor._extractor_detail(ext, 500)
+    stage = FakeStage()
+    detail, breakdown = PipelineExecutor._stage_detail(stage, "500 CVEs")
 
     assert detail == "500 CVEs"
     assert breakdown == ""

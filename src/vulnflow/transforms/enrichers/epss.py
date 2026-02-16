@@ -11,7 +11,6 @@ Used by: dataset.transform(), pipeline
 
 from __future__ import annotations
 
-import logging
 import re
 import time
 from datetime import UTC, datetime
@@ -28,8 +27,6 @@ from vulnflow.transforms.base import BaseEnricher
 from vulnflow.utils import json
 from vulnflow.utils.http import HttpError, HttpFetcher, is_url
 
-logger = logging.getLogger(__name__)
-
 DEFAULT_EPSS_URL = "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"
 
 
@@ -45,7 +42,9 @@ class EPSSEnricher(BaseEnricher):
     depends_on: list[str] = []
 
     OUTPUT_SCHEMA: list[FieldDefinition] = [
-        FieldDefinition("epss_scores", "str", "EPSS scores array (JSON)", "EPSSEnricher"),
+        FieldDefinition(
+            "epss_scores", "str", "EPSS scores array (JSON)", "EPSSEnricher"
+        ),
     ]
 
     def __init__(
@@ -177,7 +176,7 @@ class EPSSEnricher(BaseEnricher):
             content = path.read_text(encoding="utf-8")
             return self._parse_epss_csv(content)
         except Exception as e:
-            logger.warning("Failed to load EPSS data from %s: %s", path, e)
+            self.logger.warning("Failed to load EPSS data from %s: %s", path, e)
             return {}
 
     async def _load_epss_from_url(self, url: str) -> dict[str, dict[str, Any]]:
@@ -203,10 +202,10 @@ class EPSSEnricher(BaseEnricher):
             return self._parse_epss_csv(content.decode("utf-8"))
 
         except HttpError as e:
-            logger.warning("Failed to fetch EPSS data from %s: %s", url, e)
+            self.logger.warning("Failed to fetch EPSS data from %s: %s", url, e)
             return {}
         except Exception as e:
-            logger.warning("Failed to load EPSS data from %s: %s", url, e)
+            self.logger.warning("Failed to load EPSS data from %s: %s", url, e)
             return {}
 
     def _parse_epss_csv(self, content: str) -> dict[str, dict[str, Any]]:

@@ -20,6 +20,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from vulnflow.loaders.base import BaseLoader
 from vulnflow.registry import Registry
 from vulnflow.utils.filtering import (
     _NVD_STATUS_DEFAULTS,
@@ -80,7 +81,7 @@ def _coerce_datetime_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 @Registry.register_loader("pandas")
-class PandasLoader:
+class PandasLoader(BaseLoader):
     """Load VulnDataset to pandas DataFrame.
 
     By default, excludes nested JSON columns for cleaner DataFrames (lossy).
@@ -112,6 +113,7 @@ class PandasLoader:
                             awaiting, rejected, deferred). Default excludes
                             only rejected rows.
         """
+        super().__init__()
         self.include_nested = include_nested
         self._start = start
         self._end = end
@@ -119,7 +121,7 @@ class PandasLoader:
             k: status_kwargs.get(k, v) for k, v in _NVD_STATUS_DEFAULTS.items()
         }
 
-    def load(self, dataset: VulnDataset) -> pd.DataFrame:
+    def load(self, dataset: VulnDataset) -> pd.DataFrame:  # type: ignore[override]
         """Load dataset to pandas DataFrame.
 
         Args:
@@ -145,7 +147,7 @@ class PandasLoader:
 
 
 @Registry.register_loader("polars")
-class PolarsLoader:
+class PolarsLoader(BaseLoader):
     """Load VulnDataset to polars DataFrame.
 
     Builds directly from numpy arrays for performance (no pandas intermediate).
@@ -179,6 +181,7 @@ class PolarsLoader:
                             awaiting, rejected, deferred). Default excludes
                             only rejected rows.
         """
+        super().__init__()
         self.include_nested = include_nested
         self._start = start
         self._end = end
@@ -186,7 +189,7 @@ class PolarsLoader:
             k: status_kwargs.get(k, v) for k, v in _NVD_STATUS_DEFAULTS.items()
         }
 
-    def load(self, dataset: VulnDataset) -> pl.DataFrame:
+    def load(self, dataset: VulnDataset) -> pl.DataFrame:  # type: ignore[override]
         """Load dataset to polars DataFrame.
 
         Args:
