@@ -58,6 +58,11 @@ class BaseTransform(StageObservability, ABC):
     depends_on: list[str] = []
     SCHEMA_VERSION: str = "1.0.0"
 
+    @property
+    def label(self) -> str:
+        """Display name with parens to indicate callable stage."""
+        return f"{self.name}()"
+
     def __init__(self) -> None:
         """Initialize transform and register schema.
 

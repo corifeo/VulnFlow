@@ -78,15 +78,12 @@ class NVDExtractor(BaseExtractor):
 
     @property
     def label(self) -> str:
-        """Short display name derived from path.
-
-        Examples: nvdcve-2.0-2023, nvdcve-2.0-modified
-        """
+        """Short display name: NVDExtractor(nvdcve-2.0-2023)."""
         name = Path(self.path).name
         for ext in (".gz", ".zip", ".json", ".jsonl", ".ndjson"):
             if name.endswith(ext):
                 name = name[: -len(ext)]
-        return name
+        return f"{type(self).__name__}({name})"
 
     def extract(self) -> VulnDataset:
         """Extract from NVD JSON/JSONL → VulnDataset.
