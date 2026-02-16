@@ -222,9 +222,7 @@ class TestTransform:
         dataset = VulnDataset()
         dataset.set_column(
             "cve_id",
-            np.array(
-                ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"], dtype=object
-            ),
+            np.array(["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"], dtype=object),
         )
 
         enricher = _TestAPIEnricher(rate_limit=1000.0)
@@ -249,9 +247,7 @@ class TestTransform:
         dataset = VulnDataset()
         dataset.set_column(
             "cve_id",
-            np.array(
-                ["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"], dtype=object
-            ),
+            np.array(["CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"], dtype=object),
         )
 
         enricher = _TestAPIEnricher(fetch_fn=fetch, max_retries=1, rate_limit=1000.0)
@@ -335,14 +331,10 @@ class TestExploitDBEnricher:
     async def test_apply_results_appends_to_existing(self) -> None:
         """_apply_results appends to existing exploits column."""
         dataset = VulnDataset()
-        dataset.set_column(
-            "cve_id", np.array(["CVE-2024-0001"], dtype=object)
-        )
+        dataset.set_column("cve_id", np.array(["CVE-2024-0001"], dtype=object))
         # Pre-populate with an existing exploit
         existing = [{"source": "github", "id": "gh-001", "confidence": 0.5}]
-        dataset.set_column(
-            "exploits", np.array([json.dumps(existing)], dtype=object)
-        )
+        dataset.set_column("exploits", np.array([json.dumps(existing)], dtype=object))
 
         enricher = ExploitDBEnricher()
         results: list[dict[str, Any] | None] = [

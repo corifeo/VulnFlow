@@ -54,9 +54,7 @@ from typing import Any
 
 from tqdm.auto import tqdm as _tqdm
 
-_suppress_progress: ContextVar[bool] = ContextVar(
-    "_suppress_progress", default=False
-)
+_suppress_progress: ContextVar[bool] = ContextVar("_suppress_progress", default=False)
 
 # ASCII-safe glyphs (cp1252/Windows compatible)
 _GLYPH_OK = "+"
@@ -210,9 +208,7 @@ class ProgressReporter:
         elif self._mode is ProgressMode.BAR:
             if self._bar is not None:
                 if detail:
-                    self._bar.set_postfix_str(
-                        self._format_postfix(detail, duration)
-                    )
+                    self._bar.set_postfix_str(self._format_postfix(detail, duration))
                 self._bar.update(1)
         else:  # LOG
             line = f"  {_GLYPH_OK} {name} ({self._format_log(detail, duration, breakdown)})"
@@ -318,9 +314,7 @@ class ProgressReporter:
             return 0.0
         return _time.perf_counter() - start
 
-    def _format_log(
-        self, detail: str, duration: float, breakdown: str = ""
-    ) -> str:
+    def _format_log(self, detail: str, duration: float, breakdown: str = "") -> str:
         """Format for LOG mode: detail -- breakdown, Xs."""
         parts = detail
         if breakdown:

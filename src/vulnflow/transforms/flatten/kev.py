@@ -36,7 +36,9 @@ class KEVFlattenTransform(BaseFlatten):
     depends_on: list[str] = ["KEVEnricher"]
 
     OUTPUT_SCHEMA: list[FieldDefinition] = [
-        FieldDefinition("is_kev", "bool", "Is in CISA KEV catalog", "KEVFlattenTransform"),
+        FieldDefinition(
+            "is_kev", "bool", "Is in CISA KEV catalog", "KEVFlattenTransform"
+        ),
         FieldDefinition(
             "kev_date_added", "datetime", "Date added to KEV", "KEVFlattenTransform"
         ),

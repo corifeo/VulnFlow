@@ -125,13 +125,15 @@ def test_build_phases_respects_dependencies():
 
 def test_build_phases_mixed_independent_and_dependent():
     """Mix of independent and dependent transforms grouped correctly."""
-    phases = build_phases([
-        _T("priority", ["cvd_state"]),
-        _T("cvd_state", ["kev", "epss"]),
-        _T("kev"),
-        _T("epss"),
-        _T("cvss_flatten"),
-    ])
+    phases = build_phases(
+        [
+            _T("priority", ["cvd_state"]),
+            _T("cvd_state", ["kev", "epss"]),
+            _T("kev"),
+            _T("epss"),
+            _T("cvss_flatten"),
+        ]
+    )
 
     assert len(phases) == 3
     assert {t.name for t in phases[0]} == {"kev", "epss", "cvss_flatten"}

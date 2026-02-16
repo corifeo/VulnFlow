@@ -2,6 +2,7 @@
 
 Uses mocked HTTP to test the full pipeline without real API calls.
 """
+
 from __future__ import annotations
 
 import json

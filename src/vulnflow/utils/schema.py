@@ -162,7 +162,10 @@ def build_base_schema() -> list[FieldDefinition]:
             field_type = "uuid"
             # UUID with default_factory=uuid4 → not nullable
             dc_field = dc_fields.get(name)
-            if dc_field is not None and dc_field.default_factory is not dataclasses.MISSING:
+            if (
+                dc_field is not None
+                and dc_field.default_factory is not dataclasses.MISSING
+            ):
                 nullable = False
             else:
                 nullable = True

@@ -62,6 +62,7 @@ class VulnPipeline:
             dataset: Optional pre-existing dataset (skips extraction)
             strict: If True, raise on transformer errors. If False, collect errors.
             quiet: Suppress all progress output (for programmatic use).
+            timings: If True, collect per-stage execution timings in result.timings.
 
         Returns:
             PipelineResult with dataset, metadata, and errors
@@ -88,13 +89,17 @@ class VulnPipeline:
                         unit="feeds",
                         bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}{postfix}]",
                     ) as ext_rpt:
-                        dataset, ext_succ, ext_fail, ext_err = PipelineExecutor.run_extractors(
-                            self.extractors, desc=extract_desc, reporter=ext_rpt
+                        dataset, ext_succ, ext_fail, ext_err = (
+                            PipelineExecutor.run_extractors(
+                                self.extractors, desc=extract_desc, reporter=ext_rpt
+                            )
                         )
                     stage_timings.update(ext_rpt.timings)
                 else:
-                    dataset, ext_succ, ext_fail, ext_err = PipelineExecutor.run_extractors(
-                        self.extractors, desc=extract_desc
+                    dataset, ext_succ, ext_fail, ext_err = (
+                        PipelineExecutor.run_extractors(
+                            self.extractors, desc=extract_desc
+                        )
                     )
                 successful_stages.extend(ext_succ)
                 failed_stages.extend(ext_fail)
@@ -141,7 +146,9 @@ class VulnPipeline:
                         "Loading data", total=len(self.loaders), unit="loaders"
                     ) as load_rpt:
                         loader_outputs, load_succ, load_fail, load_err = (
-                            PipelineExecutor.run_loaders(dataset, self.loaders, reporter=load_rpt)
+                            PipelineExecutor.run_loaders(
+                                dataset, self.loaders, reporter=load_rpt
+                            )
                         )
                     stage_timings.update(load_rpt.timings)
                 else:

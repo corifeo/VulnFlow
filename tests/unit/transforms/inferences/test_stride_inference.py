@@ -54,9 +54,7 @@ class TestTier1CAPECConsequences:
         (mitre_dir / "capec_database.json").write_text(json.dumps(capec_db))
 
         capecs_json = json.dumps([{"id": "CAPEC-86", "name": "XSS via HTTP Headers"}])
-        ds = make_dataset(
-            {"cve_id": ["CVE-2024-0001"], "capecs": [capecs_json]}
-        )
+        ds = make_dataset({"cve_id": ["CVE-2024-0001"], "capecs": [capecs_json]})
 
         STRIDEInference(cache_dir=cache_dir).transform(ds)
         threats = _get_threats(ds)
@@ -85,9 +83,7 @@ class TestTier2CWEMapping:
 
     def test_stride_from_cwe_mapping(self) -> None:
         """CWE-287 (Improper Authentication) → spoofing at 0.85."""
-        ds = make_dataset(
-            {"cve_id": ["CVE-2024-0001"], "cwe_id": ["CWE-287"]}
-        )
+        ds = make_dataset({"cve_id": ["CVE-2024-0001"], "cwe_id": ["CWE-287"]})
         STRIDEInference().transform(ds)
         threats = _get_threats(ds)
 
@@ -100,9 +96,7 @@ class TestTier2CWEMapping:
 
     def test_cwe_multi_category(self) -> None:
         """CWE-79 (XSS) → tampering + info_disclosure."""
-        ds = make_dataset(
-            {"cve_id": ["CVE-2024-0001"], "cwe_id": ["CWE-79"]}
-        )
+        ds = make_dataset({"cve_id": ["CVE-2024-0001"], "cwe_id": ["CWE-79"]})
         STRIDEInference().transform(ds)
         categories = _get_categories(ds)
         assert "tampering" in categories
@@ -270,9 +264,7 @@ class TestIdempotency:
 
     def test_stride_idempotent(self) -> None:
         """Running twice without overwrite produces the same result."""
-        ds = make_dataset(
-            {"cve_id": ["CVE-2024-0001"], "cwe_id": ["CWE-287"]}
-        )
+        ds = make_dataset({"cve_id": ["CVE-2024-0001"], "cwe_id": ["CWE-287"]})
         inference = STRIDEInference()
         inference.transform(ds)
         first_result = ds.get_column("stride_threats")[0]
@@ -284,9 +276,7 @@ class TestIdempotency:
 
     def test_stride_overwrite(self) -> None:
         """overwrite=True replaces previous inference."""
-        ds = make_dataset(
-            {"cve_id": ["CVE-2024-0001"], "cwe_id": ["CWE-287"]}
-        )
+        ds = make_dataset({"cve_id": ["CVE-2024-0001"], "cwe_id": ["CWE-287"]})
         # First pass: assign spoofing
         STRIDEInference().transform(ds)
         assert "spoofing" in _get_categories(ds)
@@ -294,7 +284,21 @@ class TestIdempotency:
         # Manually set to something different
         ds.set_column(
             "stride_threats",
-            np.array([json.dumps([{"category": "dos", "confidence": 0.5, "source": "manual", "capec_ids": []}])], dtype=object),
+            np.array(
+                [
+                    json.dumps(
+                        [
+                            {
+                                "category": "dos",
+                                "confidence": 0.5,
+                                "source": "manual",
+                                "capec_ids": [],
+                            }
+                        ]
+                    )
+                ],
+                dtype=object,
+            ),
         )
 
         # Without overwrite, keeps manual value

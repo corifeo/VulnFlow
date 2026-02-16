@@ -95,11 +95,13 @@ class TestCountByPeriod:
     """Tests for count_by_period standalone function."""
 
     def test_basic_monthly_count(self) -> None:
-        ds = _dataset_with_dates([
-            _utc(2024, 1, 1),
-            _utc(2024, 1, 15),
-            _utc(2024, 3, 1),
-        ])
+        ds = _dataset_with_dates(
+            [
+                _utc(2024, 1, 1),
+                _utc(2024, 1, 15),
+                _utc(2024, 3, 1),
+            ]
+        )
         df = count_by_period(ds, "month")
         assert isinstance(df, pd.DataFrame)
         assert list(df.columns) == ["month", "count"]
@@ -135,11 +137,13 @@ class TestCountByPeriod:
         assert df["count"].iloc[0] == 2
 
     def test_date_range_filter(self) -> None:
-        ds = _dataset_with_dates([
-            _utc(2024, 1, 1),
-            _utc(2024, 6, 1),
-            _utc(2024, 12, 1),
-        ])
+        ds = _dataset_with_dates(
+            [
+                _utc(2024, 1, 1),
+                _utc(2024, 6, 1),
+                _utc(2024, 12, 1),
+            ]
+        )
         df = count_by_period(ds, "month", start="2024-06-01", end="2024-12-01")
         assert len(df) == 1
         assert df["month"].iloc[0] == "2024-06"

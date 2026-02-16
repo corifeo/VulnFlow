@@ -122,7 +122,10 @@ class CVSSFlattenTransform(BaseFlatten):
             "cvss_integrity", "str", "Integrity Impact (I)", "CVSSFlattenTransform"
         ),
         FieldDefinition(
-            "cvss_availability", "str", "Availability Impact (A)", "CVSSFlattenTransform"
+            "cvss_availability",
+            "str",
+            "Availability Impact (A)",
+            "CVSSFlattenTransform",
         ),
     ]
 
@@ -179,7 +182,9 @@ class CVSSFlattenTransform(BaseFlatten):
                 out["cvss_user_interaction"][i] = selected.get("user_interaction")
                 # v4 has no scope — leave as None
                 # v4 maps vuln_*_impact to generic columns
-                out["cvss_confidentiality"][i] = selected.get("vuln_confidentiality_impact")
+                out["cvss_confidentiality"][i] = selected.get(
+                    "vuln_confidentiality_impact"
+                )
                 out["cvss_integrity"][i] = selected.get("vuln_integrity_impact")
                 out["cvss_availability"][i] = selected.get("vuln_availability_impact")
             elif selected.get("attack_vector") is not None:
