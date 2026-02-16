@@ -170,10 +170,16 @@ def test_cvd_state_adds_time_deltas():
 
 def test_cvd_state_empty_dataset() -> None:
     """CVDStateTransform handles 0-row dataset without error."""
-    ds = make_dataset({
-        "cve_id": [],
-        "v_timestamp": [], "f_timestamp": [], "d_timestamp": [],
-        "p_timestamp": [], "x_timestamp": [], "a_timestamp": [],
-    })
+    ds = make_dataset(
+        {
+            "cve_id": [],
+            "v_timestamp": [],
+            "f_timestamp": [],
+            "d_timestamp": [],
+            "p_timestamp": [],
+            "x_timestamp": [],
+            "a_timestamp": [],
+        }
+    )
     CVDStateTransform().transform(ds)
     assert len(ds.get_column("cvd_state")) == 0

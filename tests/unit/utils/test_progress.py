@@ -408,9 +408,7 @@ def test_reporter_bar_format_parameter() -> None:
     os.environ.pop("TQDM_DISABLE", None)
     try:
         fmt = "{desc}: {n_fmt}/{total_fmt} [{elapsed}]"
-        with ProgressReporter(
-            "Testing", total=1, unit="items", bar_format=fmt
-        ) as rpt:
+        with ProgressReporter("Testing", total=1, unit="items", bar_format=fmt) as rpt:
             assert rpt._bar is not None
             assert rpt._bar.bar_format == fmt
     finally:

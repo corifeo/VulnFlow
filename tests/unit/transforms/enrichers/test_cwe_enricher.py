@@ -72,7 +72,10 @@ async def test_cwe_enricher_enriches_existing_cwes(tmp_path: Path) -> None:
     assert cwes[0]["consequences"] == [
         {
             "scopes": ["Confidentiality", "Integrity"],
-            "impacts": ["Read Application Data", "Execute Unauthorized Code or Commands"],
+            "impacts": [
+                "Read Application Data",
+                "Execute Unauthorized Code or Commands",
+            ],
         }
     ]
     assert cwes[0]["applicable_platforms"] == ["JavaScript", "Web Server"]

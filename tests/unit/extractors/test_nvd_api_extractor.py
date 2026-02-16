@@ -2,6 +2,7 @@
 
 All tests mock HTTP to avoid real API calls.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -21,19 +22,21 @@ def _make_api_response(
     """Build a minimal NVD API response for testing."""
     vulns = []
     for cve_id in cve_ids:
-        vulns.append({
-            "cve": {
-                "id": cve_id,
-                "descriptions": [{"lang": "en", "value": f"Test {cve_id}"}],
-                "published": "2024-01-10T10:00:00.000Z",
-                "lastModified": "2024-01-12T15:30:00.000Z",
-                "vulnStatus": "Analyzed",
-                "metrics": {},
-                "weaknesses": [],
-                "configurations": [],
-                "references": [],
+        vulns.append(
+            {
+                "cve": {
+                    "id": cve_id,
+                    "descriptions": [{"lang": "en", "value": f"Test {cve_id}"}],
+                    "published": "2024-01-10T10:00:00.000Z",
+                    "lastModified": "2024-01-12T15:30:00.000Z",
+                    "vulnStatus": "Analyzed",
+                    "metrics": {},
+                    "weaknesses": [],
+                    "configurations": [],
+                    "references": [],
+                }
             }
-        })
+        )
     return {
         "totalResults": total_results if total_results is not None else len(cve_ids),
         "startIndex": start_index,
@@ -67,7 +70,9 @@ def test_nvd_api_extractor_pagination(MockFetcher, _mock_sleep):
     """NVDAPIExtractor paginates through multiple pages."""
     from vulnflow.extractors.nvd_api import NVDAPIExtractor
 
-    page1 = _make_api_response(["CVE-2024-0001", "CVE-2024-0002"], total_results=3, start_index=0)
+    page1 = _make_api_response(
+        ["CVE-2024-0001", "CVE-2024-0002"], total_results=3, start_index=0
+    )
     page2 = _make_api_response(["CVE-2024-0003"], total_results=3, start_index=2)
 
     instance = MockFetcher.return_value
@@ -183,6 +188,7 @@ def test_nvd_api_extractor_registered():
     importlib.reload(vulnflow.extractors.nvd_api)
 
     from vulnflow.registry import Registry
+
     cls = Registry.get_extractor("nvd_api")
     assert cls.__name__ == "NVDAPIExtractor"
 
@@ -190,6 +196,7 @@ def test_nvd_api_extractor_registered():
 def test_nvd_api_extractor_requires_at_least_one_param():
     """NVDAPIExtractor raises if no query parameters provided."""
     from vulnflow.extractors.nvd_api import NVDAPIExtractor
+
     with pytest.raises(ValueError, match="At least one query parameter"):
         NVDAPIExtractor()
 
@@ -197,6 +204,7 @@ def test_nvd_api_extractor_requires_at_least_one_param():
 def test_nvd_api_extractor_provenance_label():
     """NVDAPIExtractor has descriptive provenance label."""
     from vulnflow.extractors.nvd_api import NVDAPIExtractor
+
     ext = NVDAPIExtractor(cve_id="CVE-2024-3094")
     assert "NVDAPIExtractor" in ext.provenance_label
     assert "nvd_api" in ext.provenance_label or "CVE-2024-3094" in ext.provenance_label

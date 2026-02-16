@@ -94,7 +94,9 @@ def test_parquet_loader_in_pipeline(tmp_path):
 
     assert output_path.exists()
     assert len(result.dataset) == 5
-    assert any("ParquetLoader" in k for k in result.loader_outputs)  # Uses label property
+    assert any(
+        "ParquetLoader" in k for k in result.loader_outputs
+    )  # Uses label property
 
 
 def test_base_loader_validates_format_attribute() -> None:
