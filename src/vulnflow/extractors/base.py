@@ -20,6 +20,7 @@ import numpy as np
 
 from vulnflow.exceptions import ExtractorError
 from vulnflow.utils import json
+from vulnflow.utils.stage import StageObservability
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -57,7 +58,7 @@ class Extractor(Protocol):
         ...
 
 
-class BaseExtractor(ABC):
+class BaseExtractor(StageObservability, ABC):
     """Base class for extractors with format validation.
 
     Provides:
@@ -88,6 +89,7 @@ class BaseExtractor(ABC):
         Raises:
             ExtractorError: If format attribute is missing or empty
         """
+        self._init_observability()
         if not hasattr(self, "format") or not self.format:
             raise ExtractorError(
                 f"{self.__class__.__name__} must define a non-empty 'format' class attribute"

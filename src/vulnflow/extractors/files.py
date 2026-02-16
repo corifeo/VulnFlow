@@ -14,7 +14,6 @@ Used by: dataset.from_parquet(), from_json(), from_pandas(), from_polars()
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,8 +27,6 @@ if TYPE_CHECKING:
     import polars as pl
 
     from vulnflow.dataset import VulnDataset
-
-logger = logging.getLogger(__name__)
 
 
 @Registry.register_extractor("parquet")
@@ -229,7 +226,6 @@ class ParquetExtractor(BaseExtractor):
             result._data[col] = array[unique_indices]
 
         # Merge provenance from all input datasets
-        import copy
 
         all_extractors: list[str] = []
         all_transforms: list[str] = []
@@ -341,9 +337,9 @@ class JSONExtractor(BaseExtractor):
 
         # Warn if core fields missing
         if "cve_id" not in all_columns:
-            logger.warning("JSON dataset missing 'cve_id' column")
+            self.logger.warning("JSON dataset missing 'cve_id' column")
         if "description" not in all_columns:
-            logger.warning("JSON dataset missing 'description' column")
+            self.logger.warning("JSON dataset missing 'description' column")
 
         dataset._record_provenance(extractor=self.provenance_label)
         return dataset
@@ -383,9 +379,9 @@ class PandasExtractor(BaseExtractor):
 
         # Warn if core fields missing
         if "cve_id" not in self.dataframe.columns:
-            logger.warning("DataFrame missing 'cve_id' column")
+            self.logger.warning("DataFrame missing 'cve_id' column")
         if "description" not in self.dataframe.columns:
-            logger.warning("DataFrame missing 'description' column")
+            self.logger.warning("DataFrame missing 'description' column")
 
         dataset._record_provenance(extractor=self.provenance_label)
         return dataset
@@ -423,9 +419,9 @@ class PolarsExtractor(BaseExtractor):
 
         # Warn if core fields missing
         if "cve_id" not in self.dataframe.columns:
-            logger.warning("Polars DataFrame missing 'cve_id' column")
+            self.logger.warning("Polars DataFrame missing 'cve_id' column")
         if "description" not in self.dataframe.columns:
-            logger.warning("Polars DataFrame missing 'description' column")
+            self.logger.warning("Polars DataFrame missing 'description' column")
 
         dataset._record_provenance(extractor=self.provenance_label)
         return dataset

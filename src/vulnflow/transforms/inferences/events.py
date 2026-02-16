@@ -420,7 +420,7 @@ class EventInference(BaseInference):
                         if self._assign(f_ts, f_conf, i, p_ts[i], 0.50):
                             stats["f"] += 1
                 except Exception:
-                    logger.warning("Failed to parse CPE data for record %d", i)
+                    self.logger.warning("Failed to parse CPE data for record %d", i)
 
             # X from exploit URL patterns
             refs = parsed_refs[i] if i < len(parsed_refs) else []
@@ -542,14 +542,16 @@ class EventInference(BaseInference):
                     4: "structural",
                     5: "age_based",
                 }.get(tier, str(tier))
-                logger.debug("Tier %d (%s): %s", tier, tier_name, ", ".join(parts))
+                self.logger.debug("Tier %d (%s): %s", tier, tier_name, ", ".join(parts))
 
         # Final coverage (INFO)
         def pct(arr: np.ndarray) -> str:
+            if n == 0:
+                return "0.0%"
             count = np.sum([x is not None for x in arr])
             return f"{count / n * 100:.1f}%"
 
-        logger.info(
+        self.logger.info(
             "EventInference coverage: V=%s F=%s P=%s X=%s A=%s",
             pct(v_ts),
             pct(f_ts),

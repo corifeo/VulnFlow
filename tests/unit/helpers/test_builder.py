@@ -810,6 +810,7 @@ class TestQuery:
             )
 
 
+@pytest.mark.slow
 class TestEnsureRecent:
     """Test ensure() recent=True delta merge path."""
 

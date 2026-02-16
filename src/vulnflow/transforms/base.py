@@ -25,6 +25,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from vulnflow.registry import FieldDefinition, Registry
+from vulnflow.utils.stage import StageObservability
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
-class BaseTransform(ABC):
+class BaseTransform(StageObservability, ABC):
     """Root abstract base class for ALL transforms.
 
     Enforces:
@@ -68,6 +69,7 @@ class BaseTransform(ABC):
         Side effects:
         - Registers schema with Registry
         """
+        self._init_observability()
         # Validate required attributes
         if not hasattr(self.__class__, "name"):
             raise TypeError(

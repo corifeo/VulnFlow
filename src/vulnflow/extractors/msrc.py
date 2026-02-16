@@ -15,8 +15,6 @@ last-seen wins). Field-level merge for multi-source CVE dedup is planned.
 
 from __future__ import annotations
 
-import logging
-from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 from vulnflow.exceptions import ExtractorError
@@ -28,8 +26,6 @@ from vulnflow.utils.msrc import resolve_month_ids
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
-
-logger = logging.getLogger(__name__)
 
 MSRC_API_BASE = "https://api.msrc.microsoft.com/cvrf/v3.0"
 MSRC_UPDATES_URL = f"{MSRC_API_BASE}/updates"
@@ -137,58 +133,62 @@ class MSRCExtractor(BaseExtractor):
         """
         from vulnflow.dataset import VulnDataset
 
-        timings: dict[str, float] = {}
         fetcher = HttpFetcher(
             cache_dir=self._cache_dir,
             timeout=self._timeout,
         )
 
-        # Step 1: Fetch available months
-        t0 = perf_counter()
-        try:
-            available_ids = self._fetch_available_months(fetcher)
-        except HttpError as exc:
-            raise ExtractorError(f"Failed to fetch MSRC updates list: {exc}") from exc
-
-        # Step 2: Resolve which months to fetch
-        try:
-            month_ids = resolve_month_ids(
-                year=self._year,
-                start=self._start,
-                end=self._end,
-                available=available_ids,
-            )
-        except ValueError as exc:
-            raise ExtractorError(str(exc)) from exc
-
-        logger.info("MSRC: fetching %d month(s): %s", len(month_ids), month_ids)
-
-        # Step 3: Fetch CVRF for each month
+        # Step 1–3: Fetch available months, resolve, and fetch CVRF
         all_vulns: list[tuple[dict[str, Any], str]] = []  # (vuln_dict, month_id)
-        for mid in month_ids:
+        with self._timed("fetch"):
             try:
-                vulns = self._fetch_month(fetcher, mid)
-                for v in vulns:
-                    all_vulns.append((v, mid))
+                available_ids = self._fetch_available_months(fetcher)
             except HttpError as exc:
-                if len(month_ids) > 1:
-                    logger.warning(
-                        "MSRC: skipping month %s due to HTTP error: %s", mid, exc
-                    )
-                    continue
                 raise ExtractorError(
-                    f"Failed to fetch MSRC data for {mid}: {exc}"
+                    f"Failed to fetch MSRC updates list: {exc}"
                 ) from exc
-            except (KeyError, json.JSONDecodeError) as exc:
-                logger.warning(
-                    "MSRC: skipping month %s due to parse error: %s", mid, exc
-                )
-                continue
 
-        timings["fetch"] = perf_counter() - t0
+            try:
+                month_ids = resolve_month_ids(
+                    year=self._year,
+                    start=self._start,
+                    end=self._end,
+                    available=available_ids,
+                )
+            except ValueError as exc:
+                raise ExtractorError(str(exc)) from exc
+
+            self.logger.info(
+                "MSRC: fetching %d month(s): %s", len(month_ids), month_ids
+            )
+
+            with self._progress(total=len(month_ids), unit="months") as pbar:
+                for mid in month_ids:
+                    try:
+                        vulns = self._fetch_month(fetcher, mid)
+                        for v in vulns:
+                            all_vulns.append((v, mid))
+                    except HttpError as exc:
+                        if len(month_ids) > 1:
+                            self.logger.warning(
+                                "MSRC: skipping month %s due to HTTP error: %s",
+                                mid,
+                                exc,
+                            )
+                            pbar.update(1)
+                            continue
+                        raise ExtractorError(
+                            f"Failed to fetch MSRC data for {mid}: {exc}"
+                        ) from exc
+                    except (KeyError, json.JSONDecodeError) as exc:
+                        self.logger.warning(
+                            "MSRC: skipping month %s due to parse error: %s", mid, exc
+                        )
+                        pbar.update(1)
+                        continue
+                    pbar.update(1)
 
         if not all_vulns:
-            self._timings = timings
             return VulnDataset()
 
         # Step 4: Deduplicate by CVE ID (last-seen wins)
@@ -204,32 +204,28 @@ class MSRCExtractor(BaseExtractor):
 
         # Step 5: Convert to columnar arrays
         # Group by month_id for populate_msrc_columns
-        t0 = perf_counter()
-        from vulnflow.utils.msrc import populate_msrc_columns as _populate
+        with self._timed("populate"):
+            from vulnflow.utils.msrc import populate_msrc_columns as _populate
 
-        # Process all vulns, passing month_id per vuln
-        # We need to handle mixed month_ids, so process per-month and merge
-        month_groups: dict[str, list[dict[str, Any]]] = {}
-        for vuln, mid in unique_vulns:
-            month_groups.setdefault(mid, []).append(vuln)
+            # Process all vulns, passing month_id per vuln
+            # We need to handle mixed month_ids, so process per-month and merge
+            month_groups: dict[str, list[dict[str, Any]]] = {}
+            for vuln, mid in unique_vulns:
+                month_groups.setdefault(mid, []).append(vuln)
 
-        datasets: list[VulnDataset] = []
-        for mid, vulns in month_groups.items():
-            arrays = _populate(vulns, mid)
-            if arrays:
-                ds = VulnDataset()
-                ds._data = arrays
-                datasets.append(ds)
-
-        timings["populate"] = perf_counter() - t0
+            datasets: list[VulnDataset] = []
+            for mid, vulns in month_groups.items():
+                arrays = _populate(vulns, mid)
+                if arrays:
+                    ds = VulnDataset()
+                    ds._data = arrays
+                    datasets.append(ds)
 
         if not datasets:
-            self._timings = timings
             return VulnDataset()
 
         result = VulnDataset.merge(datasets) if len(datasets) > 1 else datasets[0]
         result._record_provenance(extractor=self.provenance_label)
-        self._timings = timings
         return result
 
     def _fetch_available_months(self, fetcher: HttpFetcher) -> list[str]:
@@ -266,5 +262,5 @@ class MSRCExtractor(BaseExtractor):
         )
         data: dict[str, Any] = json.loads(content)
         vulns: list[dict[str, Any]] = data.get("Vulnerability", [])
-        logger.info("MSRC: fetched %d CVEs from %s", len(vulns), month_id)
+        self.logger.info("MSRC: fetched %d CVEs from %s", len(vulns), month_id)
         return vulns

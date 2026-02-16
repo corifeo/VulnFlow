@@ -8,9 +8,12 @@ Dependencies: All phases complete
 
 from __future__ import annotations
 
+import pytest
+
 from vulnflow.dataset import VulnDataset
 
 
+@pytest.mark.slow
 def test_transform_with_no_args_uses_enricher_defaults():
     """dataset.transform() with no args uses registry enricher defaults."""
     from vulnflow.transforms.enrichers import EPSSEnricher, KEVEnricher
@@ -30,6 +33,7 @@ def test_transform_with_no_args_uses_enricher_defaults():
     assert "kev" in dataset.columns or "epss_probability" in dataset.columns
 
 
+@pytest.mark.slow
 def test_transform_with_no_args_uses_transform_defaults():
     """dataset.transform() with no args uses registry transform defaults."""
     from vulnflow.transforms.computed import CVDStateTransform

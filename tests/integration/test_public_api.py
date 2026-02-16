@@ -65,4 +65,4 @@ def test_public_api_pipeline_end_to_end(tmp_path):
     assert result.dataset is not None
     assert len(result.dataset) == 5
     assert output_path.exists()
-    assert "parquet" in result.loader_outputs  # Uses name attribute, not class name
+    assert "ParquetLoader(pipeline.parquet)" in result.loader_outputs
