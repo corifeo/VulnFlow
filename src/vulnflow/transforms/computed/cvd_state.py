@@ -22,8 +22,8 @@ Based on SEI/CMU 2021 paper and vulnstate/constants.py definitions.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from datetime import datetime
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -32,52 +32,16 @@ if TYPE_CHECKING:
 
 from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseComputed
-
-
-def _normalize_timestamp(ts: Any) -> datetime | None:
-    """Normalize timestamp to timezone-aware Python datetime.
-
-    Handles:
-    - Python datetime (with or without timezone)
-    - numpy.datetime64
-    - pandas.Timestamp
-    - None
-
-    Returns Python datetime with UTC timezone, or None.
-    """
-    if ts is None:
-        return None
-
-    # Handle numpy.datetime64
-    if hasattr(ts, "astype"):
-        # Convert numpy.datetime64 to Python datetime
-        import pandas as pd
-
-        ts = pd.Timestamp(ts).to_pydatetime()
-
-    # Handle pandas Timestamp
-    if hasattr(ts, "to_pydatetime"):
-        ts = cast(Any, ts).to_pydatetime()
-
-    # Ensure timezone-aware
-    if isinstance(ts, datetime):
-        if ts.tzinfo is None:
-            return ts.replace(tzinfo=UTC)
-        return ts
-
-    return None
+from vulnflow.utils.nvd import to_utc_datetime
 
 
 def _safe_compare(ts1: datetime | None, ts2: datetime | None) -> bool | None:
-    """Compare two timestamps safely, handling timezone mismatches.
+    """Compare two normalized timestamps.
 
     Returns True if ts1 < ts2, False if ts1 >= ts2, None if either is None.
-    Normalizes timezone-naive datetimes to UTC for comparison.
-    Handles numpy.datetime64 and pandas.Timestamp objects.
     """
-    ts1 = _normalize_timestamp(ts1)
-    ts2 = _normalize_timestamp(ts2)
-
+    # Date-only sources (KEV, URL dates) are midnight UTC, so they sort before
+    # same-day timestamps: a KEV date means attacks were already seen by that day.
     if ts1 is None or ts2 is None:
         return None
 
@@ -85,15 +49,10 @@ def _safe_compare(ts1: datetime | None, ts2: datetime | None) -> bool | None:
 
 
 def _safe_delta(ts1: datetime | None, ts2: datetime | None) -> float:
-    """Compute time delta in days between two timestamps.
+    """Compute time delta in days between two normalized timestamps.
 
     Returns NaN if either timestamp is None.
-    Normalizes timezone-naive datetimes to UTC.
-    Handles numpy.datetime64 and pandas.Timestamp objects.
     """
-    ts1 = _normalize_timestamp(ts1)
-    ts2 = _normalize_timestamp(ts2)
-
     if ts1 is None or ts2 is None:
         return float("nan")
 
@@ -201,17 +160,20 @@ class CVDStateTransform(BaseComputed):
         FieldDefinition(
             "is_zero_day_exploit",
             "bool",
-            "X occurred before V (U2)",
+            "X occurred before V (U2); False when V is unknown",
             "CVDStateTransform",
         ),
         FieldDefinition(
             "is_zero_day_attack",
             "bool",
-            "A occurred before V (U3)",
+            "A occurred before V (U3); False when V is unknown",
             "CVDStateTransform",
         ),
         FieldDefinition(
-            "is_uncoordinated", "bool", "P occurred before V (U1)", "CVDStateTransform"
+            "is_uncoordinated",
+            "bool",
+            "P occurred before V (U1); False when V is unknown",
+            "CVDStateTransform",
         ),
         # Exposure flags (3)
         FieldDefinition(
@@ -297,12 +259,12 @@ class CVDStateTransform(BaseComputed):
         # Single pass through all records
         for i in range(n):
             # Get timestamps for this record
-            v = v_ts[i] if v_ts is not None else None
-            f = f_ts[i] if f_ts is not None else None
-            d = d_ts[i] if d_ts is not None else None
-            p = p_ts[i] if p_ts is not None else None
-            x = x_ts[i] if x_ts is not None else None
-            a = a_ts[i] if a_ts is not None else None
+            v = to_utc_datetime(v_ts[i]) if v_ts is not None else None
+            f = to_utc_datetime(f_ts[i]) if f_ts is not None else None
+            d = to_utc_datetime(d_ts[i]) if d_ts is not None else None
+            p = to_utc_datetime(p_ts[i]) if p_ts is not None else None
+            x = to_utc_datetime(x_ts[i]) if x_ts is not None else None
+            a = to_utc_datetime(a_ts[i]) if a_ts is not None else None
 
             # Event occurrence flags
             v_occurred = v is not None

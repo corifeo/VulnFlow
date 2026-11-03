@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import numpy as np
 
@@ -37,8 +38,8 @@ def test_kev_flatten_extracts_all_fields() -> None:
     transform.transform(dataset)
 
     assert dataset.get_column("is_kev")[0] is True
-    assert dataset.get_column("kev_date_added")[0] == "2024-01-01T00:00:00Z"
-    assert dataset.get_column("kev_due_date")[0] == "2024-02-01T00:00:00Z"
+    assert dataset.get_column("kev_date_added")[0] == datetime(2024, 1, 1, tzinfo=UTC)
+    assert dataset.get_column("kev_due_date")[0] == datetime(2024, 2, 1, tzinfo=UTC)
     assert dataset.get_column("kev_vendor")[0] == "Vendor"
     assert dataset.get_column("kev_product")[0] == "Product"
     assert dataset.get_column("kev_vulnerability_name")[0] == "Test Vuln"

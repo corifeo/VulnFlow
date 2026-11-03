@@ -14,6 +14,7 @@ Provides:
 - normalize_source: Normalize CVSS source strings to canonical form
 - score_to_severity: Map CVSS base score to severity string
 - parse_timestamp: ISO timestamp string to datetime
+- to_utc_datetime: Any timestamp form to timezone-aware UTC datetime
 - extract_nvd_status: Normalize NVD vulnStatus field
 - parse_cvss: Parse CVSS v2/v3.0/v3.1/v4.0 metrics
 - parse_cwes: Parse CWE weaknesses
@@ -46,6 +47,7 @@ from vulnflow.utils.nvd import (
     parse_references,
     parse_timestamp,
     populate_columns,
+    to_utc_datetime,
 )
 from vulnflow.utils.progress import (
     ProgressMode,
@@ -60,6 +62,7 @@ __all__ = [
     "normalize_source",
     "score_to_severity",
     "parse_timestamp",
+    "to_utc_datetime",
     "extract_nvd_status",
     "parse_cvss",
     "parse_cwes",

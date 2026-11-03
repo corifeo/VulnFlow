@@ -7,8 +7,11 @@ Dependencies: schema, utils.cvss, utils.cpe
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from vulnflow.schema import CVSSv3Entry, CVSSv4Entry
@@ -19,7 +22,47 @@ from vulnflow.utils.nvd import (
     parse_cwes,
     parse_references,
     parse_timestamp,
+    to_utc_datetime,
 )
+
+# --- to_utc_datetime ---
+
+
+@pytest.mark.parametrize(
+    "value", [None, "", float("nan"), np.datetime64("NaT", "us"), pd.NaT]
+)
+def test_to_utc_datetime_nulls_return_none(value: Any) -> None:
+    assert to_utc_datetime(value) is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2021-12-10T00:00:00+00:00",
+        "2021-12-10T00:00:00Z",
+        "2021-12-10T00:00:00",
+        "2021-12-10T01:00:00+01:00",
+        datetime(2021, 12, 10),
+        datetime(2021, 12, 10, tzinfo=UTC),
+        np.datetime64("2021-12-10"),
+        pd.Timestamp("2021-12-10", tz="UTC"),
+    ],
+)
+def test_to_utc_datetime_all_forms_agree(value: Any) -> None:
+    result = to_utc_datetime(value)
+    assert result == datetime(2021, 12, 10, tzinfo=UTC)
+    assert result is not None and result.utcoffset().total_seconds() == 0
+
+
+def test_to_utc_datetime_malformed_string_raises() -> None:
+    with pytest.raises(ValueError):
+        to_utc_datetime("not-a-date")
+
+
+def test_to_utc_datetime_unknown_type_raises() -> None:
+    with pytest.raises(TypeError, match="int"):
+        to_utc_datetime(123)
+
 
 # --- Helpers ---
 
