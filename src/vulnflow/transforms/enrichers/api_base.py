@@ -6,7 +6,7 @@ Provides:
 
 Layer: Transform/Enrichers
 Dependencies: base, utils.http
-Used by: ExploitDBEnricher
+Used by: Custom per-CVE enrichers
 """
 
 from __future__ import annotations
