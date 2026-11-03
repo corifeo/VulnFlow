@@ -60,8 +60,6 @@ tmp/
 # Git worktrees
 .worktrees/
 
-# uv
-uv.lock
 .claude/settings.local.json
 
 # Cache directories
