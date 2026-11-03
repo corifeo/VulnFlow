@@ -27,6 +27,7 @@ from vulnflow.utils.filtering import (
     _build_date_mask,
     _build_status_mask,
 )
+from vulnflow.utils.nvd import to_utc_datetime
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -52,26 +53,21 @@ _DATETIME_SUFFIXES = ("_at", "_timestamp", "_date", "_added", "_due_date")
 
 
 def _coerce_datetime_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Convert object-dtype columns containing datetime objects to datetime64[us, UTC].
+    """Convert date columns to datetime64[us, UTC].
 
-    Pandas doesn't auto-convert object arrays of Python datetime objects.
-    This detects datetime columns by suffix and sample inspection, then
-    converts to proper datetime64 for correct comparison and filtering.
+    Date-named columns are converted whatever their dtype: pandas 3 infers str
+    and naive datetime64 dtypes, so checking for object dtype would skip them.
+    Other object columns are converted if a sampled value is a datetime.
     """
     import pandas as pd_
 
     for col in df.columns:
-        if df[col].dtype != object:
-            continue
-        # Check by column name suffix
-        is_datetime_col = any(col.endswith(s) for s in _DATETIME_SUFFIXES)
-        if not is_datetime_col:
-            # Check by sampling first non-null value
+        if col.endswith(_DATETIME_SUFFIXES):
+            df[col] = pd_.to_datetime(df[col], utc=True, format="ISO8601")
+        elif df[col].dtype == object:
             first_val = df[col].dropna().iloc[0] if df[col].notna().any() else None
-            if first_val is not None and isinstance(first_val, datetime):
-                is_datetime_col = True
-        if is_datetime_col:
-            df[col] = pd_.to_datetime(df[col], utc=True)
+            if isinstance(first_val, datetime):
+                df[col] = pd_.to_datetime(df[col], utc=True)
     return df
 
 
@@ -211,6 +207,10 @@ class PolarsLoader(BaseLoader):
             }
         else:
             data = {k: v[mask].tolist() for k, v in dataset._data.items()}
+
+        for col, values in data.items():
+            if col.endswith(_DATETIME_SUFFIXES):
+                data[col] = [to_utc_datetime(v) for v in values]
 
         return pl.from_dict(data)
 
