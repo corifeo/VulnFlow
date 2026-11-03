@@ -360,6 +360,15 @@ class TestReadParquetProvenance:
 
 
 class TestCacheBuilderEnsure:
+    @pytest.fixture(autouse=True)
+    def _no_enrichment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Freshness logic needs no enrichers, and they would hit live feeds."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        monkeypatch.setattr(
+            CacheBuilder, "_build_transforms", classmethod(lambda cls, **kwargs: [])
+        )
+
     def test_ensure_builds_when_file_missing(
         self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
     ) -> None:

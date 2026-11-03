@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run --frozen pytest
+      - if: matrix.python-version == '3.13'
+        run: |
+          uv run --frozen ruff check src tests
+          uv run --frozen mypy src/ --strict
+          uv run --frozen black --check src tests
+
+  changelog:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: CHANGELOG.md and CITATION.cff match the pyproject.toml version
+        run: |
+          V=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          grep -q "^## $V (" CHANGELOG.md || { echo "::error::CHANGELOG.md has no '## $V (' heading"; exit 1; }
+          grep -q "^version: $V" CITATION.cff || { echo "::error::CITATION.cff version is not $V"; exit 1; }
