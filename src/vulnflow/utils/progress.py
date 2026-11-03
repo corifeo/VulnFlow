@@ -81,9 +81,9 @@ class ProgressMode(Enum):
 def _is_notebook() -> bool:
     """Detect if running inside a Jupyter/IPython notebook."""
     try:
-        from IPython import get_ipython  # type: ignore[attr-defined]
+        from IPython import get_ipython
 
-        shell = get_ipython()  # type: ignore[no-untyped-call]
+        shell = get_ipython()
         if shell is None:
             return False
         return type(shell).__name__ == "ZMQInteractiveShell"

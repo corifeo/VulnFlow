@@ -64,7 +64,7 @@ class KEVFlattenTransform(BaseFlatten):
 
     def __init__(self) -> None:
         """Initialize KEV flatten transform."""
-        super().__init__()  # MUST call first per CLAUDE.md
+        super().__init__()  # must run first
 
     def transform(self, dataset: VulnDataset) -> None:
         """Extract KEV object fields to scalars."""

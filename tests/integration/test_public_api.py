@@ -57,6 +57,17 @@ def test_each_module_imports_first_in_a_fresh_interpreter(module: str) -> None:
     subprocess.run([sys.executable, "-c", f"import {module}"], check=True)
 
 
+def test_version_comes_from_pyproject() -> None:
+    """Fails on the first version bump if __version__ is ever hard-coded again."""
+    import tomllib
+    from pathlib import Path
+
+    import vulnflow
+
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf8"))
+    assert vulnflow.__version__ == project["project"]["version"]
+
+
 def test_public_api_exports():
     """Public API exports all required classes."""
     from vulnflow import (

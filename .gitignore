@@ -1,6 +1,7 @@
 # Documentation (local only, except README)
 *.md
 !README.md
+!CHANGELOG.md
 
 # Sample data
 data/

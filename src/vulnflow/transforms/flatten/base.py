@@ -34,7 +34,7 @@ class BaseFlatten(BaseComputed):
 
     def __init__(self) -> None:
         """Initialize flatten transform."""
-        super().__init__()  # MUST call first per CLAUDE.md
+        super().__init__()  # must run first
 
     @abstractmethod
     def transform(self, dataset: VulnDataset) -> None:
