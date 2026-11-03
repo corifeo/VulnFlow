@@ -1,0 +1,2 @@
+cveID,vendorProject,product,vulnerabilityName,dateAdded,shortDescription,requiredAction,dueDate,knownRansomwareCampaignUse,notes
+CVE-2021-44228,Apache,Log4j2,Apache Log4j2 Remote Code Execution Vulnerability,2021-12-10,Remote code execution,Apply updates per vendor instructions,2021-12-24,Known,
