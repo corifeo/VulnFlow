@@ -67,7 +67,7 @@ class CVSSFlattenTransform(BaseFlatten):
 
     def __init__(self) -> None:
         """Initialize CVSS flatten transform."""
-        super().__init__()  # MUST call first per CLAUDE.md
+        super().__init__()  # must run first
 
     OUTPUT_SCHEMA: list[FieldDefinition] = [
         FieldDefinition("cvss_version", "str", "CVSS version", "CVSSFlattenTransform"),

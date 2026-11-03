@@ -317,7 +317,7 @@ class HttpFetcher:
         try:
             asyncio.get_running_loop()
             # Already in an event loop (Jupyter) — need nest_asyncio
-            import nest_asyncio
+            import nest_asyncio  # type: ignore[import-untyped]
 
             nest_asyncio.apply()
         except RuntimeError:

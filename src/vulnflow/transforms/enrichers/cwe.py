@@ -170,6 +170,7 @@ class CWEEnricher(BaseEnricher):
 
         # Load from source
         self.logger.info("Loading CWE database from %s", self.source)
+        xml_path: Path | None
         if isinstance(self.source, Path):
             xml_path = self.source
         else:

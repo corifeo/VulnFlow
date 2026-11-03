@@ -78,7 +78,7 @@ class MSRCFlattenTransform(BaseFlatten):
 
     def __init__(self) -> None:
         """Initialize MSRC flatten transform."""
-        super().__init__()  # MUST call first per CLAUDE.md
+        super().__init__()  # must run first
 
     def transform(self, dataset: VulnDataset) -> None:
         """Extract MSRC metadata fields to scalars."""
