@@ -277,8 +277,9 @@ class TestProvenance:
         self, nvd_sample_dataset: VulnDataset
     ) -> None:
         from vulnflow.transforms.computed.cvd_state import CVDStateTransform
+        from vulnflow.transforms.inferences import EventInference
 
-        nvd_sample_dataset.transform([CVDStateTransform()])
+        nvd_sample_dataset.transform([EventInference(), CVDStateTransform()])
         assert "CVDStateTransform()" in nvd_sample_dataset.provenance["transforms"]
 
     def test_multiple_transforms_all_recorded(
@@ -286,8 +287,9 @@ class TestProvenance:
     ) -> None:
         from vulnflow.transforms.computed.cvd_state import CVDStateTransform
         from vulnflow.transforms.flatten.cvss import CVSSFlattenTransform
+        from vulnflow.transforms.inferences import EventInference
 
-        nvd_sample_dataset.transform([CVDStateTransform()])
+        nvd_sample_dataset.transform([EventInference(), CVDStateTransform()])
         nvd_sample_dataset.transform([CVSSFlattenTransform()])
         transforms = nvd_sample_dataset.provenance["transforms"]
         assert "CVDStateTransform()" in transforms
@@ -297,8 +299,9 @@ class TestProvenance:
         self, nvd_sample_dataset: VulnDataset
     ) -> None:
         from vulnflow.transforms.computed.cvd_state import CVDStateTransform
+        from vulnflow.transforms.inferences import EventInference
 
-        nvd_sample_dataset.transform([CVDStateTransform()])
+        nvd_sample_dataset.transform([EventInference(), CVDStateTransform()])
         nvd_sample_dataset.transform([CVDStateTransform()])
         transforms = nvd_sample_dataset.provenance["transforms"]
         assert transforms.count("CVDStateTransform()") == 1

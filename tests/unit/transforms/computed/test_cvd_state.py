@@ -17,6 +17,7 @@ import pytest
 from tests.conftest import make_dataset
 
 from vulnflow.dataset import VulnDataset
+from vulnflow.exceptions import TransformError
 from vulnflow.transforms.computed.cvd_state import CVDStateTransform
 from vulnflow.transforms.enrichers.kev import KEVEnricher
 from vulnflow.transforms.flatten.kev import KEVFlattenTransform
@@ -44,6 +45,20 @@ def _kev_chain() -> VulnDataset:
 
 def _state_and_flags(ds: VulnDataset) -> tuple[list[Any], list[Any]]:
     return list(ds.get_column("cvd_state")), list(ds.get_column("is_zero_day_attack"))
+
+
+def test_cvd_state_without_timestamps_raises() -> None:
+    """No timestamp columns would report 'vfdpxa' for every CVE, which is junk."""
+    ds = make_dataset({"cve_id": ["CVE-2024-0001"]})
+    with pytest.raises(TransformError, match="EventInference"):
+        CVDStateTransform().transform(ds)
+
+
+def test_cvd_state_empty_dataset_without_timestamps_is_fine() -> None:
+    """A feed with no new CVEs isn't an error."""
+    ds = make_dataset({"cve_id": []})
+    CVDStateTransform().transform(ds)
+    assert len(ds.get_column("cvd_state")) == 0
 
 
 def test_string_timestamps_are_compared() -> None:

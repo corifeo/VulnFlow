@@ -30,6 +30,7 @@ import numpy as np
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
+from vulnflow.exceptions import TransformError
 from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseComputed
 from vulnflow.utils.nvd import to_utc_datetime
@@ -230,6 +231,12 @@ class CVDStateTransform(BaseComputed):
         p_ts = dataset.get_column_or_none("p_timestamp")
         x_ts = dataset.get_column_or_none("x_timestamp")
         a_ts = dataset.get_column_or_none("a_timestamp")
+
+        if n > 0 and all(ts is None for ts in (v_ts, f_ts, d_ts, p_ts, x_ts, a_ts)):
+            raise TransformError(
+                "CVDStateTransform needs CVD timestamp columns and this dataset has "
+                "none. Run EventInference() first, or load data that already has them."
+            )
 
         # Pre-allocate all output arrays
         states: list[str] = []

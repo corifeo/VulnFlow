@@ -21,6 +21,74 @@ from vulnflow.dataset import VulnDataset
 from vulnflow.executor import PipelineExecutor
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.loaders.base import BaseLoader
+from vulnflow.transforms.computed import CVDStateTransform
+from vulnflow.transforms.enrichers import KEVEnricher
+from vulnflow.transforms.flatten import KEVFlattenTransform
+from vulnflow.transforms.inferences import EventInference
+
+# =============================================================================
+# Unmet dependency warnings
+# =============================================================================
+
+
+async def test_warns_when_dependency_and_its_columns_are_missing(
+    nvd_sample_dataset: VulnDataset, caplog: pytest.LogCaptureFixture
+) -> None:
+    """EventInference without KEV columns runs, but silently loses A: say so."""
+    await PipelineExecutor.run_transforms(
+        nvd_sample_dataset, [EventInference()], strict=True
+    )
+    assert "KEVFlattenTransform" in caplog.text
+
+
+async def test_no_warning_when_dependency_is_in_the_run(
+    nvd_sample_dataset: VulnDataset, caplog: pytest.LogCaptureFixture
+) -> None:
+    transforms = [
+        KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+        KEVFlattenTransform(),
+        EventInference(),
+    ]
+    await PipelineExecutor.run_transforms(nvd_sample_dataset, transforms, strict=True)
+    assert "depends on" not in caplog.text
+
+
+async def test_no_warning_on_subset_run_with_existing_columns(
+    nvd_sample_dataset: VulnDataset,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Running CVD state on an already-inferred library stays a supported subset."""
+    await PipelineExecutor.run_transforms(
+        nvd_sample_dataset, [EventInference()], strict=True
+    )
+    nvd_sample_dataset.to_parquet(tmp_path / "x.parquet")
+    reloaded = VulnDataset.from_parquet(str(tmp_path / "x.parquet"))
+    caplog.clear()
+    await PipelineExecutor.run_transforms(reloaded, [CVDStateTransform()], strict=True)
+    assert "depends on" not in caplog.text
+    assert "cvd_state" in reloaded.columns
+
+
+async def test_unregistered_dependency_name_is_ignored(
+    nvd_sample_dataset: VulnDataset, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Custom plugins can name dependencies the registry has never heard of."""
+
+    class Plugin:
+        name = "Plugin"
+        depends_on = ["NotRegistered"]
+
+        def transform(self, dataset: VulnDataset) -> None:
+            pass
+
+    successful, failed, _ = await PipelineExecutor.run_transforms(
+        nvd_sample_dataset, [Plugin()], strict=True
+    )
+    assert failed == []
+    assert len(successful) == 1
+    assert "depends on" not in caplog.text
+
 
 # =============================================================================
 # _get_stage_name Tests

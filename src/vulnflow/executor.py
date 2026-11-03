@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.loaders.base import BaseLoader
+from vulnflow.registry import Registry
 from vulnflow.utils.graph import build_phases
 from vulnflow.utils.transforms import is_async_transform
 
@@ -171,6 +172,30 @@ class PipelineExecutor:
         return merged, successful, failed, errors
 
     @staticmethod
+    def _warn_unmet_dependencies(dataset: VulnDataset, transforms: list[Any]) -> None:
+        """Warn when a dependency is absent from both the run and the dataset.
+
+        Running a subset of transforms is supported, so a dependency missing
+        from the run is only a problem if its columns are missing as well.
+        """
+        names = {getattr(t, "name", None) for t in transforms}
+        for t in transforms:
+            for dep in getattr(t, "depends_on", []):
+                if dep in names:
+                    continue
+                try:
+                    schema = Registry.get_transform(dep).OUTPUT_SCHEMA
+                except (KeyError, AttributeError):
+                    continue  # custom dependency the registry can't describe
+                if schema and not any(f.name in dataset.columns for f in schema):
+                    logger.warning(
+                        "%s depends on %s, which isn't in this run and whose "
+                        "columns are missing; its output may be incomplete",
+                        getattr(t, "name", type(t).__name__),
+                        dep,
+                    )
+
+    @staticmethod
     async def run_transforms(
         dataset: VulnDataset,
         transforms: list[Any],
@@ -194,6 +219,8 @@ class PipelineExecutor:
         """
         if not transforms:
             return [], [], []
+
+        PipelineExecutor._warn_unmet_dependencies(dataset, transforms)
 
         successful: list[str] = []
         failed: list[str] = []
