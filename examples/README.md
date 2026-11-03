@@ -1,74 +1,62 @@
-# VulnFlow Examples
-
-## Choose Your Notebook
-
-**Quick exploration?** → [01-quick-exploration.ipynb](01-quick-exploration.ipynb)
-- NVD Modified feed (last 8 days, ~2-5K CVEs)
-- Severity, critical CVEs, attack vectors
-
-**Recent analysis?** → [02-recent-analysis.ipynb](02-recent-analysis.ipynb)
-- Last 12 months (~50K CVEs)
-- Monthly trends, score distributions, incremental updates
-
-**Complete library?** → [03-complete-library.ipynb](03-complete-library.ipynb)
-- Full NVD database (2002-present, ~330K CVEs)
-- Yearly trends, status breakdown
-
-**Copy-paste recipes?** → [04-cookbook.ipynb](04-cookbook.ipynb)
-- Filtering, aggregation, vendor analysis
-- CWE/CPE exploration, CVSS impact analysis
-- Placeholder sections for EPSS, KEV, metadata, tags
-
----
+# Examples
 
 ## Setup
 
 ```bash
-uv add jupyter jupyterlab
-cd examples
-uv run jupyter lab
+uv sync                     # install dependencies
+uv run jupyter lab          # launch notebooks
 ```
 
-All notebooks download data automatically. No manual setup needed.
-
----
-
-## The CacheBuilder
-
-Every notebook uses `CacheBuilder` - a one-line way to build vulnerability datasets:
-
-```python
-from vulnflow.helpers import CacheBuilder
-
-# All years (2002-present)
-ds = CacheBuilder().build()
-
-# Specific years
-ds = CacheBuilder(years=[2024, 2025]).build()
-
-# Modified feed only (quick update)
-ds = CacheBuilder(modified_only=True).build()
-
-# Save
-ds.to_parquet("data/library.parquet")
+Set `NVD_API_KEY` for faster API queries (10x rate limit):
+```bash
+export NVD_API_KEY=your-key-here
 ```
 
-For incremental updates after initial build:
+## Notebooks
 
-```python
-from vulnflow import VulnDataset
-from vulnflow.extractors.nvd import NVDExtractor
-from vulnflow.helpers import CacheBuilder
+### Tier 1: Getting Started
 
-delta = NVDExtractor(CacheBuilder.feed_url("modified")).extract()
-ds = VulnDataset.from_parquet("data/library.parquet")
-VulnDataset.merge([ds, delta]).to_parquet("data/library.parquet")
+| Notebook | Persona | API Surface |
+|----------|---------|-------------|
+| `01-first-look.ipynb` | New user, first 5 minutes | `CacheBuilder.build()`, `to_pandas()` |
+| `02-build-library.ipynb` | Building a persistent cache | `CacheBuilder.ensure()`, `from_parquet([base, delta])` |
+| `03-weekly-triage.ipynb` | Security analyst, Monday triage | `CacheBuilder.build()`, `VulnDataset.merge()`, composite risk scoring |
+
+### Tier 2: Advanced Workflows
+
+| Notebook | Persona | API Surface |
+|----------|---------|-------------|
+| `04-patch-tuesday.ipynb` | Patch management analyst | `NVDAPIExtractor`, explicit transforms, CPE filtering |
+| `05-threat-landscape.ipynb` | Security manager, quarterly report | `VulnDataset.from_parquet()`, `count_by()`, analytics |
+| `06-custom-pipeline.ipynb` | Developer building ETL pipelines | `VulnPipeline`, `merge()`, `then()`, `PipelineResult` |
+
+## Scripts
+
+| Script | Persona | API Surface |
+|--------|---------|-------------|
+| `scripts/refresh_cache.py` | DevOps, cron job | `CacheBuilder.ensure()` |
+| `scripts/critical_alert.py` | SOC analyst, alerting | `NVDAPIExtractor`, `ds.filter()`, `to_json()` |
+| `scripts/etl_pipeline.py` | Platform engineer, CI/CD | `VulnPipeline`, `NVDExtractor`, `ParquetLoader` |
+
+Run scripts with:
+```bash
+uv run examples/scripts/refresh_cache.py
+uv run examples/scripts/critical_alert.py
+uv run examples/scripts/etl_pipeline.py
 ```
-
----
 
 ## Troubleshooting
 
-**ImportError**: Run `uv sync` to update vulnflow.
+**NVD API rate limited (HTTP 403)**
+Set `NVD_API_KEY` env var. Request a key at https://nvd.nist.gov/developers/request-an-api-key
 
-**KeyError on column**: Dataset may need transforms. Call `ds.transform()` before `to_pandas()`.
+**`ModuleNotFoundError: vulnflow`**
+Run from the project root with `uv run`.
+
+**Notebooks fail on restart-and-run-all**
+Notebooks that use the NVD API (`04-patch-tuesday`) require network access.
+Notebooks using `CacheBuilder.ensure()` (`02`, `05`) skip downloads when the cache is fresh.
+
+**Empty charts / zero records**
+The Recent feed covers ~8 days; the Modified feed covers ~2 hours of changes.
+If datasets are sparse, use `CacheBuilder(years=[2024])` for richer data.
