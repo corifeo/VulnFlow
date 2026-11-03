@@ -8,6 +8,12 @@ Dependencies: EventInference
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pytest
 from tests.conftest import make_dataset
 
 from vulnflow.dataset import VulnDataset
@@ -15,6 +21,86 @@ from vulnflow.transforms.computed.cvd_state import CVDStateTransform
 from vulnflow.transforms.enrichers.kev import KEVEnricher
 from vulnflow.transforms.flatten.kev import KEVFlattenTransform
 from vulnflow.transforms.inferences.events import EventInference
+
+
+def _row(**events: Any) -> VulnDataset:
+    """Run CVDStateTransform on one CVE with the given v/f/d/p/x/a timestamps."""
+    columns = {f"{e}_timestamp": [events.get(e)] for e in "vfdpxa"}
+    ds = make_dataset({"cve_id": ["CVE-2024-0001"], **columns})
+    CVDStateTransform().transform(ds)
+    return ds
+
+
+def _kev_chain() -> VulnDataset:
+    return VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").transform(
+        [
+            KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+            KEVFlattenTransform(),
+            EventInference(),
+            CVDStateTransform(),
+        ]
+    )
+
+
+def _state_and_flags(ds: VulnDataset) -> tuple[list[Any], list[Any]]:
+    return list(ds.get_column("cvd_state")), list(ds.get_column("is_zero_day_attack"))
+
+
+def test_string_timestamps_are_compared() -> None:
+    """ISO strings count as dates: JSON reloads and custom sources produce them."""
+    ds = _row(a="2024-01-01T00:00:00+00:00", v=datetime(2024, 2, 1, tzinfo=UTC))
+    assert ds.get_column("is_zero_day_attack")[0]
+
+
+def test_kev_chain_populates_attack_analytics() -> None:
+    """KEV dates reach the attack analytics through the full chain."""
+    # CVE-2024-0001: published 2024-01-10T10:00Z, KEV 2024-01-11
+    days = _kev_chain().get_column("public_to_attack_days")[0]
+    assert days == pytest.approx(14 / 24, rel=1e-3)
+
+
+def test_nat_is_not_an_event() -> None:
+    """Null dates reloaded from Parquet don't count as events that happened."""
+    nat = np.datetime64("NaT", "us")
+    ds = _row(v=nat, f=nat, d=nat, p=np.datetime64("2024-01-01"), x=nat, a=nat)
+    assert ds.get_column("cvd_state")[0] == "vfdPxa"
+
+
+def test_malformed_timestamp_raises() -> None:
+    """A bad date fails loudly instead of silently dropping the event."""
+    with pytest.raises(ValueError):
+        _row(a="not-a-date")
+
+
+def test_parquet_roundtrip_keeps_state_and_flags(tmp_path: Path) -> None:
+    ds = _kev_chain()
+    ds.to_parquet(tmp_path / "x.parquet")
+    again = VulnDataset.from_parquet(str(tmp_path / "x.parquet"))
+    CVDStateTransform().transform(again)
+    assert _state_and_flags(again) == _state_and_flags(ds)
+
+
+def test_json_roundtrip_keeps_flags(tmp_path: Path) -> None:
+    ds = _kev_chain()
+    ds.to_json(tmp_path / "x.json")
+    again = VulnDataset.from_json(tmp_path / "x.json")
+    CVDStateTransform().transform(again)
+    assert _state_and_flags(again) == _state_and_flags(ds)
+
+
+def test_missing_v_is_not_a_zero_day() -> None:
+    """No V means unknown: V is inferred, so absence isn't evidence of unawareness."""
+    ds = _row(x=datetime(2024, 1, 1, tzinfo=UTC), a=datetime(2024, 1, 2, tzinfo=UTC))
+    assert not ds.get_column("is_zero_day_exploit")[0]
+    assert not ds.get_column("is_zero_day_attack")[0]
+
+
+def test_same_day_kev_date_sorts_before_publication() -> None:
+    """A KEV date means attacks were already seen by that day."""
+    published = datetime(2024, 3, 14, 17, 15, tzinfo=UTC)
+    ds = _row(v=published, p=published, a="2024-03-14T00:00:00+00:00")
+    assert ds.get_column("is_zero_day_attack")[0]
+    assert ds.get_column("public_to_attack_days")[0] < 0
 
 
 def test_cvd_state_creates_state_column():

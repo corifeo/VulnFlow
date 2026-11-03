@@ -15,6 +15,7 @@ import numpy as np
 from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.flatten.base import BaseFlatten
 from vulnflow.utils import json
+from vulnflow.utils.nvd import parse_timestamp
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -82,8 +83,8 @@ class KEVFlattenTransform(BaseFlatten):
 
             kev = json.loads(str(raw))
             out["is_kev"][i] = True
-            out["kev_date_added"][i] = kev.get("date_added")
-            out["kev_due_date"][i] = kev.get("due_date")
+            out["kev_date_added"][i] = parse_timestamp(kev.get("date_added"))
+            out["kev_due_date"][i] = parse_timestamp(kev.get("due_date"))
             out["kev_vendor"][i] = kev.get("vendor")
             out["kev_product"][i] = kev.get("product")
             out["kev_vulnerability_name"][i] = kev.get("vulnerability_name")
