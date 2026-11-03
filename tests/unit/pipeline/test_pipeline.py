@@ -19,6 +19,22 @@ import vulnflow.transforms.enrichers.kev  # noqa: F401
 from vulnflow.pipeline import PipelineResult, VulnPipeline
 
 
+def test_pipeline_reports_cvd_state_without_event_inference():
+    """The README's old pipeline returned 'vfdpxa' for every CVE with errors=[]."""
+    from vulnflow.exceptions import TransformError
+    from vulnflow.extractors.nvd import NVDExtractor
+    from vulnflow.transforms.computed import CVDStateTransform
+
+    result = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[CVDStateTransform()],
+    ).run(quiet=True)
+
+    assert any(isinstance(e, TransformError) for e in result.errors)
+    assert result.dataset is not None
+    assert "cvd_state" not in result.dataset.columns
+
+
 def test_pipeline_result_creation():
     """PipelineResult dataclass exists and has expected fields."""
     result = PipelineResult(
