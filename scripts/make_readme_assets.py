@@ -1,9 +1,9 @@
 """Regenerate the README screenshots and charts in .github/assets/.
 
-Also prints the figures README.md quotes. The hero and the KEV chart use live
-data: NVD's Recent feed, and a 2024-2025 library rebuilt into
-data/readme_library.parquet when older than 7 days (several minutes). The
-Log4Shell case study uses the recorded fixtures in tests/fixtures/.
+Also prints the figures README.md quotes. The hero uses NVD's live Recent
+feed. The status screenshot and the KEV chart share one live build of all of
+NVD (every yearly feed, a few minutes), saved to data/readme_library.parquet.
+The Log4Shell case study uses the recorded fixtures in tests/fixtures/.
 
     uv run --with rich --extra notebook python scripts/make_readme_assets.py
 """
@@ -27,7 +27,7 @@ from rich.measure import Measurement
 from rich.table import Table
 from rich.text import Text
 
-from vulnflow import VulnPipeline
+from vulnflow import VulnDataset, VulnPipeline
 from vulnflow.extractors import NVDExtractor
 from vulnflow.helpers import CacheBuilder
 from vulnflow.transforms.computed import CVDStateTransform
@@ -130,12 +130,87 @@ def make_pipeline_svg() -> None:
     tables = Table.grid(padding=(0, 4))
     tables.add_row(stages, result)
     save_svg("pipeline.svg", "vulnflow · quick start", header, Text(""), tables, footer)
-    fills = ", ".join(
-        f"{c} {df[c].notna().mean():.0%}" for c in ("cvss_base_score", "cpe_vendor")
+    cpe = df["cpe_vendor"].notna().mean()
+    print(
+        f"Recent feed: {len(df):,} CVEs, {df.shape[1]} columns, {elapsed:.0f}s, CPE {cpe:.0%}"
+    )
+
+
+# ---------------------------------------------------------------- nvd_status.svg
+
+STATUSES = [  # (status, what it means)
+    ("analyzed", "NVD has analyzed it"),
+    ("modified", "changed since NVD analyzed it"),
+    ("awaiting", "not analyzed yet"),
+    ("deferred", "NVD doesn't plan to analyze it"),
+    ("rejected", "withdrawn by its CNA"),
+]
+
+
+def build_full_library() -> VulnDataset:
+    """All of NVD in one step, then the status question from the README."""
+    start = time.time()
+    ds = CacheBuilder(quiet=True).build()
+    built = time.time() - start
+    path = ROOT / "data" / "readme_library.parquet"
+    path.parent.mkdir(exist_ok=True)
+    ds.to_parquet(path)
+    start = time.time()
+    VulnDataset.from_parquet(str(path))
+    reload = time.time() - start
+
+    counts = ds.get_status_distribution()
+    total = sum(counts.values())
+    status = Table(
+        box=box.ROUNDED, header_style="bold cyan", title="NVD status, every CVE"
+    )
+    for col, justify in [
+        ("Status", "left"),
+        ("CVEs", "right"),
+        ("Share", "right"),
+        ("Meaning", "left"),
+    ]:
+        status.add_column(col, justify=justify, no_wrap=True)  # type: ignore[arg-type]
+    for name, meaning in STATUSES:
+        n = counts.get(name, 0)
+        style = "bold yellow" if name == "deferred" else "magenta"
+        status.add_row(Text(name, style=style), f"{n:,}", f"{n / total:.0%}", meaning)
+
+    deferred = ds.to_pandas(analyzed=False, modified=False, awaiting=False)
+    years = deferred["nvd_published_at"].dt.year
+    by_era = Table(box=box.ROUNDED, header_style="bold cyan", title="Deferred, by year")
+    by_era.add_column("Published", no_wrap=True)
+    by_era.add_column("CVEs", justify="right", no_wrap=True)
+    for year, n in years.value_counts().sort_index().items():
+        by_era.add_row(str(year), f"{n:,}")
+
+    header = Text.assemble(
+        (">>> ", "dim"),
+        'ds = CacheBuilder().ensure("data/nvd.parquet", max_age="1d")',
+        (f"   # all of NVD, {date.today():%d %b %Y}", "dim"),
+        "\n",
+        (">>> ", "dim"),
+        "ds.get_status_distribution()",
+    )
+    footer = Text.assemble(
+        (f"{len(ds):,} CVEs", "bold"),
+        f" · built in {built:.0f}s, reloads in {reload:.0f}s",
+    )
+    tables = Table.grid(padding=(0, 4))
+    tables.add_row(status, by_era)
+    save_svg(
+        "nvd_status.svg",
+        "vulnflow · the full library",
+        header,
+        Text(""),
+        tables,
+        footer,
     )
     print(
-        f"Recent feed: {len(df):,} CVEs, {df.shape[1]} columns, {elapsed:.0f}s ({fills})"
+        f"All of NVD: {len(ds):,} CVEs, built {built:.0f}s, reload {reload:.0f}s; statuses {counts}"
     )
+    print(f"Deferred by year: {years.value_counts().sort_index().to_dict()}")
+    return ds
 
 
 # --------------------------------------------------------- kev_timing_*.png
@@ -151,11 +226,9 @@ BUCKETS = [  # (label, upper bound on public_to_attack_days)
 ]
 
 
-def make_kev_chart() -> None:
+def make_kev_chart(ds: VulnDataset) -> None:
     """When CISA listed 2024-25 CVEs, relative to NVD publishing them."""
-    builder = CacheBuilder(years=[2024, 2025], quiet=True)
-    ds = builder.ensure(ROOT / "data" / "readme_library.parquet", max_age="7d")
-    # The yearly feeds hold CVE-2024-* and CVE-2025-*; drop anything a delta merge added
+    # Same CVEs as the 2024 and 2025 yearly feeds the README snippet builds
     ids = ds.get_column("cve_id").astype(str)
     in_years = np.char.startswith(ids, "CVE-2024-") | np.char.startswith(
         ids, "CVE-2025-"
@@ -220,6 +293,88 @@ def make_kev_chart() -> None:
     print(
         f"KEV 2024-25: {len(kev)} CVEs, {early} ({early / len(kev):.0%}) on or before NVD"
     )
+
+
+# ------------------------------------------------------------ volume_*.png
+
+
+def make_volume_chart(ds: VulnDataset) -> None:
+    """CVEs published by today's date each year, split by NVD status."""
+    df = ds.to_pandas()
+    today = date.today()
+    window = df[df["nvd_published_at"].dt.strftime("%m-%d") <= f"{today:%m-%d}"]
+    years = list(range(2016, today.year + 1))
+    by_year = window.groupby(window["nvd_published_at"].dt.year)["nvd_status"]
+    total = [len(by_year.get_group(y)) for y in years]
+    deferred = [int(by_year.get_group(y).eq("deferred").sum()) for y in years]
+    awaiting = [int(by_year.get_group(y).eq("awaiting").sum()) for y in years]
+    rest = [n - d - a for n, d, a in zip(total, deferred, awaiting, strict=True)]
+
+    for mode, t in THEMES.items():
+        fig, ax = plt.subplots(figsize=(8.4, 4.2), dpi=200)
+        fig.patch.set_facecolor(t["surface"])
+        ax.set_facecolor(t["surface"])
+        x = np.arange(len(years))
+        bottom = np.zeros(len(years))
+        for values, color, label in [
+            (rest, BLUE_RAMP[1], "Analyzed or modified"),
+            (awaiting, BLUE_RAMP[3], "Awaiting analysis"),
+            (deferred, BLUE_RAMP[5], "Deferred"),
+        ]:
+            ax.bar(
+                x,
+                values,
+                bottom=bottom,
+                width=0.72,
+                color=color,
+                linewidth=0,
+                label=label,
+            )
+            bottom += np.array(values)
+        for xi, n, d, a in zip(x, total, deferred, awaiting, strict=True):
+            behind = (d + a) / n
+            label = f"{n / 1000:.0f}k"
+            if behind >= 0.01:
+                label += f"\n{behind:.0%} not\nanalyzed"
+            ax.text(
+                xi,
+                n + max(total) * 0.015,
+                label,
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                fontweight="bold",
+                color=t["ink"],
+            )
+        ax.set_xticks(x, [str(y) for y in years], color=t["ink2"], fontsize=9)
+        ax.set_yticks([])
+        ax.tick_params(length=0)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        legend = ax.legend(loc="upper left", frameon=False, fontsize=8.5)
+        for text in legend.get_texts():
+            text.set_color(t["ink2"])
+        fig.suptitle(
+            f"CVEs published by {today.day} {today:%b} each year, and how many NVD hasn't analyzed",
+            x=0.02,
+            ha="left",
+            color=t["ink"],
+            fontsize=12,
+            fontweight="bold",
+        )
+        source = "Source: NVD feeds · computed by vulnflow"
+        fig.text(0.02, 0.015, source, color=t["muted"], fontsize=7.5)
+        fig.tight_layout(rect=(0, 0.04, 1, 0.95))
+        fig.savefig(ASSETS / f"volume_{mode}.png", facecolor=t["surface"])
+        plt.close(fig)
+    behind = [
+        round((d + a) / n, 3) for n, d, a in zip(total, deferred, awaiting, strict=True)
+    ]
+    print(f"Volume by {today:%m-%d}: {dict(zip(years, total, strict=True))}")
+    print(
+        f"Not analyzed (awaiting + deferred): {dict(zip(years, behind, strict=True))}"
+    )
+    print(f"{years[-1]}: {deferred[-1]:,} deferred + {awaiting[-1]:,} awaiting")
 
 
 # ---------------------------------------------------------------- log4shell.svg
@@ -315,7 +470,9 @@ def main() -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
     make_log4shell_svg()
     make_pipeline_svg()
-    make_kev_chart()
+    full = build_full_library()
+    make_kev_chart(full)
+    make_volume_chart(full)
     print(f"wrote assets to {ASSETS.relative_to(ROOT)}")
 
 
