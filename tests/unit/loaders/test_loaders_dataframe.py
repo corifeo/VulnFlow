@@ -8,11 +8,46 @@ Dependencies: dataset
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pandas as pd
 import polars as pl
+import pytest
+from tests.conftest import make_dataset
 
 from vulnflow.dataset import VulnDataset
 from vulnflow.loaders.dataframe import to_pandas, to_polars
+
+
+def _mixed_dates() -> VulnDataset:
+    """One date column per form a real dataset can hold."""
+    return make_dataset(
+        {
+            "cve_id": ["CVE-2024-0001", "CVE-2024-0002"],
+            "nvd_published_at": [datetime(2024, 1, 1, 10), datetime(2024, 1, 2)],
+            "kev_date_added": ["2024-01-05T00:00:00+00:00", None],
+            "a_timestamp": [datetime(2024, 1, 5, tzinfo=UTC), None],
+            "epss_date": ["2024-01-05T00:00:00.123+00:00", "2024-01-06T00:00:00+00:00"],
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "column", ["nvd_published_at", "kev_date_added", "a_timestamp", "epss_date"]
+)
+def test_to_pandas_date_columns_are_utc(column: str) -> None:
+    """Naive and aware date columns must compare without a TypeError."""
+    df = _mixed_dates().to_pandas()
+    assert str(df[column].dt.tz) == "UTC"
+
+
+def test_to_pandas_naive_dates_are_read_as_utc() -> None:
+    df = _mixed_dates().to_pandas()
+    assert df["nvd_published_at"].iloc[0] == pd.Timestamp("2024-01-01 10:00", tz="UTC")
+
+
+def test_to_polars_kev_dates_are_datetimes() -> None:
+    assert _mixed_dates().to_polars()["kev_date_added"].dtype.is_temporal()
 
 
 def test_to_pandas_basic():
@@ -217,3 +252,15 @@ def test_polars_loader_includes_nested_when_requested():
     # Should include nested JSON columns
     assert "cvss_scores" in df.columns
     assert "cwes" in df.columns
+
+
+def test_to_polars_handles_nanosecond_timestamps() -> None:
+    """pandas writes Parquet timestamps in ns; tolist() would turn them into ints."""
+    import numpy as np
+
+    dataset = VulnDataset()
+    dataset._data = {
+        "cve_id": np.array(["CVE-2024-0001"], dtype=object),
+        "kev_date_added": np.array(["2024-01-05T00:00:00"], dtype="datetime64[ns]"),
+    }
+    assert dataset.to_polars()["kev_date_added"].dtype.is_temporal()

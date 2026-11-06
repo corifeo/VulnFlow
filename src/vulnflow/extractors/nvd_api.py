@@ -10,10 +10,8 @@ Used by: dataset, pipeline, CacheBuilder
 
 from __future__ import annotations
 
-import logging
 import time
 from datetime import datetime
-from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 from vulnflow.extractors.base import BaseExtractor
@@ -30,12 +28,9 @@ from vulnflow.utils.nvd_api import (
     parse_api_page,
     resolve_api_key,
 )
-from vulnflow.utils.progress import progress_bar
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
-
-logger = logging.getLogger(__name__)
 
 
 @Registry.register_extractor("nvd_api")
@@ -117,16 +112,18 @@ class NVDAPIExtractor(BaseExtractor):
         super().__init__()
 
         # Validate at least one query param is provided
-        has_query = any([
-            cve_id is not None,
-            keyword is not None,
-            pub_start_date is not None,
-            mod_start_date is not None,
-            cpe_name is not None,
-            cvss_v3_severity is not None,
-            has_kev,
-            params,
-        ])
+        has_query = any(
+            [
+                cve_id is not None,
+                keyword is not None,
+                pub_start_date is not None,
+                mod_start_date is not None,
+                cpe_name is not None,
+                cvss_v3_severity is not None,
+                has_kev,
+                params,
+            ]
+        )
         if not has_query:
             msg = "At least one query parameter must be provided"
             raise ValueError(msg)
@@ -155,11 +152,12 @@ class NVDAPIExtractor(BaseExtractor):
     @property
     def label(self) -> str:
         """Short display name for progress reporting."""
+        cls = type(self).__name__
         if self._cve_id:
-            return self._cve_id
+            return f"{cls}({self._cve_id})"
         if self._keyword:
-            return f"nvd_api({self._keyword})"
-        return "nvd_api"
+            return f"{cls}({self._keyword})"
+        return f"{cls}()"
 
     @property
     def provenance_label(self) -> str:
@@ -187,8 +185,6 @@ class NVDAPIExtractor(BaseExtractor):
         """
         from vulnflow.dataset import VulnDataset
 
-        timings: dict[str, float] = {}
-
         fetcher = HttpFetcher(
             cache_dir=self._cache_dir,
             timeout=self._timeout,
@@ -201,13 +197,12 @@ class NVDAPIExtractor(BaseExtractor):
         # Collect all vulnerability dicts across chunks and pages
         all_vulns: list[dict[str, Any]] = []
 
-        t0 = perf_counter()
-        for chunk_start, chunk_end in date_chunks:
-            chunk_vulns = self._fetch_chunk(
-                fetcher, chunk_start, chunk_end, sleep_interval
-            )
-            all_vulns.extend(chunk_vulns)
-        timings["fetch"] = perf_counter() - t0
+        with self._timed("fetch"):
+            for chunk_start, chunk_end in date_chunks:
+                chunk_vulns = self._fetch_chunk(
+                    fetcher, chunk_start, chunk_end, sleep_interval
+                )
+                all_vulns.extend(chunk_vulns)
 
         # Deduplicate by CVE ID (last-seen wins)
         seen: dict[str, int] = {}
@@ -221,16 +216,10 @@ class NVDAPIExtractor(BaseExtractor):
                 seen[cve_id] = len(unique_vulns)
                 unique_vulns.append(vuln)
 
-        if not unique_vulns:
-            self._timings = timings
-            return VulnDataset()
-
-        t0 = perf_counter()
-        arrays = populate_columns(unique_vulns)
-        timings["populate"] = perf_counter() - t0
+        with self._timed("populate"):
+            arrays = populate_columns(unique_vulns)
 
         if not arrays:
-            self._timings = timings
             return VulnDataset()
 
         dataset = VulnDataset()
@@ -238,7 +227,6 @@ class NVDAPIExtractor(BaseExtractor):
         dataset._record_provenance(extractor=self.provenance_label)
         self._record_date_provenance(dataset, arrays)
 
-        self._timings = timings
         return dataset
 
     def _get_date_chunks(self) -> list[tuple[datetime | None, datetime | None]]:
@@ -258,6 +246,8 @@ class NVDAPIExtractor(BaseExtractor):
                 return chunks  # type: ignore[return-value]
         # No chunking needed - single pass with original params
         return [(None, None)]
+
+    _MAX_PAGES: int = 50
 
     def _fetch_chunk(
         self,
@@ -281,9 +271,18 @@ class NVDAPIExtractor(BaseExtractor):
         start_index = 0
         total_results: int | None = None
         pbar = None
+        page_count = 0
 
         try:
             while True:
+                page_count += 1
+                if page_count > self._MAX_PAGES:
+                    self.logger.warning(
+                        "NVD API: hit max page limit (%d), stopping pagination",
+                        self._MAX_PAGES,
+                    )
+                    break
+
                 # Build query params for this page
                 query_params = build_query_params(
                     cve_id=self._cve_id,
@@ -305,6 +304,12 @@ class NVDAPIExtractor(BaseExtractor):
                 # Build URL with query string
                 url = self._build_url(query_params)
 
+                self.logger.info(
+                    "NVD API: fetching page %d (startIndex=%d)",
+                    page_count,
+                    start_index,
+                )
+
                 # Fetch the page
                 content, _ = fetcher.fetch_sync(
                     url,
@@ -315,27 +320,29 @@ class NVDAPIExtractor(BaseExtractor):
 
                 vulns.extend(page_vulns)
 
-                # Update total from first page response
+                # Update total on every page (API may report different totals)
                 if total_results is None:
                     total_results = page_total
                     # Create progress bar for multi-page fetches
                     if total_results > len(page_vulns):
-                        pbar = progress_bar(
+                        pbar = self._progress(
                             total=total_results,
-                            desc=f"Fetching {self.label}",
                             unit="CVEs",
                         )
                         pbar.update(len(page_vulns))
-
-                elif pbar is not None:
-                    pbar.update(len(page_vulns))
+                else:
+                    total_results = page_total
+                    if pbar is not None:
+                        pbar.total = total_results
+                        pbar.update(len(page_vulns))
 
                 # Log per-page progress
                 fetched_so_far = start_index + len(page_vulns)
-                logger.info(
-                    "NVD API: fetched %d/%d CVEs",
+                self.logger.info(
+                    "NVD API: fetched %d/%d CVEs (page %d)",
                     fetched_so_far,
                     total_results,
+                    page_count,
                 )
 
                 # Check if we have all results

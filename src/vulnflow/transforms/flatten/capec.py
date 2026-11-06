@@ -37,7 +37,7 @@ class CAPECFlattenTransform(BaseFlatten):
 
     def __init__(self) -> None:
         """Initialize CAPEC flatten transform."""
-        super().__init__()  # MUST call first per CLAUDE.md
+        super().__init__()  # must run first
 
     OUTPUT_SCHEMA: list[FieldDefinition] = [
         FieldDefinition("capec_id", "str", "CAPEC identifier", "CAPECFlattenTransform"),

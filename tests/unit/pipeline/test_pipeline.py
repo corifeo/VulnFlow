@@ -19,6 +19,22 @@ import vulnflow.transforms.enrichers.kev  # noqa: F401
 from vulnflow.pipeline import PipelineResult, VulnPipeline
 
 
+def test_pipeline_reports_cvd_state_without_event_inference():
+    """The README's old pipeline returned 'vfdpxa' for every CVE with errors=[]."""
+    from vulnflow.exceptions import TransformError
+    from vulnflow.extractors.nvd import NVDExtractor
+    from vulnflow.transforms.computed import CVDStateTransform
+
+    result = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[CVDStateTransform()],
+    ).run(quiet=True)
+
+    assert any(isinstance(e, TransformError) for e in result.errors)
+    assert result.dataset is not None
+    assert "cvd_state" not in result.dataset.columns
+
+
 def test_pipeline_result_creation():
     """PipelineResult dataclass exists and has expected fields."""
     result = PipelineResult(
@@ -159,6 +175,31 @@ def test_pipeline_executes_transforms():
     assert "mock" in result.successful_stages  # Uses name attribute, not class name
 
 
+def test_pipeline_records_transforms_in_provenance():
+    """Pipeline records successful transforms in dataset provenance."""
+    import numpy as np
+
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    class ProvenanceTransform:
+        name = "provenance_test"
+        depends_on: list[str] = []
+
+        def transform(self, dataset):  # type: ignore[no-untyped-def]
+            dataset.set_column("prov_col", np.array(["X"] * len(dataset), dtype=object))
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[ProvenanceTransform()],
+    )
+
+    result = pipeline.run()
+
+    assert result.dataset is not None
+    prov = result.dataset.provenance
+    assert "provenance_test" in prov["transforms"]
+
+
 def test_pipeline_with_enrichers():
     """Pipeline runs async enrichers."""
     from vulnflow.extractors.nvd import NVDExtractor
@@ -173,7 +214,7 @@ def test_pipeline_with_enrichers():
 
     assert result.dataset is not None
     assert "kev" in result.dataset.columns
-    assert "KEVEnricher" in result.successful_stages
+    assert "KEVEnricher()" in result.successful_stages
 
 
 def test_pipeline_strict_mode_raises_on_enricher_error():
@@ -225,7 +266,7 @@ def test_pipeline_lenient_mode_continues_on_error():
 
     assert len(result.errors) == 1
     assert "BrokenEnricher" in result.failed_stages
-    assert "KEVEnricher" in result.successful_stages
+    assert "KEVEnricher()" in result.successful_stages
     assert result.dataset is not None
 
 
@@ -488,8 +529,8 @@ def test_pipeline_multi_extract_transform_load(tmp_path):
     # Transform: phased — KEVEnricher (phase 0) → KEVFlattenTransform (phase 1)
     assert "kev" in result.dataset.columns
     assert "is_kev" in result.dataset.columns
-    assert "KEVEnricher" in result.successful_stages
-    assert "KEVFlattenTransform" in result.successful_stages
+    assert "KEVEnricher()" in result.successful_stages
+    assert "KEVFlattenTransform()" in result.successful_stages
 
     # No errors
     assert result.errors == []
@@ -497,6 +538,44 @@ def test_pipeline_multi_extract_transform_load(tmp_path):
     # Load: both files written
     assert parquet_out.exists()
     assert json_out.exists()
+
+
+def test_pipeline_run_collects_timings(tmp_path):
+    """pipeline.run(timings=True) populates PipelineResult.timings."""
+    from vulnflow.extractors.nvd import NVDExtractor
+    from vulnflow.loaders.files import ParquetLoader
+    from vulnflow.transforms.flatten.cvss import CVSSFlattenTransform
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+        transformers=[CVSSFlattenTransform()],
+        loaders=[ParquetLoader(tmp_path / "out.parquet")],
+    )
+
+    result = pipeline.run(timings=True, quiet=True)
+
+    assert result.timings  # non-empty
+    # Should have extractor, transform, and loader timings
+    assert any("NVDExtractor" in k or "nvd_sample" in k for k in result.timings)
+    assert "CVSSFlattenTransform()" in result.timings
+    assert any("ParquetLoader" in k for k in result.timings)
+    # All values should be non-negative floats
+    for v in result.timings.values():
+        assert isinstance(v, float)
+        assert v >= 0
+
+
+def test_pipeline_run_timings_off_by_default():
+    """pipeline.run() returns empty timings by default."""
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    pipeline = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json")],
+    )
+
+    result = pipeline.run(quiet=True)
+
+    assert result.timings == {}
 
 
 @pytest.mark.asyncio
@@ -521,5 +600,3 @@ async def test_pipeline_run_from_async_context():
     assert result.dataset is not None
     assert len(result.dataset) > 0
     assert result.errors == []
-
-

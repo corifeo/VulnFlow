@@ -54,9 +54,7 @@ from typing import Any
 
 from tqdm.auto import tqdm as _tqdm
 
-_suppress_progress: ContextVar[bool] = ContextVar(
-    "_suppress_progress", default=False
-)
+_suppress_progress: ContextVar[bool] = ContextVar("_suppress_progress", default=False)
 
 # ASCII-safe glyphs (cp1252/Windows compatible)
 _GLYPH_OK = "+"
@@ -68,11 +66,13 @@ _GLYPH_DASH = "--"
 class ProgressMode(Enum):
     """Controls ProgressReporter output style.
 
-    QUIET: dots only (./!) -- for programmatic use
+    SILENT: no output at all -- for programmatic use (quiet=True)
+    QUIET: dots only (./!) -- for minimal interactive feedback
     BAR: tqdm bars only, no text lines -- for notebooks/interactive
     LOG: text lines only (+/x/>), no tqdm bars -- for CI/piped output
     """
 
+    SILENT = "silent"
     QUIET = "quiet"
     BAR = "bar"
     LOG = "log"
@@ -81,9 +81,9 @@ class ProgressMode(Enum):
 def _is_notebook() -> bool:
     """Detect if running inside a Jupyter/IPython notebook."""
     try:
-        from IPython import get_ipython  # type: ignore[attr-defined]
+        from IPython import get_ipython
 
-        shell = get_ipython()  # type: ignore[no-untyped-call]
+        shell = get_ipython()
         if shell is None:
             return False
         return type(shell).__name__ == "ZMQInteractiveShell"
@@ -99,10 +99,10 @@ def _detect_mode() -> ProgressMode:
     3. Auto-detect: notebook/tty → BAR, otherwise → LOG
     """
     if _suppress_progress.get(False):
-        return ProgressMode.QUIET
+        return ProgressMode.SILENT
 
     env_mode = os.getenv("VULNFLOW_PROGRESS_MODE", "").lower()
-    if env_mode in ("quiet", "bar", "log"):
+    if env_mode in ("silent", "quiet", "bar", "log"):
         return ProgressMode(env_mode)
 
     if _is_notebook() or (hasattr(sys.stdout, "isatty") and sys.stdout.isatty()):
@@ -165,6 +165,7 @@ class ProgressReporter:
         self._start_times: dict[str, float] = {}
         self._mode: ProgressMode = ProgressMode.LOG
         self._dot_count: int = 0
+        self.timings: dict[str, float] = {}
         self._old_tqdm_disable: str | None = None
 
     def stage_started(self, name: str) -> None:
@@ -197,15 +198,17 @@ class ProgressReporter:
         else:
             self._start_times.pop(name, None)
 
-        if self._mode is ProgressMode.QUIET:
+        self.timings[name] = duration
+
+        if self._mode is ProgressMode.SILENT:
+            pass  # No output at all
+        elif self._mode is ProgressMode.QUIET:
             print(".", end="", flush=True)  # noqa: T201
             self._dot_count += 1
         elif self._mode is ProgressMode.BAR:
             if self._bar is not None:
                 if detail:
-                    self._bar.set_postfix_str(
-                        self._format_postfix(detail, duration)
-                    )
+                    self._bar.set_postfix_str(self._format_postfix(detail, duration))
                 self._bar.update(1)
         else:  # LOG
             line = f"  {_GLYPH_OK} {name} ({self._format_log(detail, duration, breakdown)})"
@@ -230,12 +233,16 @@ class ProgressReporter:
         else:
             self._start_times.pop(name, None)
 
+        self.timings[name] = duration
+
         fail_line = f"  {_GLYPH_FAIL} {name}"
         if error:
             fail_line += f" {_GLYPH_DASH} {error}"
         fail_line += f" ({duration:.1f}s)"
 
-        if self._mode is ProgressMode.QUIET:
+        if self._mode is ProgressMode.SILENT:
+            pass  # No output at all
+        elif self._mode is ProgressMode.QUIET:
             print("!", end="", flush=True)  # noqa: T201
             self._dot_count += 1
         elif self._mode is ProgressMode.BAR:
@@ -276,7 +283,7 @@ class ProgressReporter:
                 **bar_kwargs,
             )
         else:
-            # LOG/QUIET: suppress inner bars via ContextVar + TQDM_DISABLE.
+            # SILENT/QUIET/LOG: suppress inner bars via ContextVar + TQDM_DISABLE.
             # Belt-and-suspenders: ContextVar may not propagate to threads.
             self._old_tqdm_disable = os.environ.get("TQDM_DISABLE")
             os.environ["TQDM_DISABLE"] = "1"
@@ -285,7 +292,7 @@ class ProgressReporter:
         return self
 
     def __exit__(self, *args: Any) -> None:
-        if self._mode is not ProgressMode.BAR:
+        if self._mode not in (ProgressMode.BAR,):
             # Restore TQDM_DISABLE env var
             if self._old_tqdm_disable is None:
                 os.environ.pop("TQDM_DISABLE", None)
@@ -307,9 +314,7 @@ class ProgressReporter:
             return 0.0
         return _time.perf_counter() - start
 
-    def _format_log(
-        self, detail: str, duration: float, breakdown: str = ""
-    ) -> str:
+    def _format_log(self, detail: str, duration: float, breakdown: str = "") -> str:
         """Format for LOG mode: detail -- breakdown, Xs."""
         parts = detail
         if breakdown:

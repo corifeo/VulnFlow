@@ -16,10 +16,8 @@ from __future__ import annotations
 
 import gzip
 import io
-import logging
 import zipfile
 from pathlib import Path
-from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 from vulnflow.exceptions import ExtractorError
@@ -28,8 +26,6 @@ from vulnflow.registry import Registry
 from vulnflow.utils import json
 from vulnflow.utils.http import HttpFetcher, is_url
 from vulnflow.utils.nvd import populate_columns
-
-logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
@@ -82,15 +78,12 @@ class NVDExtractor(BaseExtractor):
 
     @property
     def label(self) -> str:
-        """Short display name derived from path.
-
-        Examples: nvdcve-2.0-2023, nvdcve-2.0-modified
-        """
+        """Short display name: NVDExtractor(nvdcve-2.0-2023)."""
         name = Path(self.path).name
         for ext in (".gz", ".zip", ".json", ".jsonl", ".ndjson"):
             if name.endswith(ext):
                 name = name[: -len(ext)]
-        return name
+        return f"{type(self).__name__}({name})"
 
     def extract(self) -> VulnDataset:
         """Extract from NVD JSON/JSONL → VulnDataset.
@@ -110,28 +103,23 @@ class NVDExtractor(BaseExtractor):
         """
         from vulnflow.dataset import VulnDataset
 
-        timings: dict[str, float] = {}
+        with self._timed("download"):
+            raw = self._fetch_raw()
+        self.logger.debug("Reading %s (%d bytes)", self.path, len(raw))
 
-        t0 = perf_counter()
-        raw = self._fetch_raw()
-        timings["download"] = perf_counter() - t0
-        logger.debug("Reading %s (%d bytes)", self.path, len(raw))
+        with self._timed("decompress"):
+            content = self._decompress(raw)
 
-        t0 = perf_counter()
-        content = self._decompress(raw)
-        timings["decompress"] = perf_counter() - t0
+        with self._timed("json"):
+            vulnerabilities = self._parse_content(content)
+        self.logger.debug(
+            "Parsed %d vulnerabilities from %s", len(vulnerabilities), self.path
+        )
 
-        t0 = perf_counter()
-        vulnerabilities = self._parse_content(content)
-        timings["json"] = perf_counter() - t0
-        logger.debug("Parsed %d vulnerabilities from %s", len(vulnerabilities), self.path)
-
-        t0 = perf_counter()
-        arrays = populate_columns(vulnerabilities)
-        timings["populate"] = perf_counter() - t0
+        with self._timed("populate"):
+            arrays = populate_columns(vulnerabilities)
 
         if not arrays:
-            self._timings = timings
             return VulnDataset()
 
         dataset = VulnDataset()
@@ -139,7 +127,6 @@ class NVDExtractor(BaseExtractor):
         dataset._record_provenance(extractor=self.provenance_label)
         self._record_date_provenance(dataset, arrays)
 
-        self._timings = timings
         return dataset
 
     def _fetch_raw(self) -> bytes:
@@ -175,9 +162,7 @@ class NVDExtractor(BaseExtractor):
         try:
             return Path(self.path).read_bytes()
         except (FileNotFoundError, OSError) as e:
-            raise ExtractorError(
-                f"Failed to read {self.path}: {e}"
-            ) from None
+            raise ExtractorError(f"Failed to read {self.path}: {e}") from None
 
     def _decompress(self, raw: bytes) -> bytes:
         """Decompress gzip or zip if detected by magic bytes.
@@ -261,7 +246,7 @@ class NVDExtractor(BaseExtractor):
                 f"Failed to parse JSON from {self.path}: {e}"
             ) from None
         if "vulnerabilities" not in data:
-            logger.warning(
+            self.logger.warning(
                 "JSON from %s has no 'vulnerabilities' key — returning empty list",
                 self.path,
             )

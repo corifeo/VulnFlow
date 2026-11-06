@@ -14,8 +14,11 @@ Used by: pipeline, user code
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import numpy as np
 
 from vulnflow.loaders.base import BaseLoader
 from vulnflow.registry import Registry
@@ -24,12 +27,86 @@ if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
 
 
+_DATETIME_SUFFIXES = ("_at", "_timestamp", "_date", "_added", "_due_date")
+
+
+def _coerce_to_datetime(v: object) -> datetime | None:
+    """Coerce a value to datetime, handling strings and None."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v
+    if isinstance(v, str):
+        try:
+            return datetime.fromisoformat(v)
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
+def _is_datetime_column(col: str, sample: object) -> bool:
+    """Detect if a column contains datetime data (by sample type or name suffix)."""
+    if isinstance(sample, datetime):
+        return True
+    if isinstance(sample, str) and any(col.endswith(s) for s in _DATETIME_SUFFIXES):
+        # String in a datetime-named column — check if it parses
+        try:
+            datetime.fromisoformat(sample)
+            return True
+        except (ValueError, TypeError):
+            return False
+    return False
+
+
+def _normalize_for_arrow(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """Normalize mixed-type object arrays for PyArrow compatibility.
+
+    PyArrow cannot infer types from object arrays containing mixed types
+    (e.g., datetime + None, float + None, datetime + str). This inspects
+    each column and converts to homogeneous types that PyArrow can handle.
+    """
+    result: dict[str, np.ndarray] = {}
+    for col, arr in data.items():
+        if arr.dtype != object or len(arr) == 0:
+            result[col] = arr
+            continue
+
+        # Sample first non-None value to detect type
+        sample = None
+        for v in arr:
+            if v is not None:
+                sample = v
+                break
+
+        if sample is None:
+            # All None — keep as object (PyArrow infers null column)
+            result[col] = arr
+        elif _is_datetime_column(col, sample):
+            # Coerce mixed datetime/string/None → PyArrow timestamp
+            import pyarrow as pa
+
+            values = [_coerce_to_datetime(v) for v in arr]
+            result[col] = pa.array(values, type=pa.timestamp("us", tz="UTC"))
+        elif isinstance(sample, float):
+            # Convert float + None → float64 with NaN
+            result[col] = np.array(
+                [v if v is not None else np.nan for v in arr], dtype=np.float64
+            )
+        elif isinstance(sample, bool):
+            # bool + None — keep as object (PyArrow handles bool/None fine)
+            result[col] = arr
+        else:
+            result[col] = arr
+
+    return result
+
+
 @Registry.register_loader("parquet")
 class ParquetLoader(BaseLoader):
     """Load dataset to Parquet file (lossless, no filtering)."""
 
     format: str = "parquet"
-    name: str = "parquet"
+    name: str = "ParquetLoader"
 
     def __init__(self, path: str | Path) -> None:
         """Initialize loader with output path.
@@ -39,6 +116,11 @@ class ParquetLoader(BaseLoader):
         """
         super().__init__()
         self.path = Path(path)
+
+    @property
+    def label(self) -> str:
+        """Short display name for progress/provenance."""
+        return f"ParquetLoader({self.path.name})"
 
     def load(self, dataset: VulnDataset) -> dict[str, Any]:
         """Write dataset to Parquet file.
@@ -56,8 +138,11 @@ class ParquetLoader(BaseLoader):
 
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Normalize mixed-type object arrays for PyArrow compatibility
+        normalized = _normalize_for_arrow(dataset._data)
+
         # Convert to PyArrow table
-        table = pa.table(dataset._data)
+        table = pa.table(normalized)
 
         # Write provenance to Parquet schema metadata
         provenance_bytes = vjson.dumps(dataset.provenance).encode("utf-8")
@@ -75,7 +160,7 @@ class JSONLoader(BaseLoader):
     """Load dataset to JSON file (lossless, no filtering)."""
 
     format: str = "json"
-    name: str = "json"
+    name: str = "JSONLoader"
 
     def __init__(self, path: str | Path) -> None:
         """Initialize loader with output path.
@@ -85,6 +170,11 @@ class JSONLoader(BaseLoader):
         """
         super().__init__()
         self.path = Path(path)
+
+    @property
+    def label(self) -> str:
+        """Short display name for progress/provenance."""
+        return f"JSONLoader({self.path.name})"
 
     def load(self, dataset: VulnDataset) -> dict[str, Any]:
         """Write dataset to JSON file.
@@ -112,7 +202,7 @@ class JSONLoader(BaseLoader):
                     record[k] = serialize_value(value)
                 records.append(record)
 
-        with path.open("w") as f:
+        with path.open("w", encoding="utf-8") as f:
             json.dump(records, f, indent=True)
 
         return {"path": str(self.path), "record_count": len(records)}

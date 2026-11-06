@@ -129,7 +129,9 @@ def build_query_params(
 
     # -- date pairs --
     _add_date_pair(params, "pubStartDate", "pubEndDate", pub_start_date, pub_end_date)
-    _add_date_pair(params, "lastModStartDate", "lastModEndDate", mod_start_date, mod_end_date)
+    _add_date_pair(
+        params, "lastModStartDate", "lastModEndDate", mod_start_date, mod_end_date
+    )
 
     # -- keyword search --
     if keyword_exact_match and keyword is None:

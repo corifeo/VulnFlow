@@ -277,31 +277,34 @@ class TestProvenance:
         self, nvd_sample_dataset: VulnDataset
     ) -> None:
         from vulnflow.transforms.computed.cvd_state import CVDStateTransform
+        from vulnflow.transforms.inferences import EventInference
 
-        nvd_sample_dataset.transform([CVDStateTransform()])
-        assert "CVDStateTransform" in nvd_sample_dataset.provenance["transforms"]
+        nvd_sample_dataset.transform([EventInference(), CVDStateTransform()])
+        assert "CVDStateTransform()" in nvd_sample_dataset.provenance["transforms"]
 
     def test_multiple_transforms_all_recorded(
         self, nvd_sample_dataset: VulnDataset
     ) -> None:
         from vulnflow.transforms.computed.cvd_state import CVDStateTransform
         from vulnflow.transforms.flatten.cvss import CVSSFlattenTransform
+        from vulnflow.transforms.inferences import EventInference
 
-        nvd_sample_dataset.transform([CVDStateTransform()])
+        nvd_sample_dataset.transform([EventInference(), CVDStateTransform()])
         nvd_sample_dataset.transform([CVSSFlattenTransform()])
         transforms = nvd_sample_dataset.provenance["transforms"]
-        assert "CVDStateTransform" in transforms
-        assert "CVSSFlattenTransform" in transforms
+        assert "CVDStateTransform()" in transforms
+        assert "CVSSFlattenTransform()" in transforms
 
     def test_duplicate_transforms_not_repeated(
         self, nvd_sample_dataset: VulnDataset
     ) -> None:
         from vulnflow.transforms.computed.cvd_state import CVDStateTransform
+        from vulnflow.transforms.inferences import EventInference
 
-        nvd_sample_dataset.transform([CVDStateTransform()])
+        nvd_sample_dataset.transform([EventInference(), CVDStateTransform()])
         nvd_sample_dataset.transform([CVDStateTransform()])
         transforms = nvd_sample_dataset.provenance["transforms"]
-        assert transforms.count("CVDStateTransform") == 1
+        assert transforms.count("CVDStateTransform()") == 1
 
     def test_merge_combines_extractors(self) -> None:
         ds1 = VulnDataset()
@@ -529,11 +532,13 @@ class TestCountBy:
 
     def test_count_by_month_groups_correctly(self) -> None:
         """count_by('month') groups and counts correctly."""
-        ds = self._make_dataset([
-            _utc(2024, 1, 10),
-            _utc(2024, 1, 20),
-            _utc(2024, 2, 5),
-        ])
+        ds = self._make_dataset(
+            [
+                _utc(2024, 1, 10),
+                _utc(2024, 1, 20),
+                _utc(2024, 2, 5),
+            ]
+        )
         result = ds.count_by("month")
         assert len(result) == 2
         assert result.iloc[0]["month"] == "2024-01"
@@ -543,11 +548,13 @@ class TestCountBy:
 
     def test_count_by_year(self) -> None:
         """count_by('year') groups by year."""
-        ds = self._make_dataset([
-            _utc(2023, 6, 1),
-            _utc(2024, 1, 1),
-            _utc(2024, 6, 1),
-        ])
+        ds = self._make_dataset(
+            [
+                _utc(2023, 6, 1),
+                _utc(2024, 1, 1),
+                _utc(2024, 6, 1),
+            ]
+        )
         result = ds.count_by("year")
         assert list(result.columns) == ["year", "count"]
         assert result.iloc[0]["year"] == "2023"
@@ -557,11 +564,13 @@ class TestCountBy:
 
     def test_count_by_quarter(self) -> None:
         """count_by('quarter') groups by quarter."""
-        ds = self._make_dataset([
-            _utc(2024, 1, 15),
-            _utc(2024, 4, 10),
-            _utc(2024, 4, 20),
-        ])
+        ds = self._make_dataset(
+            [
+                _utc(2024, 1, 15),
+                _utc(2024, 4, 10),
+                _utc(2024, 4, 20),
+            ]
+        )
         result = ds.count_by("quarter")
         assert list(result.columns) == ["quarter", "count"]
         assert result.iloc[0]["quarter"] == "2024-Q1"
@@ -588,11 +597,13 @@ class TestCountBy:
 
     def test_count_by_with_date_range(self) -> None:
         """count_by() respects start/end date filtering."""
-        ds = self._make_dataset([
-            _utc(2024, 1, 1),
-            _utc(2024, 6, 1),
-            _utc(2024, 12, 1),
-        ])
+        ds = self._make_dataset(
+            [
+                _utc(2024, 1, 1),
+                _utc(2024, 6, 1),
+                _utc(2024, 12, 1),
+            ]
+        )
         result = ds.count_by("month", start="2024-06-01", end="2024-12-01")
         assert len(result) == 1
         assert result.iloc[0]["month"] == "2024-06"
@@ -613,11 +624,13 @@ class TestCountBy:
 
     def test_count_by_sorted_by_period(self) -> None:
         """count_by() returns results sorted chronologically."""
-        ds = self._make_dataset([
-            _utc(2024, 12, 1),
-            _utc(2024, 1, 1),
-            _utc(2024, 6, 1),
-        ])
+        ds = self._make_dataset(
+            [
+                _utc(2024, 12, 1),
+                _utc(2024, 1, 1),
+                _utc(2024, 6, 1),
+            ]
+        )
         result = ds.count_by("month")
         periods = list(result["month"])
         assert periods == sorted(periods)

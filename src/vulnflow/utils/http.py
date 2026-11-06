@@ -155,6 +155,7 @@ class HttpFetcher:
         cache_ttl: int | None = None,
         decompress: bool = True,
         progress_desc: str = "",
+        headers: dict[str, str] | None = None,
     ) -> tuple[bytes, ContentFormat]:
         """Fetch URL with optional caching, retry, and auto-decompress gzip.
 
@@ -170,6 +171,7 @@ class HttpFetcher:
             progress_desc: Description for download progress bar. Empty string
                 disables streaming progress (default). When set, uses httpx
                 streaming with a tqdm progress bar.
+            headers: Optional HTTP headers to include in the request.
 
         Returns:
             Tuple of (content bytes, detected format)
@@ -193,15 +195,13 @@ class HttpFetcher:
         for attempt in range(self._retries):
             try:
                 async with httpx.AsyncClient(
-                    timeout=self.timeout, follow_redirects=True
+                    timeout=self.timeout, follow_redirects=True, headers=headers
                 ) as client:
                     if progress_desc:
                         async with client.stream("GET", url) as response:
                             response.raise_for_status()
-                            content, content_type = (
-                                await self._read_with_progress(
-                                    response, progress_desc
-                                )
+                            content, content_type = await self._read_with_progress(
+                                response, progress_desc
                             )
                     else:
                         response = await client.get(url)
@@ -212,7 +212,7 @@ class HttpFetcher:
             except (httpx.ConnectError, httpx.TimeoutException) as exc:
                 last_exc = exc
                 if attempt < self._retries - 1:
-                    wait = self._backoff_base * (2 ** attempt)
+                    wait = self._backoff_base * (2**attempt)
                     logger.warning(
                         "HTTP fetch attempt %d/%d failed for %s: %s. "
                         "Retrying in %.1fs",
@@ -226,10 +226,9 @@ class HttpFetcher:
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code >= 500 and attempt < self._retries - 1:
                     last_exc = exc
-                    wait = self._backoff_base * (2 ** attempt)
+                    wait = self._backoff_base * (2**attempt)
                     logger.warning(
-                        "HTTP fetch attempt %d/%d got %d for %s. "
-                        "Retrying in %.1fs",
+                        "HTTP fetch attempt %d/%d got %d for %s. " "Retrying in %.1fs",
                         attempt + 1,
                         self._retries,
                         exc.response.status_code,
@@ -239,9 +238,7 @@ class HttpFetcher:
                     await asyncio.sleep(wait)
                 else:
                     # 4xx errors or last attempt for 5xx — raise immediately
-                    raise HttpError(
-                        f"Failed to fetch {url}: {exc}"
-                    ) from exc
+                    raise HttpError(f"Failed to fetch {url}: {exc}") from exc
         else:
             # All retries exhausted
             raise HttpError(f"Failed to fetch {url}: {last_exc}") from last_exc
@@ -295,6 +292,7 @@ class HttpFetcher:
         cache_ttl: int | None = None,
         decompress: bool = True,
         progress_desc: str = "",
+        headers: dict[str, str] | None = None,
     ) -> tuple[bytes, ContentFormat]:
         """Synchronous wrapper for fetch().
 
@@ -308,6 +306,7 @@ class HttpFetcher:
                 If False, return raw bytes without decompression.
             progress_desc: Description for download progress bar. Empty string
                 disables streaming progress (default).
+            headers: Optional HTTP headers to include in the request.
 
         Returns:
             Tuple of (content bytes, detected format)
@@ -318,7 +317,7 @@ class HttpFetcher:
         try:
             asyncio.get_running_loop()
             # Already in an event loop (Jupyter) — need nest_asyncio
-            import nest_asyncio
+            import nest_asyncio  # type: ignore[import-untyped]
 
             nest_asyncio.apply()
         except RuntimeError:
@@ -329,6 +328,7 @@ class HttpFetcher:
                 cache_ttl,
                 decompress=decompress,
                 progress_desc=progress_desc,
+                headers=headers,
             )
         )
 

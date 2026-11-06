@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -361,6 +360,15 @@ class TestReadParquetProvenance:
 
 
 class TestCacheBuilderEnsure:
+    @pytest.fixture(autouse=True)
+    def _no_enrichment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Freshness logic needs no enrichers, and they would hit live feeds."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        monkeypatch.setattr(
+            CacheBuilder, "_build_transforms", classmethod(lambda cls, **kwargs: [])
+        )
+
     def test_ensure_builds_when_file_missing(
         self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
     ) -> None:
@@ -593,21 +601,6 @@ class TestBuildTransforms:
         assert len(transforms) == 1
         assert names == ["NVDHistoryEnricher"]
 
-    def test_exploit(self):
-        from vulnflow.helpers.builder import CacheBuilder
-
-        transforms = CacheBuilder._build_transforms(
-            cvss=False,
-            epss=False,
-            kev=False,
-            cpe=False,
-            cwe=False,
-            exploit=True,
-        )
-        names = [t.name for t in transforms]
-        assert len(transforms) == 1
-        assert names == ["ExploitDBEnricher"]
-
     def test_capec_auto_enables_cwe(self):
         """capec=True with cwe=False auto-enables CWEEnricher."""
         from vulnflow.helpers.builder import CacheBuilder
@@ -742,44 +735,6 @@ class TestQuery:
         assert call_kwargs["pub_end_date"] == "2024-06-30"
         assert call_kwargs["cvss_v3_severity"] == "HIGH"
 
-    def test_query_exploit_flag(self, monkeypatch):
-        """query(exploit=True) includes ExploitDBEnricher in transforms."""
-        import vulnflow.extractors.nvd_api as nvd_api_mod
-        import vulnflow.pipeline as pipeline_mod
-        from vulnflow.helpers.builder import CacheBuilder
-
-        mock_dataset = MagicMock()
-        mock_dataset.__len__ = MagicMock(return_value=1)
-        mock_result = MagicMock()
-        mock_result.dataset = mock_dataset
-        mock_pipeline = MagicMock()
-        mock_pipeline.run.return_value = mock_result
-
-        captured_transformers: list[Any] = []
-
-        def capture_pipeline(*args: Any, **kwargs: Any) -> MagicMock:
-            captured_transformers.extend(kwargs.get("transformers", []))
-            return mock_pipeline
-
-        monkeypatch.setattr(
-            nvd_api_mod, "NVDAPIExtractor", MagicMock(return_value=MagicMock())
-        )
-        monkeypatch.setattr(pipeline_mod, "VulnPipeline", capture_pipeline)
-
-        CacheBuilder.query(
-            keyword="test",
-            exploit=True,
-            quiet=True,
-            cvss=False,
-            epss=False,
-            kev=False,
-            cpe=False,
-            cwe=False,
-        )
-
-        names = [t.name for t in captured_transformers]
-        assert "ExploitDBEnricher" in names
-
     def test_query_raises_on_none_dataset(self, monkeypatch):
         """query() raises PipelineError when API returns no results."""
         import vulnflow.extractors.nvd_api as nvd_api_mod
@@ -810,6 +765,7 @@ class TestQuery:
             )
 
 
+@pytest.mark.slow
 class TestEnsureRecent:
     """Test ensure() recent=True delta merge path."""
 

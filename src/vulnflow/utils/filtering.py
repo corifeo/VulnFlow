@@ -273,11 +273,15 @@ def count_by_period(
 
     dates = dataset.get_column_or_none("nvd_published_at")
     if dates is None:
-        return pd.DataFrame({period: pd.Series(dtype=object), "count": pd.Series(dtype=int)})
+        return pd.DataFrame(
+            {period: pd.Series(dtype=object), "count": pd.Series(dtype=int)}
+        )
 
     filtered_dates = dates[mask]
     if len(filtered_dates) == 0:
-        return pd.DataFrame({period: pd.Series(dtype=object), "count": pd.Series(dtype=int)})
+        return pd.DataFrame(
+            {period: pd.Series(dtype=object), "count": pd.Series(dtype=int)}
+        )
 
     keys = _extract_period_keys(filtered_dates, period)
     unique_keys, counts = np.unique(keys, return_counts=True)

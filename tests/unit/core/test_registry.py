@@ -652,8 +652,18 @@ def test_field_type_all_members() -> None:
     """FieldType has all expected members."""
     from vulnflow.registry import FieldType
 
-    expected = {"str", "bool", "int", "float", "float32", "uint8", "uint16",
-                "datetime", "uuid", "list[str]"}
+    expected = {
+        "str",
+        "bool",
+        "int",
+        "float",
+        "float32",
+        "uint8",
+        "uint16",
+        "datetime",
+        "uuid",
+        "list[str]",
+    }
     actual = {member.value for member in FieldType}
     assert actual == expected
 
