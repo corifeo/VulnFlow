@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseInference
 from vulnflow.utils import json
+from vulnflow.utils.nvd import to_utc_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +256,7 @@ class EventInference(BaseInference):
 
     def __init__(
         self,
-        confidence_threshold: float = 0.7,
+        confidence_threshold: float = 0.6,
         overwrite: bool = False,
         tiers: list[int] | None = None,
     ) -> None:
@@ -263,13 +264,16 @@ class EventInference(BaseInference):
 
         Args:
             confidence_threshold: Minimum confidence (0.0-1.0) to run a tier.
-                Default 0.7 runs tiers 1-3. Use 0.1 for maximum coverage.
+                Default 0.6 runs tiers 1-3. Use 0.1 for maximum coverage.
             overwrite: Replace existing timestamps. Default False preserves
                 values from previous inference runs.
             tiers: Specific tiers to run (1-5). Default None runs all tiers
                 meeting the confidence threshold. Use [5] for age-only.
         """
         super().__init__(confidence_threshold, overwrite, tiers)
+        # EPSS only feeds tier 4
+        if not self._should_run(4):
+            self.depends_on = ["KEVFlattenTransform"]
 
     def _assign(
         self,
@@ -305,12 +309,14 @@ class EventInference(BaseInference):
 
         if nvd_published is not None:
             for i, val in enumerate(nvd_published):
-                if val is not None and self._assign(p_ts, p_conf, i, val, 0.95):
+                ts = to_utc_datetime(val)
+                if ts is not None and self._assign(p_ts, p_conf, i, ts, 0.95):
                     stats["p"] += 1
 
         if kev_date_added is not None:
             for i, val in enumerate(kev_date_added):
-                if val is not None and self._assign(a_ts, a_conf, i, val, 0.95):
+                ts = to_utc_datetime(val)
+                if ts is not None and self._assign(a_ts, a_conf, i, ts, 0.95):
                     stats["a"] += 1
 
         return stats
@@ -420,7 +426,7 @@ class EventInference(BaseInference):
                         if self._assign(f_ts, f_conf, i, p_ts[i], 0.50):
                             stats["f"] += 1
                 except Exception:
-                    logger.warning("Failed to parse CPE data for record %d", i)
+                    self.logger.warning("Failed to parse CPE data for record %d", i)
 
             # X from exploit URL patterns
             refs = parsed_refs[i] if i < len(parsed_refs) else []
@@ -542,14 +548,16 @@ class EventInference(BaseInference):
                     4: "structural",
                     5: "age_based",
                 }.get(tier, str(tier))
-                logger.debug("Tier %d (%s): %s", tier, tier_name, ", ".join(parts))
+                self.logger.debug("Tier %d (%s): %s", tier, tier_name, ", ".join(parts))
 
         # Final coverage (INFO)
         def pct(arr: np.ndarray) -> str:
+            if n == 0:
+                return "0.0%"
             count = np.sum([x is not None for x in arr])
             return f"{count / n * 100:.1f}%"
 
-        logger.info(
+        self.logger.info(
             "EventInference coverage: V=%s F=%s P=%s X=%s A=%s",
             pct(v_ts),
             pct(f_ts),
@@ -596,7 +604,7 @@ class EventInference(BaseInference):
             ]:
                 existing = dataset.get_column_or_none(col)
                 if existing is not None:
-                    arr[:] = existing
+                    arr[:] = [to_utc_datetime(v) for v in existing]
 
             for col, arr in [
                 ("v_confidence", v_conf),

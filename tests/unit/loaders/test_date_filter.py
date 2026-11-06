@@ -61,31 +61,37 @@ class TestBuildDateMask:
 
     def test_start_only(self) -> None:
         """start= filters out dates before start (inclusive >=)."""
-        ds = _dataset_with_dates([
-            _utc(2024, 1, 1),
-            _utc(2024, 6, 1),
-            _utc(2024, 12, 1),
-        ])
+        ds = _dataset_with_dates(
+            [
+                _utc(2024, 1, 1),
+                _utc(2024, 6, 1),
+                _utc(2024, 12, 1),
+            ]
+        )
         mask = _build_date_mask(ds, start="2024-06-01")
         assert mask.tolist() == [False, True, True]
 
     def test_end_only(self) -> None:
         """end= filters out dates at or after end (exclusive <)."""
-        ds = _dataset_with_dates([
-            _utc(2024, 1, 1),
-            _utc(2024, 6, 1),
-            _utc(2024, 12, 1),
-        ])
+        ds = _dataset_with_dates(
+            [
+                _utc(2024, 1, 1),
+                _utc(2024, 6, 1),
+                _utc(2024, 12, 1),
+            ]
+        )
         mask = _build_date_mask(ds, end="2024-06-01")
         assert mask.tolist() == [True, False, False]
 
     def test_start_and_end(self) -> None:
         """Both start and end create a half-open interval [start, end)."""
-        ds = _dataset_with_dates([
-            _utc(2024, 1, 1),
-            _utc(2024, 6, 1),
-            _utc(2024, 12, 1),
-        ])
+        ds = _dataset_with_dates(
+            [
+                _utc(2024, 1, 1),
+                _utc(2024, 6, 1),
+                _utc(2024, 12, 1),
+            ]
+        )
         mask = _build_date_mask(ds, start="2024-06-01", end="2024-12-01")
         assert mask.tolist() == [False, True, False]
 
@@ -140,21 +146,25 @@ class TestPandasLoaderDateRange:
 
     def test_start_filter(self) -> None:
         """to_pandas(start=...) filters by date."""
-        ds = _dataset_with_dates([
-            _utc(2024, 1, 1),
-            _utc(2024, 6, 1),
-            _utc(2024, 12, 1),
-        ])
+        ds = _dataset_with_dates(
+            [
+                _utc(2024, 1, 1),
+                _utc(2024, 6, 1),
+                _utc(2024, 12, 1),
+            ]
+        )
         df = ds.to_pandas(start="2024-06-01")
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 2
 
     def test_end_filter(self) -> None:
         """to_pandas(end=...) filters by date."""
-        ds = _dataset_with_dates([
-            _utc(2024, 1, 1),
-            _utc(2024, 6, 1),
-        ])
+        ds = _dataset_with_dates(
+            [
+                _utc(2024, 1, 1),
+                _utc(2024, 6, 1),
+            ]
+        )
         df = ds.to_pandas(end="2024-06-01")
         assert len(df) == 1
 
@@ -185,21 +195,25 @@ class TestPolarsLoaderDateRange:
 
     def test_start_filter(self) -> None:
         """to_polars(start=...) filters by date."""
-        ds = _dataset_with_dates([
-            _utc(2024, 1, 1),
-            _utc(2024, 6, 1),
-            _utc(2024, 12, 1),
-        ])
+        ds = _dataset_with_dates(
+            [
+                _utc(2024, 1, 1),
+                _utc(2024, 6, 1),
+                _utc(2024, 12, 1),
+            ]
+        )
         df = ds.to_polars(start="2024-06-01")
         assert isinstance(df, pl.DataFrame)
         assert len(df) == 2
 
     def test_start_and_end_filter(self) -> None:
         """to_polars(start=..., end=...) filters by date range."""
-        ds = _dataset_with_dates([
-            _utc(2024, 1, 1),
-            _utc(2024, 6, 1),
-            _utc(2024, 12, 1),
-        ])
+        ds = _dataset_with_dates(
+            [
+                _utc(2024, 1, 1),
+                _utc(2024, 6, 1),
+                _utc(2024, 12, 1),
+            ]
+        )
         df = ds.to_polars(start="2024-06-01", end="2024-12-01")
         assert len(df) == 1

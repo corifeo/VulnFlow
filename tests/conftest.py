@@ -76,7 +76,9 @@ def dataset_from_records(records: list[VulnRecord]) -> VulnDataset:  # type: ign
             return json_encoder.encode(dataclass_to_dict(value))
         return json_encoder.encode(value)
 
-    def flatten_cvss(cvss_scores: list[CVSSv3Entry | CVSSv4Entry]) -> dict[str, float | str | None]:
+    def flatten_cvss(
+        cvss_scores: list[CVSSv3Entry | CVSSv4Entry],
+    ) -> dict[str, float | str | None]:
         """Flatten list[CVSSv3Entry | CVSSv4Entry] to scalar columns."""
         if not cvss_scores:
             return {

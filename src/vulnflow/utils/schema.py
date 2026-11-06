@@ -22,6 +22,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+import numpy as np
+
 if TYPE_CHECKING:
     from vulnflow.registry import FieldDefinition
 
@@ -162,7 +164,10 @@ def build_base_schema() -> list[FieldDefinition]:
             field_type = "uuid"
             # UUID with default_factory=uuid4 → not nullable
             dc_field = dc_fields.get(name)
-            if dc_field is not None and dc_field.default_factory is not dataclasses.MISSING:
+            if (
+                dc_field is not None
+                and dc_field.default_factory is not dataclasses.MISSING
+            ):
                 nullable = False
             else:
                 nullable = True
@@ -324,6 +329,10 @@ def serialize_value(value: Any) -> Any:
     """
     if value is None:
         return None
+
+    # numpy scalars (e.g. float64 from Parquet) subclass Python types but orjson rejects them
+    if isinstance(value, np.generic):
+        value = value.item()
 
     # Already JSON-serializable
     if isinstance(value, (str, int, float, bool)):

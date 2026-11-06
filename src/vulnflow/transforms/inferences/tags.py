@@ -14,7 +14,6 @@ Tags are namespaced: "category:tag" (e.g., "threat:rce", "status:actively-exploi
 
 from __future__ import annotations
 
-import logging
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -26,8 +25,6 @@ if TYPE_CHECKING:
 from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseInference
 from vulnflow.utils import json
-
-logger = logging.getLogger(__name__)
 
 # Pre-compiled CVSS vector component regex
 _CVSS_METRIC_RE = re.compile(r"(?:^|/)([A-Z]{1,2}):([A-Z])")
@@ -291,9 +288,9 @@ class TagInference(BaseInference):
     ]
 
     TIER_THRESHOLDS: dict[int, float] = {
-        1: 1.0,   # Structured data: threat/vector/product/attack
-        2: 0.9,   # Strong signals: reference tags, KEV/exploit status
-        3: 0.8,   # Heuristic: EPSS thresholds, description impact keywords
+        1: 1.0,  # Structured data: threat/vector/product/attack
+        2: 0.9,  # Strong signals: reference tags, KEV/exploit status
+        3: 0.8,  # Heuristic: EPSS thresholds, description impact keywords
     }
 
     SCHEMA_VERSION: str = "3.0.0"
@@ -454,14 +451,14 @@ class TagInference(BaseInference):
         tier_names = {1: "structured", 2: "strong_signals", 3: "heuristic"}
         for tier, count in sorted(tier_stats.items()):
             if count > 0:
-                logger.debug(
+                self.logger.debug(
                     "Tier %d (%s): %d records contributed tags",
                     tier,
                     tier_names.get(tier, str(tier)),
                     count,
                 )
 
-        logger.info(
+        self.logger.info(
             "TagInference: %d records, tier1=%d tier2=%d tier3=%d tags",
             n,
             tier_stats[1],
@@ -473,9 +470,7 @@ class TagInference(BaseInference):
     # Rule methods
     # ========================================================================
 
-    def _infer_threat_tags(
-        self, description: str | None
-    ) -> tuple[list[str], float]:
+    def _infer_threat_tags(self, description: str | None) -> tuple[list[str], float]:
         """Infer threat-type tags from description keywords.
 
         Confidence: 1.0 (direct keyword match)
@@ -495,9 +490,7 @@ class TagInference(BaseInference):
 
         return [], 0.0
 
-    def _infer_vector_tags(
-        self, cwes: list[dict[str, Any]]
-    ) -> tuple[list[str], float]:
+    def _infer_vector_tags(self, cwes: list[dict[str, Any]]) -> tuple[list[str], float]:
         """Infer attack vector tags from CWE IDs.
 
         Confidence: 1.0 (direct CWE mapping)
@@ -619,9 +612,7 @@ class TagInference(BaseInference):
 
         return [], 0.0
 
-    def _infer_epss_tags(
-        self, epss_probability: Any
-    ) -> tuple[list[str], float]:
+    def _infer_epss_tags(self, epss_probability: Any) -> tuple[list[str], float]:
         """Infer EPSS probability tags.
 
         Tier 3: Heuristic signals.

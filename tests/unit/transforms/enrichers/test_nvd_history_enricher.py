@@ -2,6 +2,7 @@
 
 All tests mock HTTP to avoid real API calls.
 """
+
 from __future__ import annotations
 
 import json
@@ -36,7 +37,9 @@ def _make_dataset(cve_ids: list[str]) -> VulnDataset:
 
 
 @pytest.mark.asyncio
-@patch("vulnflow.transforms.enrichers.nvd_history.asyncio.sleep", new_callable=AsyncMock)
+@patch(
+    "vulnflow.transforms.enrichers.nvd_history.asyncio.sleep", new_callable=AsyncMock
+)
 @patch("vulnflow.transforms.enrichers.nvd_history.HttpFetcher")
 async def test_history_enricher_per_cve_mode(MockFetcher, mock_sleep):
     """NVDHistoryEnricher in per_cve mode fetches history per CVE."""
@@ -66,7 +69,9 @@ async def test_history_enricher_per_cve_mode(MockFetcher, mock_sleep):
 
 
 @pytest.mark.asyncio
-@patch("vulnflow.transforms.enrichers.nvd_history.asyncio.sleep", new_callable=AsyncMock)
+@patch(
+    "vulnflow.transforms.enrichers.nvd_history.asyncio.sleep", new_callable=AsyncMock
+)
 @patch("vulnflow.transforms.enrichers.nvd_history.HttpFetcher")
 async def test_history_enricher_date_range_mode(MockFetcher, mock_sleep):
     """NVDHistoryEnricher in date_range mode fetches bulk changes."""
@@ -109,7 +114,9 @@ async def test_history_enricher_date_range_mode(MockFetcher, mock_sleep):
 
 
 @pytest.mark.asyncio
-@patch("vulnflow.transforms.enrichers.nvd_history.asyncio.sleep", new_callable=AsyncMock)
+@patch(
+    "vulnflow.transforms.enrichers.nvd_history.asyncio.sleep", new_callable=AsyncMock
+)
 @patch("vulnflow.transforms.enrichers.nvd_history.HttpFetcher")
 async def test_history_enricher_no_changes(MockFetcher, mock_sleep):
     """CVEs with no history get empty array."""
@@ -129,7 +136,9 @@ async def test_history_enricher_no_changes(MockFetcher, mock_sleep):
 
 
 @pytest.mark.asyncio
-@patch("vulnflow.transforms.enrichers.nvd_history.asyncio.sleep", new_callable=AsyncMock)
+@patch(
+    "vulnflow.transforms.enrichers.nvd_history.asyncio.sleep", new_callable=AsyncMock
+)
 @patch("vulnflow.transforms.enrichers.nvd_history.HttpFetcher")
 async def test_history_enricher_per_cve_failure_continues(MockFetcher, mock_sleep):
     """Per-CVE mode logs warning and continues on failure."""
@@ -152,7 +161,9 @@ def test_history_enricher_date_range_requires_dates():
     """date_range mode without dates raises ValueError."""
     from vulnflow.transforms.enrichers.nvd_history import NVDHistoryEnricher
 
-    with pytest.raises(ValueError, match="change_start_date and change_end_date required"):
+    with pytest.raises(
+        ValueError, match="change_start_date and change_end_date required"
+    ):
         NVDHistoryEnricher(mode="date_range")
 
 

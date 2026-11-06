@@ -24,10 +24,16 @@ class CWEEntry:
     id: str  # "CWE-502"
     name: str | None = None  # "Deserialization of Untrusted Data"
     category_id: str | None = None  # "CWE-913"
-    category_name: str | None = None  # "Improper Control of Dynamically-Managed Code Resources"
-    abstraction_level: str | None = None  # "Category"|"Class"|"Base"|"Variant"|"Compound"
+    category_name: str | None = (
+        None  # "Improper Control of Dynamically-Managed Code Resources"
+    )
+    abstraction_level: str | None = (
+        None  # "Category"|"Class"|"Base"|"Variant"|"Compound"
+    )
     likelihood_of_exploit: str | None = None  # "High"|"Medium"|"Low"
-    consequences: list[dict[str, list[str]]] | None = None  # [{"scopes": [...], "impacts": [...]}]
+    consequences: list[dict[str, list[str]]] | None = (
+        None  # [{"scopes": [...], "impacts": [...]}]
+    )
     applicable_platforms: list[str] | None = None  # ["Java", "C", "Linux"]
     modes_of_introduction: list[str] | None = None  # ["Design", "Implementation"]
 
@@ -56,7 +62,9 @@ class CAPECEntry:
     likelihood_of_attack: str | None = None  # "High"|"Medium"|"Low"
     typical_severity: str | None = None  # "Very High"|"High"|"Medium"|"Low"|"Very Low"
     skills_required: list[str] | None = None  # ["Low", "Medium"]
-    consequences: list[dict[str, list[str]]] | None = None  # [{"scopes": [...], "impacts": [...]}]
+    consequences: list[dict[str, list[str]]] | None = (
+        None  # [{"scopes": [...], "impacts": [...]}]
+    )
     attack_techniques: list[str] | None = None  # MITRE ATT&CK IDs ["1110", "1548.001"]
 
     def to_dict(self) -> dict[str, Any]:
@@ -77,7 +85,9 @@ class CAPECEntry:
 class STRIDEThreat:
     """STRIDE threat classification with provenance."""
 
-    category: str  # "spoofing"|"tampering"|"repudiation"|"info_disclosure"|"dos"|"elevation"
+    category: (
+        str  # "spoofing"|"tampering"|"repudiation"|"info_disclosure"|"dos"|"elevation"
+    )
     confidence: float  # 0.0–1.0 (tier-based: 0.95/0.85/0.75/0.60/0.45)
     source: str  # "capec_consequences"|"cwe_mapping"|"cvss_impact"|"description"|"cvss_vector"
     capec_ids: list[str] = field(default_factory=list)  # ["CAPEC-86", "CAPEC-242"]
@@ -131,14 +141,16 @@ class ReferenceEntry:
 class CVSSv3Entry:
     """CVSS v3.x scoring (multi-source support)."""
 
-    version: str  # "3.0", "3.1"
+    version: str  # "2.0", "3.0", "3.1"
     vector_string: str
     base_score: float
     base_severity: str  # "CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"
     source: str  # "nvd", "redhat", "microsoft"
     is_authoritative: bool = False  # True if type="Primary" in NVD
     # v3.x base metrics
-    attack_vector: str | None = None  # "NETWORK", "ADJACENT_NETWORK", "LOCAL", "PHYSICAL"
+    attack_vector: str | None = (
+        None  # "NETWORK", "ADJACENT_NETWORK", "LOCAL", "PHYSICAL"
+    )
     attack_complexity: str | None = None  # "LOW", "HIGH"
     privileges_required: str | None = None  # "NONE", "LOW", "HIGH"
     user_interaction: str | None = None  # "NONE", "REQUIRED"
@@ -151,6 +163,7 @@ class CVSSv3Entry:
     source_url: str | None = None
     published_at: datetime | None = None
     updated_at: datetime | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -173,6 +186,7 @@ class CVSSv3Entry:
             "source_url": self.source_url,
             "published_at": self.published_at,
             "updated_at": self.updated_at,
+            "metadata": self.metadata,
         }
 
 
@@ -216,6 +230,7 @@ class CVSSv4Entry:
     source_url: str | None = None
     published_at: datetime | None = None
     updated_at: datetime | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -248,6 +263,7 @@ class CVSSv4Entry:
             "source_url": self.source_url,
             "published_at": self.published_at,
             "updated_at": self.updated_at,
+            "metadata": self.metadata,
         }
 
 

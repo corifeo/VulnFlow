@@ -1,6 +1,7 @@
 # Documentation (local only, except README)
 *.md
 !README.md
+!CHANGELOG.md
 
 # Sample data
 data/
@@ -60,8 +61,6 @@ tmp/
 # Git worktrees
 .worktrees/
 
-# uv
-uv.lock
 .claude/settings.local.json
 
 # Cache directories

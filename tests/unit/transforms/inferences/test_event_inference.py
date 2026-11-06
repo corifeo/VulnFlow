@@ -8,6 +8,9 @@ Dependencies: dataset, KEV enricher
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from pathlib import Path
+
 import numpy as np
 from tests.conftest import make_dataset
 
@@ -15,6 +18,51 @@ from vulnflow.dataset import VulnDataset
 from vulnflow.transforms.enrichers.kev import KEVEnricher
 from vulnflow.transforms.flatten.kev import KEVFlattenTransform
 from vulnflow.transforms.inferences.events import EventInference, extract_date_from_url
+
+
+def test_default_threshold_runs_tiers_1_to_3():
+    """The default runs what the docstring promises: tiers 1-3, not 4."""
+    inference = EventInference()
+    assert inference._should_run(3)
+    assert not inference._should_run(4)
+
+
+def test_vendor_advisory_tag_sets_v_by_default():
+    """A Vendor Advisory reference gives V without asking for lower confidence."""
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    EventInference().transform(dataset)
+    # CVE-2024-0001 has a Vendor Advisory reference with no date in its URL
+    expected = datetime(2024, 1, 10, 10, tzinfo=UTC)
+    assert dataset.get_column("v_timestamp")[0] == expected
+
+
+def test_event_inference_runs_on_reloaded_parquet(tmp_path: Path):
+    """Tier 3 copies P into V, so P must not stay a numpy.datetime64."""
+    path = tmp_path / "x.parquet"
+    VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").to_parquet(path)
+    dataset = VulnDataset.from_parquet(str(path))
+    EventInference().transform(dataset)
+    expected = datetime(2024, 1, 10, 10, tzinfo=UTC)
+    assert dataset.get_column("p_timestamp")[0] == expected
+
+
+def test_existing_string_timestamps_are_normalized():
+    """Custom sources can carry ISO strings in the timestamp columns."""
+    dataset = make_dataset(
+        {
+            "cve_id": ["CVE-2024-0001"],
+            "v_timestamp": ["2024-01-01T00:00:00+00:00"],
+            "f_timestamp": ["2024-01-02T00:00:00+00:00"],
+        }
+    )
+    EventInference().transform(dataset)
+    assert dataset.get_column("v_timestamp")[0] == datetime(2024, 1, 1, tzinfo=UTC)
+
+
+def test_depends_on_lists_epss_only_when_tier4_runs():
+    """EPSS only feeds tier 4, so the default run doesn't need it."""
+    assert EventInference().depends_on == ["KEVFlattenTransform"]
+    assert "EPSSFlattenTransform" in EventInference(confidence_threshold=0.5).depends_on
 
 
 def test_extract_date_from_url_slash_pattern():

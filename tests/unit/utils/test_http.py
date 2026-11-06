@@ -583,9 +583,7 @@ class TestHttpFetcherRetry:
     """Tests for HttpFetcher retry logic."""
 
     def test_init_stores_retry_params(self, tmp_path: Path) -> None:
-        fetcher = HttpFetcher(
-            cache_dir=tmp_path, retries=5, backoff_base=2.0
-        )
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=5, backoff_base=2.0)
         assert fetcher._retries == 5
         assert fetcher._backoff_base == 2.0
 
@@ -836,7 +834,9 @@ class TestHttpFetcherStreamingProgress:
 
         assert content == body
         assert fmt == "json"
-        mock_client.stream.assert_called_once_with("GET", "https://example.com/data.json")
+        mock_client.stream.assert_called_once_with(
+            "GET", "https://example.com/data.json"
+        )
         mock_client.get.assert_not_called()
 
     async def test_fetch_without_progress_uses_get(self, tmp_path: Path) -> None:
@@ -874,6 +874,7 @@ class TestHttpFetcherStreamingProgress:
             None,
             decompress=True,
             progress_desc="Downloading test",
+            headers=None,
         )
 
 

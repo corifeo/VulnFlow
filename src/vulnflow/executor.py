@@ -3,7 +3,6 @@ Pipeline Executor - Stage execution logic
 
 Provides:
 - PipelineExecutor: Stateless executor for extractors, transforms, and loaders
-- get_stage_name: Utility to extract stage name from object
 
 Layer: Core ETL execution
 Dependencies: dataset, extractors, transforms, loaders
@@ -20,6 +19,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.loaders.base import BaseLoader
+from vulnflow.registry import Registry
 from vulnflow.utils.graph import build_phases
 from vulnflow.utils.transforms import is_async_transform
 
@@ -27,45 +27,48 @@ if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
     from vulnflow.utils.progress import ProgressReporter
 
-__all__ = ["PipelineExecutor", "get_stage_name"]
+__all__ = ["PipelineExecutor"]
 
 logger = logging.getLogger(__name__)
-
-
-def get_stage_name(obj: Any) -> str:
-    """Get stage name from object.
-
-    Priority: label > name > class name.
-    label provides short, unique display names (e.g., nvdcve-2.0-2023).
-    """
-    label = getattr(obj, "label", None)
-    if label is not None:
-        return cast(str, label)
-    return cast(str, getattr(obj, "name", obj.__class__.__name__))
-
-
-def _extractor_detail(ext: Any, count: int) -> tuple[str, str]:
-    """Build detail and breakdown from extractor timings.
-
-    Returns:
-        (detail, breakdown) -- detail is always "N CVEs",
-        breakdown is sub-timings >= 0.1s joined by ", " (may be empty).
-    """
-    detail = f"{count:,} CVEs"
-    timings: dict[str, float] | None = getattr(ext, "_timings", None)
-    if timings:
-        parts = [f"{k} {v:.1f}s" for k, v in timings.items() if v >= 0.1]
-        return detail, ", ".join(parts)
-    return detail, ""
 
 
 class PipelineExecutor:
     """Stateless executor for pipeline stages."""
 
     @staticmethod
+    def _get_stage_name(obj: Any) -> str:
+        """Get stage name from object.
+
+        Priority: label > name > class name.
+        label provides short, unique display names (e.g., nvdcve-2.0-2023).
+        """
+        label = getattr(obj, "label", None)
+        if label is not None:
+            return cast(str, label)
+        return cast(str, getattr(obj, "name", obj.__class__.__name__))
+
+    @staticmethod
+    def _stage_detail(stage: Any, detail: str) -> tuple[str, str]:
+        """Build detail and breakdown from stage timings.
+
+        Args:
+            stage: Any pipeline stage with optional _timings dict
+            detail: Primary detail string (e.g., "520 CVEs", "5,000 records")
+
+        Returns:
+            (detail, breakdown) where breakdown is sub-timings >= 0.1s
+        """
+        timings: dict[str, float] | None = getattr(stage, "_timings", None)
+        if timings:
+            parts = [f"{k} {v:.1f}s" for k, v in timings.items() if v >= 0.1]
+            return detail, ", ".join(parts)
+        return detail, ""
+
+    @staticmethod
     def run_extractors(
         extractors: list[BaseExtractor],
         desc: str | None = None,
+        reporter: ProgressReporter | None = None,
     ) -> tuple[VulnDataset, list[str], list[str], list[Exception]]:
         """Execute extractors concurrently and merge results.
 
@@ -77,6 +80,10 @@ class PipelineExecutor:
 
         Args:
             extractors: List of extractor instances
+            desc: Optional description for progress bar
+            reporter: Optional ProgressReporter for stage tracking.
+                When provided, the caller owns the lifecycle (no ``with``).
+                When None, an internal reporter is created and managed.
 
         Returns:
             Tuple of (merged_dataset, successful_stages, failed_stages, errors)
@@ -96,16 +103,13 @@ class PipelineExecutor:
         errors: list[Exception] = []
         total_records = 0
 
-        with ProgressReporter(
-            desc or "Processing feeds",
-            total=len(extractors),
-            unit="feeds",
-            bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}{postfix}]",
-        ) as rpt:
+        def _run_with_reporter(rpt: ProgressReporter) -> None:
+            nonlocal total_records
+
             if len(extractors) == 1:
                 # Single extractor: run directly (no thread overhead)
                 ext = extractors[0]
-                ext_name = get_stage_name(ext)
+                ext_name = PipelineExecutor._get_stage_name(ext)
                 rpt.stage_started(ext_name)
                 try:
                     ds = ext.extract()
@@ -113,10 +117,10 @@ class PipelineExecutor:
                     total_records += count
                     datasets.append(ds)
                     successful.append(ext_name)
-                    detail, breakdown = _extractor_detail(ext, count)
-                    rpt.stage_completed(
-                        ext_name, detail=detail, breakdown=breakdown
+                    detail, breakdown = PipelineExecutor._stage_detail(
+                        ext, f"{count:,} CVEs"
                     )
+                    rpt.stage_completed(ext_name, detail=detail, breakdown=breakdown)
                 except Exception as e:
                     failed.append(ext_name)
                     errors.append(e)
@@ -125,24 +129,22 @@ class PipelineExecutor:
             else:
                 # Multiple extractors: run concurrently via threads
                 for ext in extractors:
-                    rpt.stage_started(get_stage_name(ext))
+                    rpt.stage_started(PipelineExecutor._get_stage_name(ext))
 
-                with ThreadPoolExecutor(
-                    max_workers=min(len(extractors), 8)
-                ) as pool:
-                    futures = {
-                        pool.submit(ext.extract): ext for ext in extractors
-                    }
+                with ThreadPoolExecutor(max_workers=min(len(extractors), 8)) as pool:
+                    futures = {pool.submit(ext.extract): ext for ext in extractors}
                     for future in as_completed(futures):
                         ext = futures[future]
-                        ext_name = get_stage_name(ext)
+                        ext_name = PipelineExecutor._get_stage_name(ext)
                         try:
                             ds = future.result()
                             count = len(ds)
                             total_records += count
                             datasets.append(ds)
                             successful.append(ext_name)
-                            detail, breakdown = _extractor_detail(ext, count)
+                            detail, breakdown = PipelineExecutor._stage_detail(
+                                ext, f"{count:,} CVEs"
+                            )
                             rpt.stage_completed(
                                 ext_name, detail=detail, breakdown=breakdown
                             )
@@ -155,8 +157,43 @@ class PipelineExecutor:
             if total_records > 0:
                 rpt.summary(f"{total_records:,} CVEs total")
 
+        if reporter is not None:
+            _run_with_reporter(reporter)
+        else:
+            with ProgressReporter(
+                desc or "Processing feeds",
+                total=len(extractors),
+                unit="feeds",
+                bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}{postfix}]",
+            ) as rpt:
+                _run_with_reporter(rpt)
+
         merged = VulnDataset.merge(datasets)
         return merged, successful, failed, errors
+
+    @staticmethod
+    def _warn_unmet_dependencies(dataset: VulnDataset, transforms: list[Any]) -> None:
+        """Warn when a dependency is absent from both the run and the dataset.
+
+        Running a subset of transforms is supported, so a dependency missing
+        from the run is only a problem if its columns are missing as well.
+        """
+        names = {getattr(t, "name", None) for t in transforms}
+        for t in transforms:
+            for dep in getattr(t, "depends_on", []):
+                if dep in names:
+                    continue
+                try:
+                    schema = Registry.get_transform(dep).OUTPUT_SCHEMA
+                except (KeyError, AttributeError):
+                    continue  # custom dependency the registry can't describe
+                if schema and not any(f.name in dataset.columns for f in schema):
+                    logger.warning(
+                        "%s depends on %s, which isn't in this run and whose "
+                        "columns are missing; its output may be incomplete",
+                        getattr(t, "name", type(t).__name__),
+                        dep,
+                    )
 
     @staticmethod
     async def run_transforms(
@@ -183,6 +220,8 @@ class PipelineExecutor:
         if not transforms:
             return [], [], []
 
+        PipelineExecutor._warn_unmet_dependencies(dataset, transforms)
+
         successful: list[str] = []
         failed: list[str] = []
         errors: list[Exception] = []
@@ -195,49 +234,50 @@ class PipelineExecutor:
             return time.perf_counter() - start
 
         for phase in phases:
-            phase_tasks: list[tuple[str, Any]] = []
+            phase_tasks: list[tuple[str, Any, Any]] = []
 
             for t in phase:
-                t_name = get_stage_name(t)
+                t_name = PipelineExecutor._get_stage_name(t)
                 if reporter is not None:
                     reporter.stage_started(t_name)
 
                 if is_async_transform(t):
-                    phase_tasks.append((t_name, t.transform(dataset)))
+                    phase_tasks.append((t_name, t, t.transform(dataset)))
                 else:
                     phase_tasks.append(
-                        (t_name, asyncio.to_thread(t.transform, dataset))
+                        (t_name, t, asyncio.to_thread(t.transform, dataset))
                     )
 
             if strict:
                 try:
                     durations = await asyncio.gather(
-                        *[_timed(task) for _, task in phase_tasks]
+                        *[_timed(task) for _, _, task in phase_tasks]
                     )
-                    for (t_name, _), dur in zip(
+                    for (t_name, t_obj, _), dur in zip(
                         phase_tasks, durations, strict=True
                     ):
                         successful.append(t_name)
                         if reporter is not None:
-                            reporter.stage_completed(t_name, duration=dur)
+                            _, breakdown = PipelineExecutor._stage_detail(t_obj, "")
+                            reporter.stage_completed(
+                                t_name, duration=dur, breakdown=breakdown
+                            )
                 except Exception as e:
-                    for t_name, _ in phase_tasks:
+                    for t_name, _, _ in phase_tasks:
                         failed.append(t_name)
                         if reporter is not None:
                             reporter.stage_failed(t_name, error=str(e))
                     raise
             else:
                 results = await asyncio.gather(
-                    *[_timed(task) for _, task in phase_tasks],
+                    *[_timed(task) for _, _, task in phase_tasks],
                     return_exceptions=True,
                 )
-                for (t_name, _), result in zip(
+                for (t_name, t_obj, _), result in zip(
                     phase_tasks, results, strict=True
                 ):
                     if isinstance(result, Exception):
-                        logger.warning(
-                            "Transform %s failed: %s", t_name, result
-                        )
+                        logger.warning("Transform %s failed: %s", t_name, result)
                         failed.append(t_name)
                         errors.append(result)
                         if reporter is not None:
@@ -245,8 +285,11 @@ class PipelineExecutor:
                     else:
                         successful.append(t_name)
                         if reporter is not None:
+                            _, breakdown = PipelineExecutor._stage_detail(t_obj, "")
                             reporter.stage_completed(
-                                t_name, duration=cast(float, result)
+                                t_name,
+                                duration=cast(float, result),
+                                breakdown=breakdown,
                             )
 
         return successful, failed, errors
@@ -255,6 +298,7 @@ class PipelineExecutor:
     def run_loaders(
         dataset: VulnDataset,
         loaders: list[BaseLoader],
+        reporter: ProgressReporter | None = None,
     ) -> tuple[dict[str, Any], list[str], list[str], list[Exception]]:
         """Execute loaders sequentially and collect outputs.
 
@@ -263,6 +307,9 @@ class PipelineExecutor:
         Args:
             dataset: Dataset to load
             loaders: List of loader instances
+            reporter: Optional ProgressReporter for stage tracking.
+                When provided, the caller owns the lifecycle (no ``with``).
+                When None, an internal reporter is created and managed.
 
         Returns:
             Tuple of (loader_outputs, successful_stages, failed_stages, errors)
@@ -270,8 +317,6 @@ class PipelineExecutor:
         Raises:
             Exception: If any loader fails
         """
-        from vulnflow.utils.progress import ProgressReporter
-
         if not loaders:
             return {}, [], [], []
 
@@ -281,23 +326,32 @@ class PipelineExecutor:
         errors: list[Exception] = []
         record_count = len(dataset)
 
-        with ProgressReporter(
-            "Loading data", total=len(loaders), unit="loaders"
-        ) as rpt:
+        def _run_with_reporter(rpt: ProgressReporter) -> None:
             for loader in loaders:
-                loader_name = get_stage_name(loader)
+                loader_name = PipelineExecutor._get_stage_name(loader)
                 rpt.stage_started(loader_name)
                 try:
                     output = loader.load(dataset)
                     loader_outputs[loader_name] = output
                     successful.append(loader_name)
-                    rpt.stage_completed(
-                        loader_name, detail=f"{record_count:,} records"
+                    detail, breakdown = PipelineExecutor._stage_detail(
+                        loader, f"{record_count:,} records"
                     )
+                    rpt.stage_completed(loader_name, detail=detail, breakdown=breakdown)
                 except Exception as e:
                     failed.append(loader_name)
                     errors.append(e)
                     rpt.stage_failed(loader_name, error=str(e))
                     raise
+
+        if reporter is not None:
+            _run_with_reporter(reporter)
+        else:
+            from vulnflow.utils.progress import ProgressReporter as _ProgressReporter
+
+            with _ProgressReporter(
+                "Loading data", total=len(loaders), unit="loaders"
+            ) as rpt:
+                _run_with_reporter(rpt)
 
         return loader_outputs, successful, failed, errors

@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use vulnflow in your research, please cite it as below."
+title: "vulnflow: ETL pipeline for public vulnerability data"
+type: software
+authors:
+  - family-names: Manzoni
+    given-names: Francesco
+version: 0.1.0
+license: MIT
+repository-code: "https://github.com/corifeo/vulnflow"
+keywords:
+  - vulnerability management
+  - ETL
+  - CVE
+  - NVD
+  - CISA KEV
+  - EPSS
+  - coordinated vulnerability disclosure

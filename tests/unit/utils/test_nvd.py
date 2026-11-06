@@ -7,8 +7,11 @@ Dependencies: schema, utils.cvss, utils.cpe
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from vulnflow.schema import CVSSv3Entry, CVSSv4Entry
@@ -19,7 +22,47 @@ from vulnflow.utils.nvd import (
     parse_cwes,
     parse_references,
     parse_timestamp,
+    to_utc_datetime,
 )
+
+# --- to_utc_datetime ---
+
+
+@pytest.mark.parametrize(
+    "value", [None, "", float("nan"), np.datetime64("NaT", "us"), pd.NaT]
+)
+def test_to_utc_datetime_nulls_return_none(value: Any) -> None:
+    assert to_utc_datetime(value) is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2021-12-10T00:00:00+00:00",
+        "2021-12-10T00:00:00Z",
+        "2021-12-10T00:00:00",
+        "2021-12-10T01:00:00+01:00",
+        datetime(2021, 12, 10),
+        datetime(2021, 12, 10, tzinfo=UTC),
+        np.datetime64("2021-12-10"),
+        pd.Timestamp("2021-12-10", tz="UTC"),
+    ],
+)
+def test_to_utc_datetime_all_forms_agree(value: Any) -> None:
+    result = to_utc_datetime(value)
+    assert result == datetime(2021, 12, 10, tzinfo=UTC)
+    assert result is not None and result.utcoffset().total_seconds() == 0
+
+
+def test_to_utc_datetime_malformed_string_raises() -> None:
+    with pytest.raises(ValueError):
+        to_utc_datetime("not-a-date")
+
+
+def test_to_utc_datetime_unknown_type_raises() -> None:
+    with pytest.raises(TypeError, match="int"):
+        to_utc_datetime(123)
+
 
 # --- Helpers ---
 
@@ -105,7 +148,9 @@ def test_extract_nvd_status_awaiting_variants() -> None:
 
 def test_extract_nvd_status_missing_defaults_analyzed() -> None:
     """Missing vulnStatus defaults to analyzed."""
-    assert extract_nvd_status({"descriptions": [{"value": "Normal vuln"}]}) == "analyzed"
+    assert (
+        extract_nvd_status({"descriptions": [{"value": "Normal vuln"}]}) == "analyzed"
+    )
 
 
 def test_extract_nvd_status_missing_rejected_description() -> None:
@@ -171,15 +216,18 @@ def test_parse_cvss_multi_version_ordering() -> None:
     """Multiple CVSS versions parsed in order: v4.0, v3.1, v2.0."""
     metrics: dict[str, list[dict[str, Any]]] = {}
     metrics.update(
-        _make_nvd_metric(version="4.0", key_suffix="V40", base_score=9.3, base_severity=None)
+        _make_nvd_metric(
+            version="4.0", key_suffix="V40", base_score=9.3, base_severity=None
+        )
     )
-    metrics.update(
-        _make_nvd_metric(version="3.1", key_suffix="V31", base_score=9.8)
-    )
+    metrics.update(_make_nvd_metric(version="3.1", key_suffix="V31", base_score=9.8))
     metrics.update(
         _make_nvd_metric(
-            version="2.0", key_suffix="V2", base_score=7.5,
-            base_severity="HIGH", severity_at_metric_level=True,
+            version="2.0",
+            key_suffix="V2",
+            base_score=7.5,
+            base_severity="HIGH",
+            severity_at_metric_level=True,
         )
     )
     entries = parse_cvss(metrics)
@@ -197,27 +245,29 @@ def test_parse_cvss_empty() -> None:
 def test_parse_cvss_v40_extracts_components() -> None:
     """v4.0 parser reads vulnConfidentialityImpact etc. from cvssData."""
     metrics = {
-        "cvssMetricV40": [{
-            "source": "nvd@nist.gov",
-            "type": "Primary",
-            "cvssData": {
-                "version": "4.0",
-                "vectorString": "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
-                "baseScore": 8.5,
-                "baseSeverity": "HIGH",
-                "attackVector": "LOCAL",
-                "attackComplexity": "LOW",
-                "attackRequirements": "NONE",
-                "privilegesRequired": "LOW",
-                "userInteraction": "NONE",
-                "vulnConfidentialityImpact": "HIGH",
-                "vulnIntegrityImpact": "HIGH",
-                "vulnAvailabilityImpact": "HIGH",
-                "subConfidentialityImpact": "NONE",
-                "subIntegrityImpact": "NONE",
-                "subAvailabilityImpact": "NONE",
-            },
-        }],
+        "cvssMetricV40": [
+            {
+                "source": "nvd@nist.gov",
+                "type": "Primary",
+                "cvssData": {
+                    "version": "4.0",
+                    "vectorString": "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+                    "baseScore": 8.5,
+                    "baseSeverity": "HIGH",
+                    "attackVector": "LOCAL",
+                    "attackComplexity": "LOW",
+                    "attackRequirements": "NONE",
+                    "privilegesRequired": "LOW",
+                    "userInteraction": "NONE",
+                    "vulnConfidentialityImpact": "HIGH",
+                    "vulnIntegrityImpact": "HIGH",
+                    "vulnAvailabilityImpact": "HIGH",
+                    "subConfidentialityImpact": "NONE",
+                    "subIntegrityImpact": "NONE",
+                    "subAvailabilityImpact": "NONE",
+                },
+            }
+        ],
     }
     entries = parse_cvss(metrics)
     assert len(entries) == 1
@@ -232,23 +282,25 @@ def test_parse_cvss_v40_extracts_components() -> None:
 def test_parse_cvss_v40_supplemental_metrics() -> None:
     """v4.0 parser reads supplemental metrics from cvssData."""
     metrics = {
-        "cvssMetricV40": [{
-            "source": "psirt@vendor.com",
-            "type": "Secondary",
-            "cvssData": {
-                "version": "4.0",
-                "vectorString": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
-                "baseScore": 9.3,
-                "baseSeverity": "CRITICAL",
-                "exploitMaturity": "ATTACKED",
-                "Automatable": "YES",
-                "Recovery": "AUTOMATIC",
-                "Safety": "PRESENT",
-                "providerUrgency": "RED",
-                "vulnerabilityResponseEffort": "LOW",
-                "valueDensity": "CONCENTRATED",
-            },
-        }],
+        "cvssMetricV40": [
+            {
+                "source": "psirt@vendor.com",
+                "type": "Secondary",
+                "cvssData": {
+                    "version": "4.0",
+                    "vectorString": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+                    "baseScore": 9.3,
+                    "baseSeverity": "CRITICAL",
+                    "exploitMaturity": "ATTACKED",
+                    "Automatable": "YES",
+                    "Recovery": "AUTOMATIC",
+                    "Safety": "PRESENT",
+                    "providerUrgency": "RED",
+                    "vulnerabilityResponseEffort": "LOW",
+                    "valueDensity": "CONCENTRATED",
+                },
+            }
+        ],
     }
     entries = parse_cvss(metrics)
     e = entries[0]
@@ -264,26 +316,28 @@ def test_parse_cvss_v40_supplemental_metrics() -> None:
 def test_parse_cvss_v31_extracts_components() -> None:
     """v3.1 parser reads attackVector, scope, etc. from cvssData."""
     metrics = {
-        "cvssMetricV31": [{
-            "source": "nvd@nist.gov",
-            "type": "Primary",
-            "cvssData": {
-                "version": "3.1",
-                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
-                "baseScore": 9.8,
-                "baseSeverity": "CRITICAL",
-                "attackVector": "NETWORK",
-                "attackComplexity": "LOW",
-                "privilegesRequired": "NONE",
-                "userInteraction": "NONE",
-                "scope": "UNCHANGED",
-                "confidentialityImpact": "HIGH",
-                "integrityImpact": "HIGH",
-                "availabilityImpact": "HIGH",
-            },
-            "exploitabilityScore": 3.9,
-            "impactScore": 5.9,
-        }],
+        "cvssMetricV31": [
+            {
+                "source": "nvd@nist.gov",
+                "type": "Primary",
+                "cvssData": {
+                    "version": "3.1",
+                    "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                    "baseScore": 9.8,
+                    "baseSeverity": "CRITICAL",
+                    "attackVector": "NETWORK",
+                    "attackComplexity": "LOW",
+                    "privilegesRequired": "NONE",
+                    "userInteraction": "NONE",
+                    "scope": "UNCHANGED",
+                    "confidentialityImpact": "HIGH",
+                    "integrityImpact": "HIGH",
+                    "availabilityImpact": "HIGH",
+                },
+                "exploitabilityScore": 3.9,
+                "impactScore": 5.9,
+            }
+        ],
     }
     entries = parse_cvss(metrics)
     e = entries[0]
@@ -296,23 +350,25 @@ def test_parse_cvss_v31_extracts_components() -> None:
 def test_parse_cvss_v20_extracts_components() -> None:
     """v2.0 parser reads accessVector (not attackVector) from cvssData."""
     metrics = {
-        "cvssMetricV2": [{
-            "source": "nvd@nist.gov",
-            "type": "Primary",
-            "cvssData": {
-                "version": "2.0",
-                "vectorString": "AV:N/AC:L/Au:N/C:C/I:C/A:C",
-                "baseScore": 10.0,
-                "accessVector": "NETWORK",
-                "accessComplexity": "LOW",
-                "confidentialityImpact": "COMPLETE",
-                "integrityImpact": "COMPLETE",
-                "availabilityImpact": "COMPLETE",
-            },
-            "baseSeverity": "HIGH",
-            "exploitabilityScore": 10.0,
-            "impactScore": 10.0,
-        }],
+        "cvssMetricV2": [
+            {
+                "source": "nvd@nist.gov",
+                "type": "Primary",
+                "cvssData": {
+                    "version": "2.0",
+                    "vectorString": "AV:N/AC:L/Au:N/C:C/I:C/A:C",
+                    "baseScore": 10.0,
+                    "accessVector": "NETWORK",
+                    "accessComplexity": "LOW",
+                    "confidentialityImpact": "COMPLETE",
+                    "integrityImpact": "COMPLETE",
+                    "availabilityImpact": "COMPLETE",
+                },
+                "baseSeverity": "HIGH",
+                "exploitabilityScore": 10.0,
+                "impactScore": 10.0,
+            }
+        ],
     }
     entries = parse_cvss(metrics)
     e = entries[0]
@@ -386,7 +442,10 @@ class TestCVSSv40Completeness:
 
         # Core fields
         assert e.version == "4.0"
-        assert e.vector_string == "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+        assert (
+            e.vector_string
+            == "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+        )
         assert e.base_score == 8.5
         assert e.base_severity == "HIGH"
         assert e.source == "nvd"
@@ -434,23 +493,41 @@ class TestCVSSv40Completeness:
         schema_fields = {f.name for f in dc_fields(CVSSv4Entry)}
         # Fields asserted in test_all_fields_populated (update when adding fields)
         tested_fields = {
-            "version", "vector_string", "base_score", "base_severity",
-            "source", "is_authoritative",
-            "attack_vector", "attack_complexity", "attack_requirements",
-            "privileges_required", "user_interaction",
-            "vuln_confidentiality_impact", "vuln_integrity_impact",
+            "version",
+            "vector_string",
+            "base_score",
+            "base_severity",
+            "source",
+            "is_authoritative",
+            "attack_vector",
+            "attack_complexity",
+            "attack_requirements",
+            "privileges_required",
+            "user_interaction",
+            "vuln_confidentiality_impact",
+            "vuln_integrity_impact",
             "vuln_availability_impact",
-            "sub_confidentiality_impact", "sub_integrity_impact",
+            "sub_confidentiality_impact",
+            "sub_integrity_impact",
             "sub_availability_impact",
-            "exploit_maturity", "automatable", "recovery", "safety",
-            "provider_urgency", "vulnerability_response_effort", "value_density",
-            "exploitability_score", "impact_score",
-            "source_url", "published_at", "updated_at",
+            "exploit_maturity",
+            "automatable",
+            "recovery",
+            "safety",
+            "provider_urgency",
+            "vulnerability_response_effort",
+            "value_density",
+            "exploitability_score",
+            "impact_score",
+            "source_url",
+            "published_at",
+            "updated_at",
+            "metadata",
         }
         untested = schema_fields - tested_fields
-        assert not untested, (
-            f"CVSSv4Entry has fields not covered by completeness test: {untested}"
-        )
+        assert (
+            not untested
+        ), f"CVSSv4Entry has fields not covered by completeness test: {untested}"
 
 
 class TestCVSSv31Completeness:
@@ -517,18 +594,31 @@ class TestCVSSv31Completeness:
 
         schema_fields = {f.name for f in dc_fields(CVSSv3Entry)}
         tested_fields = {
-            "version", "vector_string", "base_score", "base_severity",
-            "source", "is_authoritative",
-            "attack_vector", "attack_complexity",
-            "privileges_required", "user_interaction", "scope",
-            "confidentiality_impact", "integrity_impact", "availability_impact",
-            "exploitability_score", "impact_score",
-            "source_url", "published_at", "updated_at",
+            "version",
+            "vector_string",
+            "base_score",
+            "base_severity",
+            "source",
+            "is_authoritative",
+            "attack_vector",
+            "attack_complexity",
+            "privileges_required",
+            "user_interaction",
+            "scope",
+            "confidentiality_impact",
+            "integrity_impact",
+            "availability_impact",
+            "exploitability_score",
+            "impact_score",
+            "source_url",
+            "published_at",
+            "updated_at",
+            "metadata",
         }
         untested = schema_fields - tested_fields
-        assert not untested, (
-            f"CVSSv3Entry has fields not covered by completeness test: {untested}"
-        )
+        assert (
+            not untested
+        ), f"CVSSv3Entry has fields not covered by completeness test: {untested}"
 
 
 class TestCVSSv30Completeness:
@@ -659,18 +749,31 @@ class TestCVSSv2Completeness:
         schema_fields = {f.name for f in dc_fields(CVSSv3Entry)}
         # All fields must be accounted for (either populated or explicitly None)
         tested_fields = {
-            "version", "vector_string", "base_score", "base_severity",
-            "source", "is_authoritative",
-            "attack_vector", "attack_complexity",
-            "privileges_required", "user_interaction", "scope",
-            "confidentiality_impact", "integrity_impact", "availability_impact",
-            "exploitability_score", "impact_score",
-            "source_url", "published_at", "updated_at",
+            "version",
+            "vector_string",
+            "base_score",
+            "base_severity",
+            "source",
+            "is_authoritative",
+            "attack_vector",
+            "attack_complexity",
+            "privileges_required",
+            "user_interaction",
+            "scope",
+            "confidentiality_impact",
+            "integrity_impact",
+            "availability_impact",
+            "exploitability_score",
+            "impact_score",
+            "source_url",
+            "published_at",
+            "updated_at",
+            "metadata",
         }
         untested = schema_fields - tested_fields
-        assert not untested, (
-            f"CVSSv3Entry has fields not covered by v2 completeness test: {untested}"
-        )
+        assert (
+            not untested
+        ), f"CVSSv3Entry has fields not covered by v2 completeness test: {untested}"
 
 
 # --- parse_cwes ---
@@ -812,8 +915,8 @@ def test_populate_columns_returns_dict_of_arrays() -> None:
 
 
 def test_populate_columns_empty_list() -> None:
-    """populate_columns returns empty dict for empty input."""
+    """An empty feed keeps the schema, so downstream transforms find their columns."""
     from vulnflow.utils.nvd import populate_columns
 
     arrays = populate_columns([])
-    assert arrays == {}
+    assert len(arrays["cve_id"]) == 0

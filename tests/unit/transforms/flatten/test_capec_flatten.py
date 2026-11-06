@@ -28,7 +28,10 @@ def test_capec_flatten_extracts_primary() -> None:
                             "typical_severity": "High",
                             "skills_required": ["Medium"],
                             "consequences": [
-                                {"scopes": ["Confidentiality"], "impacts": ["Read Data"]},
+                                {
+                                    "scopes": ["Confidentiality"],
+                                    "impacts": ["Read Data"],
+                                },
                             ],
                             "attack_techniques": ["1189"],
                         },

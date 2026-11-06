@@ -6,13 +6,12 @@ Provides:
 
 Layer: Transform/Enrichers
 Dependencies: base, utils.http
-Used by: ExploitDBEnricher
+Used by: Custom per-CVE enrichers
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any
 
@@ -21,8 +20,6 @@ from vulnflow.utils.http import HttpError
 
 if TYPE_CHECKING:
     from vulnflow.dataset import VulnDataset
-
-logger = logging.getLogger(__name__)
 
 
 class APIEnricher(BaseEnricher):
@@ -108,7 +105,7 @@ class APIEnricher(BaseEnricher):
             except (HttpError, OSError, TimeoutError) as exc:
                 if attempt < self.max_retries - 1:
                     delay = 2.0**attempt
-                    logger.debug(
+                    self.logger.debug(
                         "Retry %d/%d for %s after error: %s",
                         attempt + 1,
                         self.max_retries,
@@ -117,7 +114,7 @@ class APIEnricher(BaseEnricher):
                     )
                     await asyncio.sleep(delay)
                 else:
-                    logger.warning(
+                    self.logger.warning(
                         "Failed to fetch %s after %d retries: %s",
                         cve_id,
                         self.max_retries,

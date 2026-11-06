@@ -14,7 +14,6 @@ Used by: dataset.from_parquet(), from_json(), from_pandas(), from_polars()
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,8 +27,6 @@ if TYPE_CHECKING:
     import polars as pl
 
     from vulnflow.dataset import VulnDataset
-
-logger = logging.getLogger(__name__)
 
 
 @Registry.register_extractor("parquet")
@@ -228,6 +225,42 @@ class ParquetExtractor(BaseExtractor):
         for col, array in merged_data.items():
             result._data[col] = array[unique_indices]
 
+        # Merge provenance from all input datasets
+
+        all_extractors: list[str] = []
+        all_transforms: list[str] = []
+        created_dates: list[str] = []
+
+        for ds in datasets:
+            for ext in ds._provenance.get("extractors", []):
+                if ext not in all_extractors:
+                    all_extractors.append(ext)
+            for tfm in ds._provenance.get("transforms", []):
+                if tfm not in all_transforms:
+                    all_transforms.append(tfm)
+            created_dates.append(ds._provenance.get("created_at", ""))
+
+        result._provenance["extractors"] = all_extractors
+        result._provenance["transforms"] = all_transforms
+        if created_dates:
+            result._provenance["created_at"] = min(d for d in created_dates if d)
+
+        # Merge date ranges
+        date_mins = [
+            ds._provenance["date_min"]
+            for ds in datasets
+            if "date_min" in ds._provenance
+        ]
+        date_maxes = [
+            ds._provenance["date_max"]
+            for ds in datasets
+            if "date_max" in ds._provenance
+        ]
+        if date_mins:
+            result._provenance["date_min"] = min(date_mins)
+        if date_maxes:
+            result._provenance["date_max"] = max(date_maxes)
+
         return result
 
 
@@ -304,9 +337,9 @@ class JSONExtractor(BaseExtractor):
 
         # Warn if core fields missing
         if "cve_id" not in all_columns:
-            logger.warning("JSON dataset missing 'cve_id' column")
+            self.logger.warning("JSON dataset missing 'cve_id' column")
         if "description" not in all_columns:
-            logger.warning("JSON dataset missing 'description' column")
+            self.logger.warning("JSON dataset missing 'description' column")
 
         dataset._record_provenance(extractor=self.provenance_label)
         return dataset
@@ -346,9 +379,9 @@ class PandasExtractor(BaseExtractor):
 
         # Warn if core fields missing
         if "cve_id" not in self.dataframe.columns:
-            logger.warning("DataFrame missing 'cve_id' column")
+            self.logger.warning("DataFrame missing 'cve_id' column")
         if "description" not in self.dataframe.columns:
-            logger.warning("DataFrame missing 'description' column")
+            self.logger.warning("DataFrame missing 'description' column")
 
         dataset._record_provenance(extractor=self.provenance_label)
         return dataset
@@ -386,9 +419,9 @@ class PolarsExtractor(BaseExtractor):
 
         # Warn if core fields missing
         if "cve_id" not in self.dataframe.columns:
-            logger.warning("Polars DataFrame missing 'cve_id' column")
+            self.logger.warning("Polars DataFrame missing 'cve_id' column")
         if "description" not in self.dataframe.columns:
-            logger.warning("Polars DataFrame missing 'description' column")
+            self.logger.warning("Polars DataFrame missing 'description' column")
 
         dataset._record_provenance(extractor=self.provenance_label)
         return dataset

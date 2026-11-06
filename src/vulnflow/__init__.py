@@ -16,7 +16,10 @@ Dependencies: dataset, schema, registry, pipeline, exceptions, extractors, loade
 Used by: User code
 """
 
-# Import transform modules to trigger registration decorators
+from importlib.metadata import version
+
+# Import extractor and transform modules to trigger registration decorators
+import vulnflow.extractors.msrc  # noqa: F401
 import vulnflow.transforms.computed  # noqa: F401
 import vulnflow.transforms.enrichers  # noqa: F401
 import vulnflow.transforms.inferences  # noqa: F401
@@ -54,4 +57,4 @@ __all__ = [
     "LoaderError",
     "PipelineError",
 ]
-__version__ = "0.1.0"
+__version__ = version("vulnflow")  # single source: pyproject.toml

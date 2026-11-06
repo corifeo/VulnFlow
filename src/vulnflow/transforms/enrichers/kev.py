@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import csv
 import io
-import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,8 +27,6 @@ from vulnflow.registry import FieldDefinition, register_transform
 from vulnflow.transforms.base import BaseEnricher
 from vulnflow.utils import json
 from vulnflow.utils.http import HttpError, HttpFetcher, is_url
-
-logger = logging.getLogger(__name__)
 
 DEFAULT_KEV_URL = (
     "https://www.cisa.gov/sites/default/files/csv/known_exploited_vulnerabilities.csv"
@@ -117,9 +114,9 @@ class KEVEnricher(BaseEnricher):
                 # Convert to dict with ISO datetime format
                 kev_dict = {
                     "date_added": kev_entry.date_added.isoformat(),
-                    "due_date": kev_entry.due_date.isoformat()
-                    if kev_entry.due_date
-                    else None,
+                    "due_date": (
+                        kev_entry.due_date.isoformat() if kev_entry.due_date else None
+                    ),
                     "vendor": kev_entry.vendor,
                     "product": kev_entry.product,
                     "vulnerability_name": kev_entry.vulnerability_name,
@@ -168,7 +165,7 @@ class KEVEnricher(BaseEnricher):
             else:
                 return self._parse_kev_csv(content.decode("utf-8"))
         except Exception as e:
-            logger.warning("Failed to load KEV data from %s: %s", path, e)
+            self.logger.warning("Failed to load KEV data from %s: %s", path, e)
             return {}
 
     async def _load_kev_from_url(self, url: str) -> dict[str, dict[str, Any]]:
@@ -198,10 +195,10 @@ class KEVEnricher(BaseEnricher):
                 return self._parse_kev_csv(content.decode("utf-8"))
 
         except HttpError as e:
-            logger.warning("Failed to fetch KEV data from %s: %s", url, e)
+            self.logger.warning("Failed to fetch KEV data from %s: %s", url, e)
             return {}
         except Exception as e:
-            logger.warning("Failed to load KEV data from %s: %s", url, e)
+            self.logger.warning("Failed to load KEV data from %s: %s", url, e)
             return {}
 
     def _parse_kev_csv(self, content: str) -> dict[str, dict[str, Any]]:

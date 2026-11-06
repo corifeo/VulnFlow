@@ -969,10 +969,12 @@ def test_parquet_extractor_multi_file_upsert(tmp_path: Path) -> None:
     }
     ds2.to_parquet(tmp_path / "file2.parquet")
 
-    extractor = ParquetExtractor([
-        str(tmp_path / "file1.parquet"),
-        str(tmp_path / "file2.parquet"),
-    ])
+    extractor = ParquetExtractor(
+        [
+            str(tmp_path / "file1.parquet"),
+            str(tmp_path / "file2.parquet"),
+        ]
+    )
     merged = extractor.extract()
 
     assert len(merged) == 3

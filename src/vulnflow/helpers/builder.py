@@ -187,7 +187,6 @@ class CacheBuilder:
         cvd_state: bool = False,
         tags: bool = False,
         nvd_history: bool = False,
-        exploit: bool = False,
     ) -> list[BaseTransform]:
         """Assemble transform list from feature flags.
 
@@ -280,11 +279,6 @@ class CacheBuilder:
             from vulnflow.transforms.enrichers.nvd_history import NVDHistoryEnricher
 
             transformers.append(NVDHistoryEnricher())
-
-        if exploit:
-            from vulnflow.transforms.enrichers.exploit import ExploitDBEnricher
-
-            transformers.append(ExploitDBEnricher())
 
         return transformers
 
@@ -402,7 +396,6 @@ class CacheBuilder:
         cvss_severity: str | None = None,
         has_kev: bool = False,
         no_rejected: bool = True,
-        exploit: bool = False,
         quiet: bool = False,
         timeout: float = 120.0,
         **build_kwargs: Any,
@@ -419,7 +412,6 @@ class CacheBuilder:
             cvss_severity: CVSS v3 severity filter (LOW/MEDIUM/HIGH/CRITICAL).
             has_kev: Filter to CVEs in CISA KEV catalog.
             no_rejected: Exclude rejected CVEs (default: True).
-            exploit: Enrich with ExploitDB data (default: False).
             quiet: Suppress progress output.
             timeout: HTTP timeout in seconds.
             **build_kwargs: Transform flags (cvss, epss, kev, cpe, cwe, etc.)
@@ -449,7 +441,7 @@ class CacheBuilder:
                 timeout=timeout,
             )
 
-            transformers = cls._build_transforms(exploit=exploit, **build_kwargs)
+            transformers = cls._build_transforms(**build_kwargs)
 
             pipeline = VulnPipeline(
                 extractors=[extractor],

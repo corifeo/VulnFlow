@@ -9,6 +9,7 @@ Dependencies: dataset, extractors, transforms, loaders
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -17,44 +18,112 @@ import numpy as np
 import pytest
 
 from vulnflow.dataset import VulnDataset
-from vulnflow.executor import PipelineExecutor, get_stage_name
+from vulnflow.executor import PipelineExecutor
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.loaders.base import BaseLoader
+from vulnflow.transforms.computed import CVDStateTransform
+from vulnflow.transforms.enrichers import KEVEnricher
+from vulnflow.transforms.flatten import KEVFlattenTransform
+from vulnflow.transforms.inferences import EventInference
 
 # =============================================================================
-# get_stage_name Tests
+# Unmet dependency warnings
+# =============================================================================
+
+
+async def test_warns_when_dependency_and_its_columns_are_missing(
+    nvd_sample_dataset: VulnDataset, caplog: pytest.LogCaptureFixture
+) -> None:
+    """EventInference without KEV columns runs, but silently loses A: say so."""
+    await PipelineExecutor.run_transforms(
+        nvd_sample_dataset, [EventInference()], strict=True
+    )
+    assert "KEVFlattenTransform" in caplog.text
+
+
+async def test_no_warning_when_dependency_is_in_the_run(
+    nvd_sample_dataset: VulnDataset, caplog: pytest.LogCaptureFixture
+) -> None:
+    transforms = [
+        KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+        KEVFlattenTransform(),
+        EventInference(),
+    ]
+    await PipelineExecutor.run_transforms(nvd_sample_dataset, transforms, strict=True)
+    assert "depends on" not in caplog.text
+
+
+async def test_no_warning_on_subset_run_with_existing_columns(
+    nvd_sample_dataset: VulnDataset,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Running CVD state on an already-inferred library stays a supported subset."""
+    await PipelineExecutor.run_transforms(
+        nvd_sample_dataset, [EventInference()], strict=True
+    )
+    nvd_sample_dataset.to_parquet(tmp_path / "x.parquet")
+    reloaded = VulnDataset.from_parquet(str(tmp_path / "x.parquet"))
+    caplog.clear()
+    await PipelineExecutor.run_transforms(reloaded, [CVDStateTransform()], strict=True)
+    assert "depends on" not in caplog.text
+    assert "cvd_state" in reloaded.columns
+
+
+async def test_unregistered_dependency_name_is_ignored(
+    nvd_sample_dataset: VulnDataset, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Custom plugins can name dependencies the registry has never heard of."""
+
+    class Plugin:
+        name = "Plugin"
+        depends_on = ["NotRegistered"]
+
+        def transform(self, dataset: VulnDataset) -> None:
+            pass
+
+    successful, failed, _ = await PipelineExecutor.run_transforms(
+        nvd_sample_dataset, [Plugin()], strict=True
+    )
+    assert failed == []
+    assert len(successful) == 1
+    assert "depends on" not in caplog.text
+
+
+# =============================================================================
+# _get_stage_name Tests
 # =============================================================================
 
 
 def test_get_stage_name_prefers_label():
-    """get_stage_name() prefers label over name."""
+    """_get_stage_name() prefers label over name."""
 
     class TestStage:
         name = "generic"
         label = "nvdcve-2.0-2023"
 
     obj = TestStage()
-    assert get_stage_name(obj) == "nvdcve-2.0-2023"
+    assert PipelineExecutor._get_stage_name(obj) == "nvdcve-2.0-2023"
 
 
 def test_get_stage_name_falls_back_to_name():
-    """get_stage_name() falls back to name when no label."""
+    """_get_stage_name() falls back to name when no label."""
 
     class TestStage:
         name = "custom_name"
 
     obj = TestStage()
-    assert get_stage_name(obj) == "custom_name"
+    assert PipelineExecutor._get_stage_name(obj) == "custom_name"
 
 
 def test_get_stage_name_fallback_to_class_name():
-    """get_stage_name() falls back to class name."""
+    """_get_stage_name() falls back to class name."""
 
     class TestStage:
         pass
 
     obj = TestStage()
-    assert get_stage_name(obj) == "TestStage"
+    assert PipelineExecutor._get_stage_name(obj) == "TestStage"
 
 
 # =============================================================================
@@ -327,9 +396,7 @@ async def test_run_transforms_sync_failure_through_to_thread():
 
     # Strict mode: error propagates
     with pytest.raises(TransformError, match="sync transform failed"):
-        await PipelineExecutor.run_transforms(
-            dataset, [FailingSync()], strict=True
-        )
+        await PipelineExecutor.run_transforms(dataset, [FailingSync()], strict=True)
 
     # Lenient mode: error collected
     successful, failed, errors = await PipelineExecutor.run_transforms(
@@ -372,6 +439,29 @@ def test_run_extractors_concurrent_failure_raises():
 
     with pytest.raises(RuntimeError, match="Extractor 2 failed"):
         PipelineExecutor.run_extractors(extractors)
+
+
+def test_run_extractors_populates_reporter_timings(nvd_sample_path: Path):
+    """run_extractors() populates reporter.timings when reporter is provided."""
+    from vulnflow.extractors.nvd import NVDExtractor
+    from vulnflow.utils.progress import ProgressReporter
+
+    ext = NVDExtractor(str(nvd_sample_path))
+
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "log"
+    try:
+        with ProgressReporter("Test", total=1, unit="feeds") as rpt:
+            dataset, successful, failed, errors = PipelineExecutor.run_extractors(
+                [ext], reporter=rpt
+            )
+    finally:
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
+
+    assert len(dataset) == 5
+    assert len(rpt.timings) == 1
+    stage_name = successful[0]
+    assert stage_name in rpt.timings
+    assert rpt.timings[stage_name] >= 0
 
 
 # =============================================================================
@@ -458,20 +548,43 @@ def test_run_loaders_uses_name_attribute():
     assert outputs["custom_output_key"] == {"result": "success"}
 
 
+def test_run_loaders_populates_reporter_timings(tmp_path):
+    """run_loaders() populates reporter.timings when reporter is provided."""
+    from vulnflow.loaders.files import ParquetLoader
+    from vulnflow.utils.progress import ProgressReporter
+
+    dataset = VulnDataset.from_nvd("tests/fixtures/nvd_sample.json")
+    loader = ParquetLoader(tmp_path / "out.parquet")
+
+    os.environ["VULNFLOW_PROGRESS_MODE"] = "log"
+    try:
+        with ProgressReporter("Test", total=1, unit="loaders") as rpt:
+            outputs, successful, failed, errors = PipelineExecutor.run_loaders(
+                dataset, [loader], reporter=rpt
+            )
+    finally:
+        os.environ.pop("VULNFLOW_PROGRESS_MODE", None)
+
+    assert len(outputs) == 1
+    assert len(rpt.timings) == 1
+    stage_name = successful[0]
+    assert stage_name in rpt.timings
+    assert rpt.timings[stage_name] >= 0
+
+
 # =============================================================================
-# Extractor Timing Detail Tests
+# Stage Timing Detail Tests
 # =============================================================================
 
 
-def test_extractor_detail_includes_timing_breakdown():
-    """_extractor_detail() returns detail and breakdown with sub-timings >= 0.1s."""
-    from vulnflow.executor import _extractor_detail
+def test_stage_detail_includes_timing_breakdown():
+    """_stage_detail() returns detail and breakdown with sub-timings >= 0.1s."""
 
-    class FakeExtractor:
+    class FakeStage:
         _timings = {"download": 10.5, "decompress": 1.2, "json": 0.04, "populate": 4.6}
 
-    ext = FakeExtractor()
-    detail, breakdown = _extractor_detail(ext, 38951)
+    stage = FakeStage()
+    detail, breakdown = PipelineExecutor._stage_detail(stage, "38,951 CVEs")
 
     assert detail == "38,951 CVEs"
     assert "download 10.5s" in breakdown
@@ -481,29 +594,32 @@ def test_extractor_detail_includes_timing_breakdown():
     assert "json" not in breakdown
 
 
-def test_extractor_detail_no_timings():
-    """_extractor_detail() falls back to count-only when no _timings."""
-    from vulnflow.executor import _extractor_detail
+def test_stage_detail_no_timings():
+    """_stage_detail() falls back to detail-only when no _timings."""
 
-    class FakeExtractor:
+    class FakeStage:
         pass
 
-    ext = FakeExtractor()
-    detail, breakdown = _extractor_detail(ext, 1000)
+    stage = FakeStage()
+    detail, breakdown = PipelineExecutor._stage_detail(stage, "1,000 CVEs")
 
     assert detail == "1,000 CVEs"
     assert breakdown == ""
 
 
-def test_extractor_detail_all_sub_timings_below_threshold():
-    """_extractor_detail() omits breakdown when all sub-timings < 0.1s."""
-    from vulnflow.executor import _extractor_detail
+def test_stage_detail_all_sub_timings_below_threshold():
+    """_stage_detail() omits breakdown when all sub-timings < 0.1s."""
 
-    class FakeExtractor:
-        _timings = {"download": 0.05, "decompress": 0.01, "json": 0.02, "populate": 0.03}
+    class FakeStage:
+        _timings = {
+            "download": 0.05,
+            "decompress": 0.01,
+            "json": 0.02,
+            "populate": 0.03,
+        }
 
-    ext = FakeExtractor()
-    detail, breakdown = _extractor_detail(ext, 500)
+    stage = FakeStage()
+    detail, breakdown = PipelineExecutor._stage_detail(stage, "500 CVEs")
 
     assert detail == "500 CVEs"
     assert breakdown == ""

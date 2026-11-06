@@ -37,7 +37,7 @@ class CPEFlattenTransform(BaseFlatten):
 
     def __init__(self) -> None:
         """Initialize CPE flatten transform."""
-        super().__init__()  # MUST call first per CLAUDE.md
+        super().__init__()  # must run first
 
     OUTPUT_SCHEMA: list[FieldDefinition] = [
         FieldDefinition("cpe_vendor", "str", "CPE vendor", "CPEFlattenTransform"),

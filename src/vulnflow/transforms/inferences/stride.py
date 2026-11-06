@@ -11,7 +11,6 @@ Used by: dataset.transform(), pipeline
 
 from __future__ import annotations
 
-import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -26,8 +25,6 @@ from vulnflow.schema import STRIDEThreat
 from vulnflow.transforms.base import BaseInference
 from vulnflow.utils import json
 
-logger = logging.getLogger(__name__)
-
 # --- STRIDE category constants ---
 
 SPOOFING = "spoofing"
@@ -38,7 +35,12 @@ DOS = "dos"
 ELEVATION = "elevation"
 
 STRIDE_CATEGORIES: list[str] = [
-    SPOOFING, TAMPERING, REPUDIATION, INFO_DISCLOSURE, DOS, ELEVATION,
+    SPOOFING,
+    TAMPERING,
+    REPUDIATION,
+    INFO_DISCLOSURE,
+    DOS,
+    ELEVATION,
 ]
 
 # --- Tier 1: CAPEC consequence mappings ---
@@ -249,7 +251,7 @@ class STRIDEInference(BaseInference):
         if cache_file.exists():
             result: dict[str, dict[str, Any]] = json.loads(cache_file.read_text())
             return result
-        logger.warning("CAPEC database not found at %s", cache_file)
+        self.logger.warning("CAPEC database not found at %s", cache_file)
         return {}
 
     def transform(self, dataset: VulnDataset) -> None:
@@ -356,14 +358,14 @@ class STRIDEInference(BaseInference):
         }
         for tier, count in sorted(tier_stats.items()):
             if count > 0:
-                logger.debug(
+                self.logger.debug(
                     "Tier %d (%s): %d categories assigned",
                     tier,
                     tier_names.get(tier, str(tier)),
                     count,
                 )
 
-        logger.info(
+        self.logger.info(
             "STRIDEInference: %d records, tiers=%s, threshold=%.2f",
             n,
             self.tiers or "auto",

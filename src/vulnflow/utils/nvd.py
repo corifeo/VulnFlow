@@ -3,6 +3,7 @@ NVD Parsing Utilities - Parse NVD 2.0 JSON structures
 
 Provides:
 - parse_timestamp: ISO timestamp string to datetime
+- to_utc_datetime: Any timestamp form to timezone-aware UTC datetime
 - extract_nvd_status: Normalize NVD vulnStatus field
 - parse_cvss: Parse CVSS v2/v3.0/v3.1/v4.0 metrics
 - parse_cwes: Parse CWE weaknesses
@@ -17,7 +18,7 @@ Used by: NVDExtractor, NVDAPIExtractor
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -43,6 +44,35 @@ def parse_timestamp(ts: str | datetime | None) -> datetime | None:
     # Handle Z suffix
     ts = ts.replace("Z", "+00:00")
     return datetime.fromisoformat(ts)
+
+
+def to_utc_datetime(value: Any) -> datetime | None:
+    """Normalize any timestamp form to a timezone-aware UTC datetime.
+
+    Accepts ISO 8601 strings, datetime objects (including pandas.Timestamp)
+    and numpy.datetime64. Naive values are taken as UTC, which is what NVD
+    publishes without a suffix.
+
+    Returns:
+        Aware UTC datetime, or None for None, empty strings, NaN and NaT.
+
+    Raises:
+        ValueError: If a string is not valid ISO 8601.
+        TypeError: If value is any other type.
+    """
+    if value is None or value != value:  # only NaN and NaT differ from themselves
+        return None
+    if isinstance(value, np.datetime64):
+        value = value.astype("datetime64[us]").item()
+    elif isinstance(value, str):
+        value = parse_timestamp(value)
+        if value is None:
+            return None
+    if not isinstance(value, datetime):
+        raise TypeError(f"Cannot read {type(value).__name__} as a timestamp: {value!r}")
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def extract_nvd_status(cve_data: dict[str, Any]) -> str:
@@ -131,21 +161,13 @@ def parse_cvss(
                 privileges_required=cvss_data.get("privilegesRequired"),
                 user_interaction=cvss_data.get("userInteraction"),
                 # v4.0 vulnerable system impacts
-                vuln_confidentiality_impact=cvss_data.get(
-                    "vulnConfidentialityImpact"
-                ),
+                vuln_confidentiality_impact=cvss_data.get("vulnConfidentialityImpact"),
                 vuln_integrity_impact=cvss_data.get("vulnIntegrityImpact"),
-                vuln_availability_impact=cvss_data.get(
-                    "vulnAvailabilityImpact"
-                ),
+                vuln_availability_impact=cvss_data.get("vulnAvailabilityImpact"),
                 # v4.0 subsequent system impacts
-                sub_confidentiality_impact=cvss_data.get(
-                    "subConfidentialityImpact"
-                ),
+                sub_confidentiality_impact=cvss_data.get("subConfidentialityImpact"),
                 sub_integrity_impact=cvss_data.get("subIntegrityImpact"),
-                sub_availability_impact=cvss_data.get(
-                    "subAvailabilityImpact"
-                ),
+                sub_availability_impact=cvss_data.get("subAvailabilityImpact"),
                 # v4.0 supplemental metrics (NB: inconsistent casing in NVD)
                 exploit_maturity=cvss_data.get("exploitMaturity"),
                 automatable=cvss_data.get("Automatable"),
@@ -177,9 +199,7 @@ def parse_cvss(
                 privileges_required=cvss_data.get("privilegesRequired"),
                 user_interaction=cvss_data.get("userInteraction"),
                 scope=cvss_data.get("scope"),
-                confidentiality_impact=cvss_data.get(
-                    "confidentialityImpact"
-                ),
+                confidentiality_impact=cvss_data.get("confidentialityImpact"),
                 integrity_impact=cvss_data.get("integrityImpact"),
                 availability_impact=cvss_data.get("availabilityImpact"),
                 **metadata,
@@ -203,9 +223,7 @@ def parse_cvss(
                 privileges_required=cvss_data.get("privilegesRequired"),
                 user_interaction=cvss_data.get("userInteraction"),
                 scope=cvss_data.get("scope"),
-                confidentiality_impact=cvss_data.get(
-                    "confidentialityImpact"
-                ),
+                confidentiality_impact=cvss_data.get("confidentialityImpact"),
                 integrity_impact=cvss_data.get("integrityImpact"),
                 availability_impact=cvss_data.get("availabilityImpact"),
                 **metadata,
@@ -223,15 +241,11 @@ def parse_cvss(
                 version=cvss_data.get("version", "2.0"),
                 vector_string=cvss_data.get("vectorString", ""),
                 base_score=cvss_data.get("baseScore", 0.0),
-                base_severity=metric.get(
-                    "baseSeverity", "NONE"
-                ),  # Different location!
+                base_severity=metric.get("baseSeverity", "NONE"),  # Different location!
                 # v2 field name mapping: accessVector → attack_vector, etc.
                 attack_vector=cvss_data.get("accessVector"),
                 attack_complexity=cvss_data.get("accessComplexity"),
-                confidentiality_impact=cvss_data.get(
-                    "confidentialityImpact"
-                ),
+                confidentiality_impact=cvss_data.get("confidentialityImpact"),
                 integrity_impact=cvss_data.get("integrityImpact"),
                 availability_impact=cvss_data.get("availabilityImpact"),
                 **metadata,
@@ -350,8 +364,6 @@ def populate_columns(
     from vulnflow.utils.schema import get_record_columns
 
     n = len(vulnerabilities)
-    if n == 0:
-        return {}
 
     # Pre-allocate columnar arrays
     record_cols = get_record_columns()
@@ -375,12 +387,8 @@ def populate_columns(
         arrays["description"][i] = description
 
         # NVD Temporal
-        arrays["nvd_published_at"][i] = parse_timestamp(
-            cve_data.get("published")
-        )
-        arrays["nvd_modified_at"][i] = parse_timestamp(
-            cve_data.get("lastModified")
-        )
+        arrays["nvd_published_at"][i] = parse_timestamp(cve_data.get("published"))
+        arrays["nvd_modified_at"][i] = parse_timestamp(cve_data.get("lastModified"))
         arrays["nvd_status"][i] = extract_nvd_status(cve_data)
 
         # Complex fields: Parse to dataclasses -> to_dict() -> JSON
@@ -388,9 +396,7 @@ def populate_columns(
         # CVSS scores
         cvss_entries = parse_cvss(cve_data.get("metrics", {}))
         cvss_dicts = [entry.to_dict() for entry in cvss_entries]
-        arrays["cvss_scores"][i] = (
-            json.dumps(cvss_dicts) if cvss_dicts else "[]"
-        )
+        arrays["cvss_scores"][i] = json.dumps(cvss_dicts) if cvss_dicts else "[]"
 
         # CWEs
         cwe_entries = parse_cwes(cve_data.get("weaknesses", []))

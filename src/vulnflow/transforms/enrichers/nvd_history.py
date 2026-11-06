@@ -18,7 +18,6 @@ dataset size and date spread heuristics.
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections import defaultdict
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
@@ -41,8 +40,6 @@ from vulnflow.utils.nvd_api import (
     parse_history_page,
     resolve_api_key,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def _to_datetime(value: str | datetime | None) -> datetime | None:
@@ -118,7 +115,9 @@ class NVDHistoryEnricher(BaseEnricher):
         self._change_start = _to_datetime(change_start_date)
         self._change_end = _to_datetime(change_end_date)
 
-        if mode == "date_range" and (self._change_start is None or self._change_end is None):
+        if mode == "date_range" and (
+            self._change_start is None or self._change_end is None
+        ):
             msg = "change_start_date and change_end_date required for date_range mode"
             raise ValueError(msg)
 
@@ -162,9 +161,7 @@ class NVDHistoryEnricher(BaseEnricher):
                 changes = await self._fetch_history_for_cve(fetcher, str(cve_id))
                 nvd_changes[i] = json.dumps(changes)
             except Exception as exc:
-                logger.warning(
-                    "Failed to fetch history for %s: %s", cve_id, exc
-                )
+                self.logger.warning("Failed to fetch history for %s: %s", cve_id, exc)
                 nvd_changes[i] = "[]"
 
             # Rate limit between requests (skip after last CVE)
