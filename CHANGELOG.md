@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every user-visible change adds a line under `## Unreleased` in the same PR.
 
+## Unreleased
+
+### Added
+- README: a full-library section (warehouse hand-off, NVD status counts) and a case study of 2026's CVE surge and NVD's growing analysis backlog, with generated charts
+
 ## 0.1.0 (2026-11-03)
 
 First public release.
