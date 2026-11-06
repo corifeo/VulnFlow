@@ -22,7 +22,9 @@ def test_notebook_is_executed_and_clean(path: Path) -> None:
     cells = [c for c in json.loads(text)["cells"] if c["cell_type"] == "code"]
     assert all(c["execution_count"] is not None for c in cells)
     assert not any(o["output_type"] == "error" for c in cells for o in c["outputs"])
-    assert "\\\\Users\\\\" not in text and "/Users/" not in text and "/home/" not in text
+    assert (
+        "\\\\Users\\\\" not in text and "/Users/" not in text and "/home/" not in text
+    )
 
 
 def test_examples_readme_lists_every_notebook() -> None:
