@@ -166,3 +166,20 @@ def test_all_loaders_have_format_attribute() -> None:
         assert (
             loader_class.format == expected_format
         ), f"{loader_class.__name__}.format = {loader_class.format}, expected {expected_format}"
+
+
+def test_to_json_roundtrips_numpy_floats_and_non_ascii(tmp_path) -> None:
+    """Parquet reloads hold numpy floats; NVD descriptions hold non-ASCII text."""
+    import numpy as np
+
+    dataset = VulnDataset()
+    dataset._data = {
+        "cve_id": np.array(["CVE-2024-0001"], dtype=object),
+        "description": np.array(["Überlauf in café"], dtype=object),
+        "cvss_base_score": np.array([9.8]),
+    }
+    path = tmp_path / "x.json"
+    dataset.to_json(path)
+    again = VulnDataset.from_json(path)
+    assert again.get_column("description")[0] == "Überlauf in café"
+    assert again.get_column("cvss_base_score")[0] == 9.8

@@ -364,8 +364,6 @@ def populate_columns(
     from vulnflow.utils.schema import get_record_columns
 
     n = len(vulnerabilities)
-    if n == 0:
-        return {}
 
     # Pre-allocate columnar arrays
     record_cols = get_record_columns()
