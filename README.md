@@ -15,6 +15,7 @@
 <p align="center">
   <a href="#installation">Install</a> ·
   <a href="#quick-start">Quick start</a> ·
+  <a href="#the-full-library">Full library</a> ·
   <a href="#kev-timing-in-10-lines">Real-data KEV timing</a> ·
   <a href="#case-study-log4shell">Log4Shell case study</a> ·
   <a href="#what-the-dates-mean">What the dates mean</a> ·
@@ -28,7 +29,7 @@
 
 If you've spent half a notebook cleaning CVE feeds before doing any analysis, vulnflow is for you. It moves public vulnerability data and makes it sane:
 
-- **One line to a dataframe.** `CacheBuilder(recent_only=True).build().to_pandas()` pulls the last week of NVD with KEV, EPSS, CWE and flattened CVSS in seconds.
+- **One line to a dataframe.** `CacheBuilder(recent_only=True).build().to_pandas()` pulls the last week of NVD with KEV, EPSS, CWE and flattened CVSS in seconds. All of NVD takes about two minutes.
 - **Columnar all the way.** Data lives in NumPy arrays, not record objects. CVD event inference and state for 83,000 CVEs takes under three seconds.
 - **Explicit pipelines.** Extractors, transforms and loaders run exactly as you list them, in dependency order. A missing dependency is reported, not silently skipped.
 - **Typed and tested.** `py.typed`, `mypy --strict`, about 1,200 tests on Python 3.11 to 3.14.
@@ -64,7 +65,36 @@ from vulnflow.helpers import CacheBuilder
 df = CacheBuilder(recent_only=True).build().to_pandas()
 ```
 
-That's NVD's Recent feed, the CVEs published in the last eight days, with KEV, EPSS, CWE and CPE already joined and CVSS flattened. The screenshot above is this exact call on 6 November 2026: 3,681 CVEs and 47 columns in four seconds. The 11% CPE figure is real: NVD's analysis backlog means most new CVEs have no product data yet.
+That's NVD's Recent feed, the CVEs published in the last eight days, with KEV, EPSS, CWE and CPE already joined and CVSS flattened. The screenshot above is this exact call on 6 November 2026: 3,681 CVEs and 47 columns in a few seconds. The 11% CPE figure is real: NVD's analysis backlog means most new CVEs have no product data yet.
+
+## The full library
+
+Once you know what's in the data, build all of it:
+
+```python
+from vulnflow.helpers import CacheBuilder
+
+ds = CacheBuilder().ensure("data/nvd.parquet", max_age="1d")
+```
+
+That's every CVE NVD has published, 2002 to today, with the same enrichment. The first call downloads all the yearly feeds and builds the library in about two minutes; after that it reloads from Parquet until the file is a day old.
+
+**Feed a warehouse.** `data/nvd.parquet` is the hand-off: one row per CVE, timestamps in UTC, and nested fields such as references and CPE matches as JSON strings. In Snowflake, for example, `PUT` the file to a stage and `COPY INTO` a table with `MATCH_BY_COLUMN_NAME`; `PARSE_JSON` turns the JSON columns into `VARIANT`.
+
+**Ask it a question.** How many CVEs has NVD deferred, meaning it doesn't plan to analyze them?
+
+```python
+ds.get_status_distribution()   # {'analyzed': 78669, 'awaiting': 15757, 'deferred': 60950, ...}
+
+deferred = ds.to_pandas(analyzed=False, modified=False, awaiting=False)
+deferred["nvd_published_at"].dt.year.value_counts().sort_index()
+```
+
+<p align="center">
+  <img src=".github/assets/nvd_status.svg" alt="NVD status counts across all 420,062 CVEs, and Deferred CVEs by year published" width="85%">
+</p>
+
+On 6 November 2026, 60,950 CVEs (15%) were Deferred, and every one of them was published in 2024 or later: NVD is deferring new CVEs, not old ones. `to_pandas()` skips rejected CVEs unless you pass `rejected=True`.
 
 ## KEV timing in 10 lines
 
