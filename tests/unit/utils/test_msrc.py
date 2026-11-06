@@ -312,6 +312,43 @@ class TestBuildMsrcMetadata:
         assert meta["exploited"] is False
         assert meta["publicly_disclosed"] is True
 
+    def test_real_format_saying_no_is_not_exploited(self) -> None:
+        """MSRC writes 'Exploited:No'; the word alone must not count as a yes."""
+        from vulnflow.utils.msrc import build_msrc_metadata
+
+        value = (
+            "Publicly Disclosed:No;Exploited:No;"
+            "Latest Software Release:Exploitation Less Likely"
+        )
+        vuln = {
+            "Title": {"Value": "Test"},
+            "Threats": [{"Type": 1, "Description": {"Value": value}}],
+            "ProductStatuses": [],
+            "Remediations": [],
+            "Acknowledgments": [],
+        }
+        meta = build_msrc_metadata(vuln, "2025-Jan")
+        assert meta["exploited"] is False
+        assert meta["publicly_disclosed"] is False
+
+    def test_real_format_saying_yes_is_exploited(self) -> None:
+        from vulnflow.utils.msrc import build_msrc_metadata
+
+        value = (
+            "Publicly Disclosed:Yes;Exploited:Yes;"
+            "Latest Software Release:Exploitation Detected"
+        )
+        vuln = {
+            "Title": {"Value": "Test"},
+            "Threats": [{"Type": 1, "Description": {"Value": value}}],
+            "ProductStatuses": [],
+            "Remediations": [],
+            "Acknowledgments": [],
+        }
+        meta = build_msrc_metadata(vuln, "2025-Jan")
+        assert meta["exploited"] is True
+        assert meta["publicly_disclosed"] is True
+
     def test_neither_exploited_nor_disclosed(self) -> None:
         from vulnflow.utils.msrc import build_msrc_metadata
 
