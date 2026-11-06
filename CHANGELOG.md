@@ -7,6 +7,7 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Ever
 ## Unreleased
 
 ### Added
+- `TriageLoader` writes a ranked SSVC triage queue (`vulntriage.queue/v1` JSON) with suggested Exploitation, Automatable and Technical Impact values and the evidence for each, plus `examples/scripts/triage_queue.py`
 - README: a full-library section (warehouse hand-off, NVD status counts) and a case study of 2026's CVE surge and NVD's growing analysis backlog, with generated charts
 
 ## 0.1.0 (2026-11-03)
