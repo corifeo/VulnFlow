@@ -36,7 +36,10 @@ def fill_rates() -> None:
 def kev_before_publication() -> None:
     builder = CacheBuilder(years=[2024, 2025], quiet=True)
     ds = builder.ensure("data/library.parquet", max_age="7d")
-    kev = ds.filter(np.array([bool(x) for x in ds.get_column("is_kev")]))
+    # The library may also hold CVEs from merged Modified-feed deltas: keep 2024-25 only
+    year = ds.get_column("nvd_published_at").astype("datetime64[Y]").astype(int) + 1970
+    in_kev = np.array([bool(x) for x in ds.get_column("is_kev")])
+    kev = ds.filter(in_kev & np.isin(year, [2024, 2025]))
     kev.transform([EventInference(), CVDStateTransform()], quiet=True)
     early = int(np.sum(kev.get_column("public_to_attack_days") <= 0))
     share = early / len(kev)
