@@ -58,5 +58,5 @@ Notebooks that use the NVD API (`04-patch-tuesday`) require network access.
 Notebooks using `CacheBuilder.ensure()` (`02`, `05`) skip downloads when the cache is fresh.
 
 **Empty charts / zero records**
-The Recent feed covers ~8 days; the Modified feed covers ~2 hours of changes.
+The Recent feed holds CVEs published in the last ~8 days; the Modified feed holds CVEs changed in the last ~8 days.
 If datasets are sparse, use `CacheBuilder(years=[2024])` for richer data.

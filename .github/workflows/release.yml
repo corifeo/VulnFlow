@@ -23,4 +23,4 @@ jobs:
           if git ls-remote --exit-code --tags origin "refs/tags/v$V" >/dev/null; then echo "v$V exists"; exit 0; fi
           awk -v v="$V" '$0 ~ "^## "v" " {f=1; next} /^## /{f=0} f' CHANGELOG.md > notes.md
           test -s notes.md || { echo "CHANGELOG.md has no notes for $V"; exit 1; }
-          gh release create "v$V" --target "$(git log -1 --format=%H -- pyproject.toml)" --title "v$V" --notes-file notes.md
+          gh release create "v$V" --target "$GITHUB_SHA" --title "v$V" --notes-file notes.md

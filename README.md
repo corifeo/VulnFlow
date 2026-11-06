@@ -63,7 +63,7 @@ from vulnflow.helpers import CacheBuilder
 df = CacheBuilder(recent_only=True).build().to_pandas()
 ```
 
-That's NVD's Recent feed, the CVEs published or changed in the last eight days, with KEV, EPSS, CWE and CPE already joined and CVSS flattened. On 2026-11-06 it returned 3,681 CVEs:
+That's NVD's Recent feed, the CVEs published in the last eight days, with KEV, EPSS, CWE and CPE already joined and CVSS flattened. On 2026-11-06 it returned 3,681 CVEs:
 
 | Field | Filled |
 |---|---|
@@ -72,7 +72,7 @@ That's NVD's Recent feed, the CVEs published or changed in the last eight days, 
 | CWE | 95% |
 | CPE vendor | 11% |
 
-The CPE gap is real: NVD's analysis backlog means most new CVEs have no product data yet. [`scripts/readme_numbers.py`](scripts/readme_numbers.py) regenerates every number in this README.
+The CPE gap is real: NVD's analysis backlog means most new CVEs have no product data yet. [`scripts/readme_numbers.py`](scripts/readme_numbers.py) regenerates the data figures in this README; a test pins the Log4Shell values.
 
 For a persistent library, build once and reload from Parquet while it's fresh:
 
@@ -130,7 +130,7 @@ row.public_to_attack_days  # -0.43: CISA listed it the day NVD published it
 
 [`tests/integration/test_log4shell.py`](tests/integration/test_log4shell.py) pins these values against a recorded NVD record.
 
-Across the 368 CVEs from 2024 and 2025 in KEV, 88 (24%) were listed on or before the day NVD published them. That figure needs only two dates every source agrees on, which brings us to the caveat.
+Across the 345 CVEs published in 2024 and 2025 that are in KEV, 86 (25%) were listed on or before the day NVD published them. That figure needs only two dates every source agrees on, which brings us to the caveat.
 
 ## What the dates mean
 
@@ -138,7 +138,8 @@ CVD analytics compare six event dates: vendor aware (V), fix ready (F), fix depl
 
 - **Only P and A are source dates.** P is NVD's publication date and A is the KEV listing date. Public feeds don't say when a vendor learned about a bug.
 - **V, F and X are inferred** from NVD reference tags and dates in reference URLs, so they can be wrong. Log4Shell's V comes out as 11 December 2021; Apache actually knew in November.
-- **No V means unknown, not unaware.** When vulnflow can't find a vendor date, zero-day flags stay `False` rather than guessing.
+- **Some events are filled in from others.** With no exploit date, X takes the KEV date; with no vendor date but a fix date, V takes the fix date. D (fix deployed) is never inferred, so the state always shows `d`.
+- **No V means unknown, not unaware.** It shows as `v` in the state, and zero-day flags stay `False` rather than guessing.
 - **Date-only sources sort first.** KEV and URL dates are midnight UTC, so a same-day KEV listing counts as before a 10:15 publication. A KEV date means attacks were already seen by that day.
 
 `public_to_attack_days <= 0` is the most robust signal here, because it uses only P and A.
