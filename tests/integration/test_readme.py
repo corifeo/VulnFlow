@@ -38,7 +38,10 @@ def test_readme_pipeline_is_the_tested_chain() -> None:
 
 def test_readme_links_point_at_real_files() -> None:
     pattern = r"\]\(((?:examples|scripts|\.github|tests|LICENSE|CITATION)[^)#]*)\)"
-    missing = [link for link in re.findall(pattern, README) if not Path(link).exists()]
+    links = re.findall(pattern, README) + re.findall(
+        r'(?:src|srcset)="(\.github/[^"]+)"', README
+    )
+    missing = [link for link in links if not Path(link).exists()]
     assert missing == []
     assert "docs/" not in README
 
