@@ -1,9 +1,9 @@
 """Regenerate the README screenshots and charts in .github/assets/.
 
-Also prints the figures README.md quotes. The hero and the KEV chart use one
-live build of all of NVD (every yearly feed, a few minutes), saved to
-data/readme_library.parquet. The Log4Shell case study uses the recorded
-fixtures in tests/fixtures/.
+Also prints the figures README.md quotes. The hero uses NVD's live Recent
+feed. The status screenshot and the KEV chart share one live build of all of
+NVD (every yearly feed, a few minutes), saved to data/readme_library.parquet.
+The Log4Shell case study uses the recorded fixtures in tests/fixtures/.
 
     uv run --with rich --extra notebook python scripts/make_readme_assets.py
 """
@@ -94,17 +94,11 @@ def yes_no(flag: bool, bad_when_true: bool) -> Text:
 # ----------------------------------------------------------------- pipeline.svg
 
 
-def make_pipeline_svg() -> VulnDataset:
-    """The quick start: all of NVD in one step, what ran and what came out."""
+def make_pipeline_svg() -> None:
+    """The quick start on today's Recent feed: what ran and what came out."""
     start = time.time()
-    ds = CacheBuilder(quiet=True).build()
-    built = time.time() - start
-    path = ROOT / "data" / "readme_library.parquet"
-    path.parent.mkdir(exist_ok=True)
-    ds.to_parquet(path)
-    start = time.time()
-    VulnDataset.from_parquet(str(path))
-    reload = time.time() - start
+    ds = CacheBuilder(recent_only=True, quiet=True).build()
+    elapsed = time.time() - start
     df = ds.to_pandas()
 
     stages = Table(box=box.ROUNDED, header_style="bold cyan", title="What ran")
@@ -127,22 +121,95 @@ def make_pipeline_svg() -> VulnDataset:
 
     header = Text.assemble(
         (">>> ", "dim"),
-        'CacheBuilder().ensure("data/nvd.parquet", max_age="1d").to_pandas()',
-        (f"   # all of NVD, {date.today():%d %b %Y}", "dim"),
+        "CacheBuilder(recent_only=True).build().to_pandas()",
+        (f"   # NVD Recent feed, {date.today():%d %b %Y}", "dim"),
     )
     footer = Text.assemble(
-        (f"{len(df):,} CVEs", "bold"),
-        f" × {df.shape[1]} columns · built in {built:.0f}s, reloads in {reload:.0f}s",
+        (f"{len(df):,} CVEs", "bold"), f" × {df.shape[1]} columns in {elapsed:.0f}s"
     )
     tables = Table.grid(padding=(0, 4))
     tables.add_row(stages, result)
     save_svg("pipeline.svg", "vulnflow · quick start", header, Text(""), tables, footer)
-    fills = ", ".join(
-        f"{c} {df[c].notna().mean():.0%}" for c in ("cvss_base_score", "cpe_vendor")
+    cpe = df["cpe_vendor"].notna().mean()
+    print(
+        f"Recent feed: {len(df):,} CVEs, {df.shape[1]} columns, {elapsed:.0f}s, CPE {cpe:.0%}"
+    )
+
+
+# ---------------------------------------------------------------- nvd_status.svg
+
+STATUSES = [  # (status, what it means)
+    ("analyzed", "NVD has analyzed it"),
+    ("modified", "changed since NVD analyzed it"),
+    ("awaiting", "not analyzed yet"),
+    ("deferred", "NVD doesn't plan to analyze it"),
+    ("rejected", "withdrawn by its CNA"),
+]
+
+
+def build_full_library() -> VulnDataset:
+    """All of NVD in one step, then the status question from the README."""
+    start = time.time()
+    ds = CacheBuilder(quiet=True).build()
+    built = time.time() - start
+    path = ROOT / "data" / "readme_library.parquet"
+    path.parent.mkdir(exist_ok=True)
+    ds.to_parquet(path)
+    start = time.time()
+    VulnDataset.from_parquet(str(path))
+    reload = time.time() - start
+
+    counts = ds.get_status_distribution()
+    total = sum(counts.values())
+    status = Table(
+        box=box.ROUNDED, header_style="bold cyan", title="NVD status, every CVE"
+    )
+    for col, justify in [
+        ("Status", "left"),
+        ("CVEs", "right"),
+        ("Share", "right"),
+        ("Meaning", "left"),
+    ]:
+        status.add_column(col, justify=justify, no_wrap=True)  # type: ignore[arg-type]
+    for name, meaning in STATUSES:
+        n = counts.get(name, 0)
+        style = "bold yellow" if name == "deferred" else "magenta"
+        status.add_row(Text(name, style=style), f"{n:,}", f"{n / total:.0%}", meaning)
+
+    deferred = ds.to_pandas(analyzed=False, modified=False, awaiting=False)
+    years = deferred["nvd_published_at"].dt.year
+    by_era = Table(box=box.ROUNDED, header_style="bold cyan", title="Deferred, by year")
+    by_era.add_column("Published", no_wrap=True)
+    by_era.add_column("CVEs", justify="right", no_wrap=True)
+    for year, n in years.value_counts().sort_index().items():
+        by_era.add_row(str(year), f"{n:,}")
+
+    header = Text.assemble(
+        (">>> ", "dim"),
+        'ds = CacheBuilder().ensure("data/nvd.parquet", max_age="1d")',
+        (f"   # all of NVD, {date.today():%d %b %Y}", "dim"),
+        "\n",
+        (">>> ", "dim"),
+        "ds.get_status_distribution()",
+    )
+    footer = Text.assemble(
+        (f"{len(ds):,} CVEs", "bold"),
+        f" · built in {built:.0f}s, reloads in {reload:.0f}s",
+    )
+    tables = Table.grid(padding=(0, 4))
+    tables.add_row(status, by_era)
+    save_svg(
+        "nvd_status.svg",
+        "vulnflow · the full library",
+        header,
+        Text(""),
+        tables,
+        footer,
     )
     print(
-        f"All of NVD: {len(df):,} CVEs, {df.shape[1]} cols, {built:.0f}s/{reload:.0f}s ({fills})"
+        f"All of NVD: {len(ds):,} CVEs, built {built:.0f}s, reload {reload:.0f}s; statuses {counts}"
     )
+    print(f"Deferred by year: {years.value_counts().sort_index().to_dict()}")
     return ds
 
 
@@ -320,7 +387,8 @@ def make_log4shell_svg() -> None:
 def main() -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
     make_log4shell_svg()
-    make_kev_chart(make_pipeline_svg())
+    make_pipeline_svg()
+    make_kev_chart(build_full_library())
     print(f"wrote assets to {ASSETS.relative_to(ROOT)}")
 
 
