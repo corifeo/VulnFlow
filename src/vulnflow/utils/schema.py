@@ -22,6 +22,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+import numpy as np
+
 if TYPE_CHECKING:
     from vulnflow.registry import FieldDefinition
 
@@ -327,6 +329,10 @@ def serialize_value(value: Any) -> Any:
     """
     if value is None:
         return None
+
+    # numpy scalars (e.g. float64 from Parquet) subclass Python types but orjson rejects them
+    if isinstance(value, np.generic):
+        value = value.item()
 
     # Already JSON-serializable
     if isinstance(value, (str, int, float, bool)):

@@ -252,3 +252,15 @@ def test_polars_loader_includes_nested_when_requested():
     # Should include nested JSON columns
     assert "cvss_scores" in df.columns
     assert "cwes" in df.columns
+
+
+def test_to_polars_handles_nanosecond_timestamps() -> None:
+    """pandas writes Parquet timestamps in ns; tolist() would turn them into ints."""
+    import numpy as np
+
+    dataset = VulnDataset()
+    dataset._data = {
+        "cve_id": np.array(["CVE-2024-0001"], dtype=object),
+        "kev_date_added": np.array(["2024-01-05T00:00:00"], dtype="datetime64[ns]"),
+    }
+    assert dataset.to_polars()["kev_date_added"].dtype.is_temporal()

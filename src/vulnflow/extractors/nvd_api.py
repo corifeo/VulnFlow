@@ -216,9 +216,6 @@ class NVDAPIExtractor(BaseExtractor):
                 seen[cve_id] = len(unique_vulns)
                 unique_vulns.append(vuln)
 
-        if not unique_vulns:
-            return VulnDataset()
-
         with self._timed("populate"):
             arrays = populate_columns(unique_vulns)
 

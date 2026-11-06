@@ -18,7 +18,9 @@ Used by: dataset.to_pandas(), to_polars()
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
 
 from vulnflow.loaders.base import BaseLoader
 from vulnflow.registry import Registry
@@ -50,6 +52,13 @@ NESTED_COLUMNS = frozenset(
 
 # Known datetime column suffixes for coercion
 _DATETIME_SUFFIXES = ("_at", "_timestamp", "_date", "_added", "_due_date")
+
+
+def _as_list(arr: np.ndarray) -> list[Any]:
+    """Convert to a list; datetime64[ns] would otherwise become ints."""
+    if arr.dtype.kind == "M":
+        arr = arr.astype("datetime64[us]")
+    return list(arr.tolist())
 
 
 def _coerce_datetime_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -201,12 +210,12 @@ class PolarsLoader(BaseLoader):
         )
         if not self.include_nested:
             data = {
-                k: v[mask].tolist()
+                k: _as_list(v[mask])
                 for k, v in dataset._data.items()
                 if k not in NESTED_COLUMNS
             }
         else:
-            data = {k: v[mask].tolist() for k, v in dataset._data.items()}
+            data = {k: _as_list(v[mask]) for k, v in dataset._data.items()}
 
         for col, values in data.items():
             if col.endswith(_DATETIME_SUFFIXES):

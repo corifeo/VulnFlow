@@ -915,8 +915,8 @@ def test_populate_columns_returns_dict_of_arrays() -> None:
 
 
 def test_populate_columns_empty_list() -> None:
-    """populate_columns returns empty dict for empty input."""
+    """An empty feed keeps the schema, so downstream transforms find their columns."""
     from vulnflow.utils.nvd import populate_columns
 
     arrays = populate_columns([])
-    assert arrays == {}
+    assert len(arrays["cve_id"]) == 0

@@ -117,3 +117,33 @@ def test_explicit_transform_list_overrides_defaults():
     assert "cvd_state" in dataset.columns
     assert "desiderata_mask" in dataset.columns
     assert "desiderata_count" in dataset.columns
+
+
+def test_empty_feed_runs_through_the_readme_chain(tmp_path):
+    """A feed with no CVEs (a quiet day) isn't an error anywhere in the chain."""
+    import json
+
+    from vulnflow import VulnPipeline
+    from vulnflow.extractors import NVDExtractor
+    from vulnflow.transforms.computed import CVDStateTransform
+    from vulnflow.transforms.enrichers import KEVEnricher
+    from vulnflow.transforms.flatten import KEVFlattenTransform
+    from vulnflow.transforms.inferences import EventInference
+
+    feed = tmp_path / "empty.json"
+    feed.write_text(
+        json.dumps({"format": "NVD_CVE", "version": "2.0", "vulnerabilities": []})
+    )
+    result = VulnPipeline(
+        extractors=[NVDExtractor(str(feed))],
+        transformers=[
+            KEVEnricher(source="tests/fixtures/kev_sample.csv"),
+            KEVFlattenTransform(),
+            EventInference(),
+            CVDStateTransform(),
+        ],
+    ).run(quiet=True, strict=True)
+
+    assert result.dataset is not None
+    assert len(result.dataset) == 0
+    assert "cvd_state" in result.dataset.columns

@@ -202,7 +202,7 @@ class JSONLoader(BaseLoader):
                     record[k] = serialize_value(value)
                 records.append(record)
 
-        with path.open("w") as f:
+        with path.open("w", encoding="utf-8") as f:
             json.dump(records, f, indent=True)
 
         return {"path": str(self.path), "record_count": len(records)}
