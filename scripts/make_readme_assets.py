@@ -295,6 +295,88 @@ def make_kev_chart(ds: VulnDataset) -> None:
     )
 
 
+# ------------------------------------------------------------ volume_*.png
+
+
+def make_volume_chart(ds: VulnDataset) -> None:
+    """CVEs published by today's date each year, split by NVD status."""
+    df = ds.to_pandas()
+    today = date.today()
+    window = df[df["nvd_published_at"].dt.strftime("%m-%d") <= f"{today:%m-%d}"]
+    years = list(range(2016, today.year + 1))
+    by_year = window.groupby(window["nvd_published_at"].dt.year)["nvd_status"]
+    total = [len(by_year.get_group(y)) for y in years]
+    deferred = [int(by_year.get_group(y).eq("deferred").sum()) for y in years]
+    awaiting = [int(by_year.get_group(y).eq("awaiting").sum()) for y in years]
+    rest = [n - d - a for n, d, a in zip(total, deferred, awaiting, strict=True)]
+
+    for mode, t in THEMES.items():
+        fig, ax = plt.subplots(figsize=(8.4, 4.2), dpi=200)
+        fig.patch.set_facecolor(t["surface"])
+        ax.set_facecolor(t["surface"])
+        x = np.arange(len(years))
+        bottom = np.zeros(len(years))
+        for values, color, label in [
+            (rest, BLUE_RAMP[1], "Analyzed or modified"),
+            (awaiting, BLUE_RAMP[3], "Awaiting analysis"),
+            (deferred, BLUE_RAMP[5], "Deferred"),
+        ]:
+            ax.bar(
+                x,
+                values,
+                bottom=bottom,
+                width=0.72,
+                color=color,
+                linewidth=0,
+                label=label,
+            )
+            bottom += np.array(values)
+        for xi, n, d, a in zip(x, total, deferred, awaiting, strict=True):
+            behind = (d + a) / n
+            label = f"{n / 1000:.0f}k"
+            if behind >= 0.01:
+                label += f"\n{behind:.0%} not\nanalyzed"
+            ax.text(
+                xi,
+                n + max(total) * 0.015,
+                label,
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                fontweight="bold",
+                color=t["ink"],
+            )
+        ax.set_xticks(x, [str(y) for y in years], color=t["ink2"], fontsize=9)
+        ax.set_yticks([])
+        ax.tick_params(length=0)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        legend = ax.legend(loc="upper left", frameon=False, fontsize=8.5)
+        for text in legend.get_texts():
+            text.set_color(t["ink2"])
+        fig.suptitle(
+            f"CVEs published by {today.day} {today:%b} each year, and how many NVD hasn't analyzed",
+            x=0.02,
+            ha="left",
+            color=t["ink"],
+            fontsize=12,
+            fontweight="bold",
+        )
+        source = "Source: NVD feeds · computed by vulnflow"
+        fig.text(0.02, 0.015, source, color=t["muted"], fontsize=7.5)
+        fig.tight_layout(rect=(0, 0.04, 1, 0.95))
+        fig.savefig(ASSETS / f"volume_{mode}.png", facecolor=t["surface"])
+        plt.close(fig)
+    behind = [
+        round((d + a) / n, 3) for n, d, a in zip(total, deferred, awaiting, strict=True)
+    ]
+    print(f"Volume by {today:%m-%d}: {dict(zip(years, total, strict=True))}")
+    print(
+        f"Not analyzed (awaiting + deferred): {dict(zip(years, behind, strict=True))}"
+    )
+    print(f"{years[-1]}: {deferred[-1]:,} deferred + {awaiting[-1]:,} awaiting")
+
+
 # ---------------------------------------------------------------- log4shell.svg
 
 SOURCES = {  # inference confidence -> where the date came from
@@ -388,7 +470,9 @@ def main() -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
     make_log4shell_svg()
     make_pipeline_svg()
-    make_kev_chart(build_full_library())
+    full = build_full_library()
+    make_kev_chart(full)
+    make_volume_chart(full)
     print(f"wrote assets to {ASSETS.relative_to(ROOT)}")
 
 

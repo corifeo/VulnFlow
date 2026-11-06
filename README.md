@@ -18,6 +18,7 @@
   <a href="#the-full-library">Full library</a> ·
   <a href="#kev-timing-in-10-lines">Real-data KEV timing</a> ·
   <a href="#case-study-log4shell">Log4Shell case study</a> ·
+  <a href="#case-study-the-2026-surge">The 2026 surge</a> ·
   <a href="#what-the-dates-mean">What the dates mean</a> ·
   <a href="#pipelines">Pipelines</a> ·
   <a href="#sources-and-outputs">Sources</a>
@@ -149,6 +150,32 @@ row.public_to_attack_days  # -0.43: CISA listed it the day NVD published it
 
 [`tests/integration/test_log4shell.py`](tests/integration/test_log4shell.py) pins these values against a recorded NVD record, and the screenshot comes from the same record.
 
+
+## Case study: the 2026 surge
+
+Is NVD keeping up? Count the CVEs published by the same date each year, using the full library:
+
+```python
+from vulnflow.helpers import CacheBuilder
+
+df = CacheBuilder().ensure("data/nvd.parquet", max_age="1d").to_pandas()
+window = df[df["nvd_published_at"].dt.strftime("%m-%d") <= "11-06"]   # 1 Jan to 6 Nov
+window.groupby(window["nvd_published_at"].dt.year).agg(
+    cves=("cve_id", "size"),
+    not_analyzed=("nvd_status", lambda s: s.isin(["awaiting", "deferred"]).mean()),
+)
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/volume_dark.png">
+  <img src=".github/assets/volume_light.png" alt="CVEs published by 6 November each year from 2016 to 2026, split into analyzed, awaiting analysis and deferred; 55% of 2026's 92,000 are not analyzed">
+</picture>
+
+- **Volume more than doubled.** By 6 November, NVD had published 92,067 CVEs in 2026, against 40,343 by the same date in 2025: 2.3 times as many, after growth of under 40% a year since 2018. Monthly volume climbed from 4,302 in January to 17,058 in October.
+- **Analysis is falling behind.** Until 2023, NVD had analyzed virtually every CVE published by 6 November. The share it hasn't, counting both Awaiting Analysis and Deferred, went from 16% of 2024's CVEs to 35% of 2025's and 55% of 2026's.
+- **Most of the gap won't close.** Of 2026's 50,936 unanalyzed CVEs, 35,222 are Deferred, meaning NVD doesn't plan to analyze them; 15,714 are still awaiting. Only 45% of 2026's CVEs carry product (CPE) data, against 100% of 2023's.
+
+If you match CVEs to your own products, that last point matters more than the headline count: for most new CVEs, NVD won't tell you what's affected.
 
 ## What the dates mean
 
