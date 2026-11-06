@@ -24,6 +24,7 @@ First public release.
 - `CVDStateTransform` with no timestamp columns reported `vfdpxa` for every CVE. It now raises `TransformError`
 - A dependency missing from both the run and the dataset now logs a warning
 - `to_pandas()` returned naive or string date columns under pandas 3. Date columns are now always UTC
+- MSRC `msrc_exploited` and `msrc_publicly_disclosed` were true for nearly every CVE, because MSRC's "Exploited:No" contains the word. They now read the field's value
 
 ### Changed
 - Licensed under MIT

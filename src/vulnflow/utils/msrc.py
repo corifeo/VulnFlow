@@ -334,9 +334,22 @@ def build_msrc_metadata(
             # Exploitability assessment
             exploitability = desc_value
             desc_lower = desc_value.lower()
-            if "detected" in desc_lower or "exploited" in desc_lower:
+            # e.g. "Publicly Disclosed:No;Exploited:No;Latest Software Release:..."
+            fields = {
+                key.strip(): value.strip()
+                for key, _, value in (
+                    part.partition(":") for part in desc_lower.split(";")
+                )
+            }
+            if (
+                fields.get("exploited") == "yes"
+                or "exploitation detected" in desc_lower
+            ):
                 exploited = True
-            if "publicly disclosed" in desc_lower or "public" in desc_lower:
+            if (
+                fields.get("publicly disclosed") == "yes"
+                or desc_lower.strip() == "publicly disclosed"
+            ):
                 publicly_disclosed = True
         elif threat_type == 3:
             # Severity per product
