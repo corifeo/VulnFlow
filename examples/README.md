@@ -3,7 +3,7 @@
 ## Setup
 
 ```bash
-uv sync                     # install dependencies
+uv sync --extra notebook    # install dependencies, including Jupyter
 uv run jupyter lab          # launch notebooks
 ```
 
