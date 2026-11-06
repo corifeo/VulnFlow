@@ -23,12 +23,12 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/pipeline.svg" alt="The quick start on NVD's Recent feed: the stages that ran and how complete each field came out" width="100%">
+  <img src=".github/assets/pipeline.svg" alt="The quick start building all of NVD: the stages that ran and how complete each field came out" width="100%">
 </p>
 
 If you've spent half a notebook cleaning CVE feeds before doing any analysis, vulnflow is for you. It moves public vulnerability data and makes it sane:
 
-- **One line to a dataframe.** `CacheBuilder(recent_only=True).build().to_pandas()` pulls the last week of NVD with KEV, EPSS, CWE and flattened CVSS in seconds.
+- **One line to all of NVD.** `CacheBuilder().ensure("data/nvd.parquet").to_pandas()` builds every CVE NVD has published, joined with KEV, EPSS and CWE, in about two minutes, then reloads from Parquet in seconds.
 - **Columnar all the way.** Data lives in NumPy arrays, not record objects. CVD event inference and state for 83,000 CVEs takes under three seconds.
 - **Explicit pipelines.** Extractors, transforms and loaders run exactly as you list them, in dependency order. A missing dependency is reported, not silently skipped.
 - **Typed and tested.** `py.typed`, `mypy --strict`, about 1,200 tests on Python 3.11 to 3.14.
@@ -61,10 +61,12 @@ Requires Python 3.11+. HTTP responses are cached under `.cache/` in the working 
 ```python
 from vulnflow.helpers import CacheBuilder
 
-df = CacheBuilder(recent_only=True).build().to_pandas()
+df = CacheBuilder().ensure("data/nvd.parquet", max_age="1d").to_pandas()
 ```
 
-That's NVD's Recent feed, the CVEs published in the last eight days, with KEV, EPSS, CWE and CPE already joined and CVSS flattened. The screenshot above is this exact call on 6 November 2026: 3,681 CVEs and 47 columns in four seconds. The 11% CPE figure is real: NVD's analysis backlog means most new CVEs have no product data yet.
+That's every CVE NVD has published, 2002 to today, with KEV, EPSS, CWE and CPE joined and CVSS flattened. The first call downloads all the yearly feeds and builds the library; after that it reloads from Parquet until the file is a day old. The screenshot above is this call on 6 November 2026: 400,944 CVEs and 47 columns, built in 79 seconds and reloaded in 4. `to_pandas()` leaves out rejected CVEs by default.
+
+For only the CVEs published in the last eight days, `CacheBuilder(recent_only=True).build()` takes seconds. Expect thinner data there: NVD's analysis backlog meant only 11% of them had product (CPE) data on the same day.
 
 ## KEV timing in 10 lines
 

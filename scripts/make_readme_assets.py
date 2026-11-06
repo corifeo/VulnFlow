@@ -1,9 +1,9 @@
 """Regenerate the README screenshots and charts in .github/assets/.
 
-Also prints the figures README.md quotes. The hero and the KEV chart use live
-data: NVD's Recent feed, and a 2024-2025 library rebuilt into
-data/readme_library.parquet when older than 7 days (several minutes). The
-Log4Shell case study uses the recorded fixtures in tests/fixtures/.
+Also prints the figures README.md quotes. The hero and the KEV chart use one
+live build of all of NVD (every yearly feed, a few minutes), saved to
+data/readme_library.parquet. The Log4Shell case study uses the recorded
+fixtures in tests/fixtures/.
 
     uv run --with rich --extra notebook python scripts/make_readme_assets.py
 """
@@ -27,7 +27,7 @@ from rich.measure import Measurement
 from rich.table import Table
 from rich.text import Text
 
-from vulnflow import VulnPipeline
+from vulnflow import VulnDataset, VulnPipeline
 from vulnflow.extractors import NVDExtractor
 from vulnflow.helpers import CacheBuilder
 from vulnflow.transforms.computed import CVDStateTransform
@@ -94,11 +94,17 @@ def yes_no(flag: bool, bad_when_true: bool) -> Text:
 # ----------------------------------------------------------------- pipeline.svg
 
 
-def make_pipeline_svg() -> None:
-    """The quick start on today's Recent feed: what ran and what came out."""
+def make_pipeline_svg() -> VulnDataset:
+    """The quick start: all of NVD in one step, what ran and what came out."""
     start = time.time()
-    ds = CacheBuilder(recent_only=True, quiet=True).build()
-    elapsed = time.time() - start
+    ds = CacheBuilder(quiet=True).build()
+    built = time.time() - start
+    path = ROOT / "data" / "readme_library.parquet"
+    path.parent.mkdir(exist_ok=True)
+    ds.to_parquet(path)
+    start = time.time()
+    VulnDataset.from_parquet(str(path))
+    reload = time.time() - start
     df = ds.to_pandas()
 
     stages = Table(box=box.ROUNDED, header_style="bold cyan", title="What ran")
@@ -121,11 +127,12 @@ def make_pipeline_svg() -> None:
 
     header = Text.assemble(
         (">>> ", "dim"),
-        "CacheBuilder(recent_only=True).build().to_pandas()",
-        (f"   # NVD Recent feed, {date.today():%d %b %Y}", "dim"),
+        'CacheBuilder().ensure("data/nvd.parquet", max_age="1d").to_pandas()',
+        (f"   # all of NVD, {date.today():%d %b %Y}", "dim"),
     )
     footer = Text.assemble(
-        (f"{len(df):,} CVEs", "bold"), f" × {df.shape[1]} columns in {elapsed:.0f}s"
+        (f"{len(df):,} CVEs", "bold"),
+        f" × {df.shape[1]} columns · built in {built:.0f}s, reloads in {reload:.0f}s",
     )
     tables = Table.grid(padding=(0, 4))
     tables.add_row(stages, result)
@@ -134,8 +141,9 @@ def make_pipeline_svg() -> None:
         f"{c} {df[c].notna().mean():.0%}" for c in ("cvss_base_score", "cpe_vendor")
     )
     print(
-        f"Recent feed: {len(df):,} CVEs, {df.shape[1]} columns, {elapsed:.0f}s ({fills})"
+        f"All of NVD: {len(df):,} CVEs, {df.shape[1]} cols, {built:.0f}s/{reload:.0f}s ({fills})"
     )
+    return ds
 
 
 # --------------------------------------------------------- kev_timing_*.png
@@ -151,11 +159,9 @@ BUCKETS = [  # (label, upper bound on public_to_attack_days)
 ]
 
 
-def make_kev_chart() -> None:
+def make_kev_chart(ds: VulnDataset) -> None:
     """When CISA listed 2024-25 CVEs, relative to NVD publishing them."""
-    builder = CacheBuilder(years=[2024, 2025], quiet=True)
-    ds = builder.ensure(ROOT / "data" / "readme_library.parquet", max_age="7d")
-    # The yearly feeds hold CVE-2024-* and CVE-2025-*; drop anything a delta merge added
+    # Same CVEs as the 2024 and 2025 yearly feeds the README snippet builds
     ids = ds.get_column("cve_id").astype(str)
     in_years = np.char.startswith(ids, "CVE-2024-") | np.char.startswith(
         ids, "CVE-2025-"
@@ -314,8 +320,7 @@ def make_log4shell_svg() -> None:
 def main() -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
     make_log4shell_svg()
-    make_pipeline_svg()
-    make_kev_chart()
+    make_kev_chart(make_pipeline_svg())
     print(f"wrote assets to {ASSETS.relative_to(ROOT)}")
 
 
