@@ -1,7 +1,11 @@
-# Documentation (local only, except README)
+# Documentation (local only, except the files listed below)
 *.md
 !README.md
 !CHANGELOG.md
+!SECURITY.md
+!CONTRIBUTING.md
+!examples/README.md
+!tests/**/README.md
 
 # Sample data
 data/
@@ -61,12 +65,8 @@ tmp/
 # Git worktrees
 .worktrees/
 
-.claude/settings.local.json
-
 # Cache directories
 .cache/
 examples/.cache/
 
-CLAUDE.md
-vuln-analysis.skill
 examples/.ipynb_checkpoints/
