@@ -37,7 +37,7 @@ def test_readme_pipeline_is_the_tested_chain() -> None:
 
 
 def test_readme_links_point_at_real_files() -> None:
-    pattern = r"\]\(((?:examples|scripts|\.github|tests|LICENSE|CITATION)[^)#]*)\)"
+    pattern = r"\]\(((?:examples|scripts|\.github|tests|LICENSE|CITATION|CONTRIBUTING|SECURITY)[^)#]*)\)"
     links = re.findall(pattern, README) + re.findall(
         r'(?:src|srcset)="(\.github/[^"]+)"', README
     )
