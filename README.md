@@ -214,6 +214,26 @@ result.dataset.to_pandas()
 
 Transforms run in phases computed from their `depends_on`. Pipelines compose: `extract.merge(enrich)` combines stages, `VulnPipeline.chain([...])` merges a list. `VulnDataset.transform()` with no arguments runs the registry defaults, for notebooks.
 
+## Triage queue export
+
+`TriageLoader` turns a dataset into a ranked queue for an SSVC triage tool such as VulnTriage: KEV CVEs first, then by EPSS and CVSS, capped at 500 by default.
+
+```python
+from vulnflow.helpers import CacheBuilder
+from vulnflow.loaders import TriageLoader
+
+ds = CacheBuilder(recent_only=True).build()
+TriageLoader("data/triage-queue.json", min_epss=0.01).load(ds)
+```
+
+Each item carries suggested SSVC values with the reason for each. They are heuristics for an analyst to confirm:
+
+- **Exploitation:** `active` if in KEV (or CVSS v4 E:A), `poc` if NVD tags a reference as Exploit (or E:P), else `none`.
+- **Automatable:** `yes` only with AV:N, AC:L, PR:N and UI:N (CVSS v4's AU metric wins when present).
+- **Technical impact:** `total` with high confidentiality and integrity impact, else `partial`.
+
+Mission and well-being are yours to set: no public feed knows your assets.
+
 ## Sources and outputs
 
 | Stage | Available |
@@ -223,7 +243,7 @@ Transforms run in phases computed from their `depends_on`. Pipelines compose: `e
 | Flatten | CVSS (v2, v3.x, v4), CPE, CWE, CAPEC, KEV, EPSS, STRIDE, MSRC |
 | Infer | CVD event timestamps, tags, STRIDE categories |
 | Compute | CVD state, zero-day and exposure flags, desiderata, time deltas |
-| Load | Parquet, JSON, pandas, polars |
+| Load | Parquet, JSON, pandas, polars, SSVC triage queue (JSON) |
 
 Extractors live in `vulnflow.extractors`, loaders in `vulnflow.loaders`, and transforms in `vulnflow.transforms.enrichers`, `.flatten`, `.inferences` and `.computed`.
 
