@@ -216,7 +216,7 @@ Transforms run in phases computed from their `depends_on`. Pipelines compose: `e
 
 ## Triage queue export
 
-`TriageLoader` turns a dataset into a ranked queue for an SSVC triage tool such as VulnTriage: KEV CVEs first, then by EPSS and CVSS, capped at 500 by default.
+`TriageLoader` turns a dataset into a ranked queue for an SSVC triage tool such as [VulnTriage](https://github.com/corifeo/VulnTriage): KEV CVEs first, then by EPSS and CVSS, capped at 500 by default.
 
 ```python
 from vulnflow.helpers import CacheBuilder
@@ -263,7 +263,7 @@ Setup and troubleshooting: [`examples/README.md`](examples/README.md).
 
 ## Related
 
-[vulnstate](https://github.com/corifeo/vulnstate) models a single CVE's disclosure lifecycle as a state machine. vulnflow is the data pipeline: it computes the same CVD state at scale from public feeds.
+[VulnState](https://github.com/corifeo/VulnState) models a single CVE's disclosure lifecycle as a state machine. vulnflow is the data pipeline: it computes the same CVD state at scale from public feeds.
 
 ## Development
 
@@ -276,7 +276,7 @@ uv run black --check src/ tests/
 uv run --with rich --extra notebook python scripts/make_readme_assets.py   # regenerate README images
 ```
 
-Issues and PRs are welcome, especially new extractors and enrichers. Each one is a small class; see the existing ones in `src/vulnflow/`.
+Issues and PRs are welcome, especially new extractors and enrichers. Each one is a small class; see the existing ones in `src/vulnflow/` and [`CONTRIBUTING.md`](CONTRIBUTING.md). To report a security issue, see [`SECURITY.md`](SECURITY.md).
 
 ## Citation
 
