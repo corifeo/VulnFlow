@@ -60,7 +60,9 @@ class VulnPipeline:
 
         Args:
             dataset: Optional pre-existing dataset (skips extraction)
-            strict: If True, raise on transformer errors. If False, collect errors.
+            strict: If True, raise on extractor/transformer errors. If False,
+                collect errors and continue with what succeeded (dataset is
+                None if every extractor failed).
             quiet: Suppress all progress output (for programmatic use).
             timings: If True, collect per-stage execution timings in result.timings.
 
@@ -91,19 +93,24 @@ class VulnPipeline:
                     ) as ext_rpt:
                         dataset, ext_succ, ext_fail, ext_err = (
                             PipelineExecutor.run_extractors(
-                                self.extractors, desc=extract_desc, reporter=ext_rpt
+                                self.extractors,
+                                desc=extract_desc,
+                                reporter=ext_rpt,
+                                strict=strict,
                             )
                         )
                     stage_timings.update(ext_rpt.timings)
                 else:
                     dataset, ext_succ, ext_fail, ext_err = (
                         PipelineExecutor.run_extractors(
-                            self.extractors, desc=extract_desc
+                            self.extractors, desc=extract_desc, strict=strict
                         )
                     )
                 successful_stages.extend(ext_succ)
                 failed_stages.extend(ext_fail)
                 errors.extend(ext_err)
+                if not ext_succ:
+                    dataset = None  # every extractor failed: nothing to transform
 
             # Stage 2: Transform (phased via build_phases)
             if self.transformers and dataset is not None:

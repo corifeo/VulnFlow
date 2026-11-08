@@ -703,3 +703,32 @@ class TestProvenanceInExecutor:
         ext = NVDExtractor(str(nvd_sample_path))
         merged, _, _, _ = PipelineExecutor.run_extractors([ext])
         assert any("NVDExtractor(" in e for e in merged.provenance["extractors"])
+
+
+def test_run_extractors_lenient_collects_failures():
+    """strict=False keeps the successful extractors and collects the error."""
+
+    class GoodExtractor(BaseExtractor):
+        format = "good"
+        name = "good"
+
+        def extract(self) -> VulnDataset:
+            ds = VulnDataset()
+            ds._data = {"cve_id": np.array(["CVE-2024-0001"])}
+            return ds
+
+    class FailingExtractor(BaseExtractor):
+        format = "fail"
+        name = "bad"
+
+        def extract(self) -> VulnDataset:
+            raise RuntimeError("feed dropped")
+
+    dataset, successful, failed, errors = PipelineExecutor.run_extractors(
+        [GoodExtractor(), FailingExtractor(), GoodExtractor()], strict=False
+    )
+
+    assert len(dataset) == 2
+    assert len(successful) == 2
+    assert len(failed) == 1
+    assert [str(e) for e in errors] == ["feed dropped"]
