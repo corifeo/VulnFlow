@@ -287,18 +287,41 @@ def test_pipeline_lenient_mode_is_default():
     assert "BrokenEnricher" in result.failed_stages
 
 
-def test_pipeline_extractor_failure_always_raises():
-    """Extractor failures always raise, even in lenient mode."""
+class _BrokenExtractor:
+    def extract(self) -> list:
+        from vulnflow.exceptions import ExtractorError
+
+        raise ExtractorError("Broken extractor")
+
+
+def test_pipeline_extractor_failure_raises_in_strict_mode():
     from vulnflow.exceptions import ExtractorError
 
-    class BrokenExtractor:
-        def extract(self) -> list:
-            raise ExtractorError("Broken extractor")
-
-    pipeline = VulnPipeline(extractors=[BrokenExtractor()])
+    pipeline = VulnPipeline(extractors=[_BrokenExtractor()])
 
     with pytest.raises(ExtractorError, match="Broken extractor"):
-        pipeline.run(strict=False)
+        pipeline.run(strict=True)
+
+
+def test_pipeline_lenient_keeps_successful_extractors():
+    """One failed feed doesn't discard the others in lenient mode."""
+    from vulnflow.exceptions import ExtractorError
+    from vulnflow.extractors.nvd import NVDExtractor
+
+    result = VulnPipeline(
+        extractors=[NVDExtractor("tests/fixtures/nvd_sample.json"), _BrokenExtractor()]
+    ).run(strict=False, quiet=True)
+
+    assert result.dataset is not None and len(result.dataset) > 0
+    assert len(result.failed_stages) == 1
+    assert [type(e) for e in result.errors] == [ExtractorError]
+
+
+def test_pipeline_lenient_all_extractors_failed_gives_no_dataset():
+    result = VulnPipeline(extractors=[_BrokenExtractor()]).run(quiet=True)
+
+    assert result.dataset is None
+    assert len(result.errors) == 1
 
 
 def test_pipeline_loader_failure_always_raises():

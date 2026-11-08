@@ -882,3 +882,59 @@ async def _async_iter(items: list[bytes]) -> None:  # type: ignore[return]
     """Helper: create an async iterator from a list of items."""
     for item in items:
         yield item  # type: ignore[misc]
+
+
+# =============================================================================
+# Mid-body connection drops (RemoteProtocolError)
+# =============================================================================
+
+
+def _patch_transport(monkeypatch: pytest.MonkeyPatch, handler: object) -> None:
+    """Route HttpFetcher's AsyncClient through an httpx.MockTransport."""
+    real_client = httpx.AsyncClient
+
+    def client(**kwargs: object) -> httpx.AsyncClient:
+        return real_client(transport=httpx.MockTransport(handler), **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+
+
+def _drop_mid_body(request: httpx.Request) -> httpx.Response:
+    raise httpx.RemoteProtocolError(
+        "peer closed connection without sending complete message body",
+        request=request,
+    )
+
+
+class TestRemoteProtocolError:
+    @pytest.mark.parametrize("progress_desc", ["", "Downloading"])
+    async def test_dropped_connection_is_retried(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, progress_desc: str
+    ) -> None:
+        calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return _drop_mid_body(request)
+            return httpx.Response(200, content=b'{"ok": true}')
+
+        _patch_transport(monkeypatch, handler)
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=2, backoff_base=0)
+
+        content, _ = await fetcher.fetch(
+            "https://example.com/data.json", progress_desc=progress_desc
+        )
+
+        assert content == b'{"ok": true}'
+        assert calls == 2
+
+    async def test_persistent_drop_raises_http_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_transport(monkeypatch, _drop_mid_body)
+        fetcher = HttpFetcher(cache_dir=tmp_path, retries=2, backoff_base=0)
+
+        with pytest.raises(HttpError, match="peer closed connection"):
+            await fetcher.fetch("https://example.com/data.json")

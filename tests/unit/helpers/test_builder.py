@@ -194,15 +194,27 @@ class TestCacheBuilderBuild:
         assert "cvss_base_severity" in ds.columns
 
     def test_build_failure_raises(self):
-        """build() raises ExtractorError when extraction fails."""
+        """build() raises PipelineError (chained to the cause) when every feed fails."""
         from vulnflow.exceptions import ExtractorError
         from vulnflow.helpers.builder import CacheBuilder
 
         builder = CacheBuilder(modified_only=True)
         builder._urls = ["/nonexistent/file.json"]
 
-        with pytest.raises(ExtractorError):
+        with pytest.raises(PipelineError, match="All 1 feeds failed") as exc_info:
             builder.build()
+        assert isinstance(exc_info.value.__cause__, ExtractorError)
+
+    def test_build_partial_failure_returns_successful_feeds(self, nvd_sample_path):
+        """One failed feed doesn't abort the build."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        builder = CacheBuilder(years=[2024], quiet=True)
+        builder._urls = [str(nvd_sample_path), "/nonexistent/file.json"]
+
+        ds = builder.build(epss=False, kev=False, cpe=False, cwe=False)
+
+        assert len(ds) > 0
 
     def test_build_rejects_workers_param(self):
         """build() does not accept workers parameter (removed in executor redesign)."""

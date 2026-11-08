@@ -371,6 +371,17 @@ class CacheBuilder:
 
                 raise PipelineError(
                     f"All {len(self._urls)} feeds failed; no data extracted"
+                ) from (result.errors[0] if result.errors else None)
+
+            extract_failed = [
+                s for s in result.failed_stages if s.startswith("NVDExtractor")
+            ]
+            if extract_failed:
+                logger.warning(
+                    "%d of %d feeds failed and are missing from the library: %s",
+                    len(extract_failed),
+                    len(self._urls),
+                    "; ".join(str(e) for e in result.errors[: len(extract_failed)]),
                 )
 
             logger.info("Library built: %d records", len(dataset))
