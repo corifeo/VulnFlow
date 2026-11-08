@@ -159,8 +159,8 @@ class HttpFetcher:
     ) -> tuple[bytes, ContentFormat]:
         """Fetch URL with optional caching, retry, and auto-decompress gzip.
 
-        Retries on transient failures (connection errors, timeouts, 5xx
-        responses) with exponential backoff. Client errors (4xx) raise
+        Retries on transient failures (transport errors such as dropped
+        connections or timeouts, 5xx responses) with exponential backoff. Client errors (4xx) raise
         immediately.
 
         Args:
@@ -209,7 +209,7 @@ class HttpFetcher:
                         content = response.content
                         content_type = response.headers.get("content-type")
                 break  # Success
-            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            except httpx.TransportError as exc:
                 last_exc = exc
                 if attempt < self._retries - 1:
                     wait = self._backoff_base * (2**attempt)

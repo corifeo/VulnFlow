@@ -69,6 +69,7 @@ class PipelineExecutor:
         extractors: list[BaseExtractor],
         desc: str | None = None,
         reporter: ProgressReporter | None = None,
+        strict: bool = True,
     ) -> tuple[VulnDataset, list[str], list[str], list[Exception]]:
         """Execute extractors concurrently and merge results.
 
@@ -76,7 +77,6 @@ class PipelineExecutor:
         GIL, so threads provide real parallelism for JSON parsing).
         Falls back to sequential for single extractor.
 
-        Extractors always run in strict mode (failures always raise).
 
         Args:
             extractors: List of extractor instances
@@ -84,12 +84,14 @@ class PipelineExecutor:
             reporter: Optional ProgressReporter for stage tracking.
                 When provided, the caller owns the lifecycle (no ``with``).
                 When None, an internal reporter is created and managed.
+            strict: If True (default), raise on the first extractor failure.
+                If False, collect errors and merge the successful extractors.
 
         Returns:
             Tuple of (merged_dataset, successful_stages, failed_stages, errors)
 
         Raises:
-            Exception: If any extractor fails
+            Exception: If any extractor fails and strict is True
         """
         from vulnflow.dataset import VulnDataset
         from vulnflow.utils.progress import ProgressReporter
@@ -125,7 +127,8 @@ class PipelineExecutor:
                     failed.append(ext_name)
                     errors.append(e)
                     rpt.stage_failed(ext_name, error=str(e))
-                    raise
+                    if strict:
+                        raise
             else:
                 # Multiple extractors: run concurrently via threads
                 for ext in extractors:
@@ -152,7 +155,8 @@ class PipelineExecutor:
                             failed.append(ext_name)
                             errors.append(e)
                             rpt.stage_failed(ext_name, error=str(e))
-                            raise
+                            if strict:
+                                raise
 
             if total_records > 0:
                 rpt.summary(f"{total_records:,} CVEs total")
