@@ -189,6 +189,37 @@ CVD analytics compare six event dates: vendor aware (V), fix ready (F), fix depl
 
 `public_to_attack_days <= 0` is the most robust signal here, because it uses only P and A.
 
+## cvelistV5 instead of NVD
+
+```python
+from vulnflow.helpers import CacheBuilder
+
+builder = CacheBuilder(source="cvelist")
+ds = builder.ensure("cvelist.parquet", recent=True)  # midnight zip, then today's hourly delta
+```
+
+[CVEProject/cvelistV5](https://github.com/CVEProject/cvelistV5) is the CVE Program's own record list. It publishes hourly, before NVD, and has the CNA and CISA-ADP scores, CWEs and SSVC directly. NVD keeps the edge on CPE configurations and pre-2024 scoring.
+
+- **Same columns as NVD.** `nvd_published_at` and `nvd_modified_at` hold `datePublished` and `dateUpdated`; `nvd_status` is `published` or `rejected`. `metadata` has `source: "cvelistV5"`, the assigner, SSVC and the CNA `affected` list (vendor, product, versions, package URL).
+- **CNA scores win.** CNA CVSS is authoritative, so the flattened score is the CNA's newest version, then the best ADP score. `cvss_source` is the CNA or ADP short name.
+- **`cpes` only holds real CPE strings.** CNA vendor and product names are not CPE names, so they stay in `metadata`.
+- **Updates.** `ensure(recent=True)` merges today's latest delta (cumulative since midnight UTC). A cache from an earlier day is rebuilt from the newest midnight zip (about 660 MB): a day's last delta stops at 23:00 UTC.
+- **Local data.** `CVEListExtractor(path)` reads a release zip or a directory of `CVE-*.json`.
+
+Validate every record against the CVE JSON schema and business rules with the optional extra:
+
+```bash
+uv add "vulnflow[cvelist]"
+```
+
+```python
+from vulnflow.extractors import CVEListExtractor
+
+ds = CVEListExtractor("2026-11-13_all_CVEs_at_midnight.zip.zip", validate=True).extract()
+ds.get_column("cve_valid")             # bool per record
+ds.get_column("cve_validation_error")  # e.g. FAILED_JSON_SCHEMA_VALIDATION, or None
+```
+
 ## Pipelines
 
 ```python
@@ -238,7 +269,7 @@ Mission and well-being are yours to set: no public feed knows your assets.
 
 | Stage | Available |
 |---|---|
-| Extract | NVD JSON feeds (files or URLs), NVD REST API 2.0, MSRC CVRF (Patch Tuesday), Parquet, JSON, pandas, polars |
+| Extract | NVD JSON feeds (files or URLs), NVD REST API 2.0, cvelistV5 (release zips or a directory), MSRC CVRF (Patch Tuesday), Parquet, JSON, pandas, polars |
 | Enrich | CISA KEV, EPSS, CWE, CAPEC, NVD change history |
 | Flatten | CVSS (v2, v3.x, v4), CPE, CWE, CAPEC, KEV, EPSS, STRIDE, MSRC |
 | Infer | CVD event timestamps, tags, STRIDE categories |
@@ -287,6 +318,7 @@ To cite vulnflow, use **Cite this repository** on GitHub ([`CITATION.cff`](CITAT
 vulnflow downloads data at run time from its publishers; it ships none of it. Each source's terms apply to what you download.
 
 - This product uses data from the NVD API but is not endorsed or certified by the NVD.
+- CVE records from the CVE Program's cvelistV5 repository (CVE is a registered trademark of The MITRE Corporation).
 - CISA Known Exploited Vulnerabilities catalog, from the Cybersecurity and Infrastructure Security Agency.
 - EPSS scores from FIRST and Empirical Security.
 - CWE and CAPEC are trademarks of The MITRE Corporation.
