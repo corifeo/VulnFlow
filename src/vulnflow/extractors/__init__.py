@@ -7,6 +7,7 @@ Provides:
 - NVDExtractor: NVD JSON feed reader (files or URLs)
 - NVDAPIExtractor: NVD REST API 2.0 client
 - MSRCExtractor: Microsoft Patch Tuesday (CVRF API) reader
+- CVEListExtractor: cvelistV5 (CVE JSON 5.x) release zip or directory reader
 - ParquetExtractor, JSONExtractor: File readers
 - PandasExtractor, PolarsExtractor: In-memory DataFrame readers
 
@@ -16,6 +17,7 @@ Used by: dataset
 """
 
 from vulnflow.extractors.base import BaseExtractor, Extractor
+from vulnflow.extractors.cvelist import CVEListExtractor
 from vulnflow.extractors.files import (
     JSONExtractor,
     PandasExtractor,
@@ -32,6 +34,7 @@ __all__ = [
     "NVDExtractor",
     "NVDAPIExtractor",
     "MSRCExtractor",
+    "CVEListExtractor",
     "ParquetExtractor",
     "JSONExtractor",
     "PandasExtractor",

@@ -115,7 +115,7 @@ class PandasLoader(BaseLoader):
             start: Inclusive lower bound (>=) for nvd_published_at. ISO string or datetime.
             end: Exclusive upper bound (<) for nvd_published_at. ISO string or datetime.
             **status_kwargs: Override NVD status filters (analyzed, modified,
-                            awaiting, rejected, deferred). Default excludes
+                            awaiting, rejected, deferred, published). Default excludes
                             only rejected rows.
         """
         super().__init__()
@@ -183,7 +183,7 @@ class PolarsLoader(BaseLoader):
             start: Inclusive lower bound (>=) for nvd_published_at. ISO string or datetime.
             end: Exclusive upper bound (<) for nvd_published_at. ISO string or datetime.
             **status_kwargs: Override NVD status filters (analyzed, modified,
-                            awaiting, rejected, deferred). Default excludes
+                            awaiting, rejected, deferred, published). Default excludes
                             only rejected rows.
         """
         super().__init__()

@@ -38,15 +38,25 @@ def _dataset_with_statuses(statuses: list[str]) -> VulnDataset:
 # ============================================================================
 
 
-def test_defaults_dict_has_all_five_statuses() -> None:
-    """_NVD_STATUS_DEFAULTS has exactly the 5 official NVD statuses."""
+def test_defaults_dict_has_nvd_statuses_and_cvelist_published() -> None:
+    """_NVD_STATUS_DEFAULTS has the 5 NVD statuses plus cvelistV5's 'published'."""
     assert set(_NVD_STATUS_DEFAULTS) == {
         "analyzed",
         "modified",
         "awaiting",
         "rejected",
         "deferred",
+        "published",
     }
+
+
+def test_published_included_by_default_and_excludable() -> None:
+    """cvelistV5 rows carry 'published'; kept by default, dropped with published=False."""
+    ds = _dataset_with_statuses(["published", "rejected", "analyzed"])
+
+    assert _build_status_mask(ds).tolist() == [True, False, True]
+    assert _build_status_mask(ds, published=False).tolist() == [False, False, True]
+    assert len(ds.to_pandas()) == 2
 
 
 def test_defaults_include_analyzed_modified() -> None:

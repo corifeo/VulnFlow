@@ -909,3 +909,150 @@ class TestEnsureRecentOffline:
             if d is not None and str(d) != "NaT"
         }
         assert dates == {"2024-02-20"}
+
+
+CVELIST_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "cvelist"
+
+
+def _cvelist_zip(path: Path, records: list[dict[str, object]] | None = None) -> Path:
+    """Write fixture records (or the given ones) into a release-style zip."""
+    import json
+    import zipfile
+
+    if records is None:
+        records = [
+            json.loads(p.read_text(encoding="utf-8"))
+            for p in sorted(CVELIST_DIR.glob("CVE-*.json"))
+        ]
+    with zipfile.ZipFile(path, "w") as zf:
+        for r in records:
+            cve_id = r["cveMetadata"]["cveId"]  # type: ignore[index]
+            zf.writestr(f"cves/{cve_id}.json", json.dumps(r))
+    return path
+
+
+class TestCacheBuilderCvelist:
+    """CacheBuilder(source="cvelist"): release resolution, build, ensure(recent)."""
+
+    @staticmethod
+    def _releases(
+        monkeypatch: pytest.MonkeyPatch, full: Path, delta: Path | None = None
+    ) -> list[str]:
+        """Serve fake releases whose asset URLs are local zip paths."""
+        from datetime import UTC
+
+        from vulnflow.utils import cvelist
+
+        today = datetime.now(UTC).date().isoformat()
+        assets = [
+            {
+                "name": f"{today}_all_CVEs_at_midnight.zip.zip",
+                "browser_download_url": str(full),
+            }
+        ]
+        if delta is not None:
+            assets.append(
+                {
+                    "name": f"{today}_delta_CVEs_at_1700Z.zip",
+                    "browser_download_url": str(delta),
+                }
+            )
+        calls: list[str] = []
+
+        def fake_fetch(
+            timeout: float = 30.0, per_page: int = 30
+        ) -> list[dict[str, object]]:
+            calls.append("releases")
+            return [{"tag_name": f"cve_{today}_1700Z", "assets": assets}]
+
+        monkeypatch.setattr(cvelist, "fetch_releases", fake_fetch)
+        return calls
+
+    _FLAGS = {"epss": False, "kev": False, "cwe": False}
+
+    def test_default_source_is_nvd(self) -> None:
+        from vulnflow.helpers import CacheBuilder
+
+        assert CacheBuilder(years=[2024])._source == "nvd"
+
+    def test_unknown_source_raises(self) -> None:
+        from vulnflow.helpers import CacheBuilder
+
+        with pytest.raises(ValueError, match="source"):
+            CacheBuilder(source="osv")
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{"years": [2024]}, {"modified_only": True}, {"include_modified": True}],
+    )
+    def test_cvelist_rejects_nvd_feed_options(self, kwargs: dict[str, object]) -> None:
+        from vulnflow.helpers import CacheBuilder
+
+        with pytest.raises(ValueError, match="cvelist"):
+            CacheBuilder(source="cvelist", **kwargs)  # type: ignore[arg-type]
+
+    def test_build_uses_latest_midnight_zip(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from vulnflow.helpers import CacheBuilder
+
+        full = _cvelist_zip(tmp_path / "full.zip")
+        self._releases(monkeypatch, full)
+
+        ds = CacheBuilder(source="cvelist", quiet=True).build(**self._FLAGS)
+
+        assert len(ds) == 8
+        ids = list(ds.get_column("cve_id"))
+        assert ds.get_column("cvss_source")[ids.index("CVE-2025-0168")] == "vuldb"
+        assert ds.get_column("cvss_version")[ids.index("CVE-2025-0168")] == "4.0"
+        assert ds.provenance["extractors"] == ["CVEListExtractor(full.zip)"]
+
+    def _cache(self, path: Path, tmp_path: Path, day: str) -> None:
+        """Cache built from a midnight zip of the given UTC day."""
+        from vulnflow.extractors.cvelist import CVEListExtractor
+
+        full = _cvelist_zip(tmp_path / f"{day}_all_CVEs_at_midnight.zip.zip")
+        CVEListExtractor(full).extract().to_parquet(path)
+
+    def test_ensure_recent_applies_todays_delta(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import json
+        from datetime import UTC
+
+        from vulnflow.helpers import CacheBuilder
+
+        path = tmp_path / "cache.parquet"
+        self._cache(path, tmp_path, datetime.now(UTC).date().isoformat())
+        record = json.loads((CVELIST_DIR / "CVE-2025-0168.json").read_text("utf-8"))
+        record["cveMetadata"]["dateUpdated"] = "2099-01-01T00:00:00.000Z"
+        record["containers"]["cna"]["descriptions"][0]["value"] = "Updated today."
+        delta = _cvelist_zip(tmp_path / "delta.zip", [record])
+        self._releases(monkeypatch, tmp_path / "missing-full.zip", delta)
+
+        ds = CacheBuilder(source="cvelist", quiet=True).ensure(
+            path, recent=True, **self._FLAGS
+        )
+
+        ids = list(ds.get_column("cve_id"))
+        assert len(ids) == len(set(ids)) == 8
+        assert (
+            ds.get_column("description")[ids.index("CVE-2025-0168")] == "Updated today."
+        )
+
+    def test_ensure_recent_on_older_snapshot_rebuilds(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Deltas start at midnight UTC: a cache from an earlier day gets a full build."""
+        from vulnflow.helpers import CacheBuilder
+
+        path = tmp_path / "cache.parquet"
+        self._cache(path, tmp_path, "2026-01-01")
+        full = _cvelist_zip(tmp_path / "full.zip")
+        self._releases(monkeypatch, full, tmp_path / "missing-delta.zip")
+
+        ds = CacheBuilder(source="cvelist", quiet=True).ensure(
+            path, recent=True, **self._FLAGS
+        )
+
+        assert ds.provenance["extractors"] == ["CVEListExtractor(full.zip)"]

@@ -38,6 +38,7 @@ _NVD_STATUS_DEFAULTS: dict[str, bool] = {
     "awaiting": True,
     "rejected": False,
     "deferred": True,
+    "published": True,  # cvelistV5 state (CVEListExtractor)
 }
 
 
@@ -49,6 +50,7 @@ def _build_status_mask(
     awaiting: bool = True,
     rejected: bool = False,
     deferred: bool = True,
+    published: bool = True,
 ) -> np.ndarray:
     """Build boolean mask based on NVD status values.
 
@@ -63,6 +65,7 @@ def _build_status_mask(
         awaiting: Include rows with status 'awaiting'
         rejected: Include rows with status 'rejected'
         deferred: Include rows with status 'deferred'
+        published: Include rows with status 'published' (cvelistV5 records)
 
     Returns:
         Boolean numpy array (dtype=bool), same length as dataset
@@ -77,6 +80,7 @@ def _build_status_mask(
         "awaiting": awaiting,
         "rejected": rejected,
         "deferred": deferred,
+        "published": published,
     }
     included = [status for status, include in flags.items() if include]
 
