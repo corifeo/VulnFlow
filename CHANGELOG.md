@@ -6,10 +6,22 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Ever
 
 ## Unreleased
 
+## 0.2.0 (2026-11-13)
+
 ### Added
+- cvelistV5 as an alternative source: `CVEListExtractor` reads CVEProject/cvelistV5 release zips (URL, local zip or directory of `CVE-*.json`). `CacheBuilder(source="cvelist")` builds from the newest midnight zip, and `ensure(recent=True)` merges the latest hourly delta
+- `CVEListExtractor(validate=True)` checks each record with cve-validation-library and adds `cve_valid` and `cve_validation_error`. Needs the optional `cvelist` extra
+- Status filters accept `published` (cvelistV5 records), included by default
 - `TriageLoader` writes a ranked SSVC triage queue (`vulntriage.queue/v1` JSON) with suggested Exploitation, Automatable and Technical Impact values and the evidence for each, plus `examples/scripts/triage_queue.py`
 - `SECURITY.md` and `CONTRIBUTING.md`
 - README: a full-library section (warehouse hand-off, NVD status counts) and a case study of 2026's CVE surge and NVD's growing analysis backlog, with generated charts
+
+### Fixed
+- `VulnDataset.merge()` and `CacheBuilder(include_modified=True)` duplicated every CVE present in more than one input, so a cache-plus-delta update counted modified CVEs twice. Merges now keep one row per `cve_id`. The newest `nvd_modified_at` wins; ties, and CVEs where any copy lacks a date, go to the later input. Multi-file `ParquetExtractor` uses the same rule
+- Writing a dataset read back from Parquet dropped the UTC timezone from timestamp columns
+- Re-running a flatten transform (EPSS, KEV, CVSS, CPE) on an already-flattened dataset kept the old values
+- `ensure(recent=True)` refreshed EPSS and KEV only for changed CVEs. It now refreshes every row, rebuilds when the cache is older than the Modified feed's window (7.5 days), and writes the cache atomically
+- A dropped download or a failed feed aborted the whole `build()`. Downloads retry on connection errors, and `build()` returns the feeds that succeeded with a warning, raising only when every feed fails
 
 ## 0.1.0 (2026-11-03)
 

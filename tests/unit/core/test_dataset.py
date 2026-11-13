@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import vulnflow
 from vulnflow.dataset import VulnDataset
 from vulnflow.exceptions import ExtractorError, LoaderError
 
@@ -298,7 +299,7 @@ class TestProvenance:
         assert "created_at" in prov
         assert "updated_at" in prov
         assert prov["record_count"] == 0
-        assert prov["vulnflow_version"] == "0.1.0"
+        assert prov["vulnflow_version"] == vulnflow.__version__
 
     def test_provenance_returns_deep_copy(self) -> None:
         ds = VulnDataset()
@@ -437,7 +438,7 @@ class TestProvenance:
         prov = loaded.provenance
         assert "NVDExtractor(test.json)" in prov["extractors"]
         assert "KEVEnricher" in prov["transforms"]
-        assert prov["vulnflow_version"] == "0.1.0"
+        assert prov["vulnflow_version"] == vulnflow.__version__
 
     def test_parquet_without_provenance_gets_defaults(self, tmp_path: Path) -> None:
         """Loading old parquet files without provenance metadata still works."""
@@ -450,7 +451,7 @@ class TestProvenance:
 
         loaded = VulnDataset.from_parquet(str(tmp_path / "legacy.parquet"))
         # Should have default provenance (with ParquetExtractor recorded)
-        assert loaded.provenance["vulnflow_version"] == "0.1.0"
+        assert loaded.provenance["vulnflow_version"] == vulnflow.__version__
         assert "ParquetExtractor(" in loaded.provenance["extractors"][0]
 
     def test_parquet_round_trip_adds_parquet_extractor(self, tmp_path: Path) -> None:
