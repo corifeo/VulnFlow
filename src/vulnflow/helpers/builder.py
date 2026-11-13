@@ -3,10 +3,11 @@ CacheBuilder - Commodity class for building NVD vulnerability libraries
 
 Wraps VulnPipeline with NVD-specific URL knowledge for one-line library
 construction. Supports multiple modes: all years, specific years, modified
-feed only, recent feed only.
+feed only, recent feed only. With source="cvelist", builds from the
+cvelistV5 midnight release zip and updates from its hourly deltas.
 
 Layer: User-facing helpers
-Dependencies: pipeline, extractors.nvd
+Dependencies: pipeline, extractors.nvd, extractors.cvelist, utils.cvelist
 Used by: Notebooks, user scripts
 """
 
@@ -136,6 +137,7 @@ class CacheBuilder:
         CacheBuilder(include_modified=True)      # any mode + Modified feed
         CacheBuilder(modified_only=True)         # Modified feed only
         CacheBuilder(recent_only=True)           # Recent feed only
+        CacheBuilder(source="cvelist")           # cvelistV5 instead of NVD
 
     Example:
         >>> from vulnflow.helpers import CacheBuilder
@@ -153,6 +155,7 @@ class CacheBuilder:
         modified_only: bool = False,
         recent_only: bool = False,
         quiet: bool = False,
+        source: str = "nvd",
     ) -> None:
         """Initialize CacheBuilder with feed selection parameters.
 
@@ -163,15 +166,36 @@ class CacheBuilder:
             modified_only: Build from Modified feed only (quick update).
             recent_only: Build from Recent feed only.
             quiet: Suppress all progress output during build.
+            source: "nvd" (default) for NVD JSON feeds, or "cvelist" for
+                CVEProject/cvelistV5 releases: build() reads the newest
+                all-CVEs-at-midnight zip, and ensure(recent=True) merges
+                today's latest hourly delta. Takes no NVD feed options.
 
         Raises:
-            ValueError: If mutually exclusive parameters are combined.
+            ValueError: If mutually exclusive parameters are combined, or
+                source is unknown or combined with NVD feed options.
         """
+        if source not in ("nvd", "cvelist"):
+            raise ValueError(f"source must be 'nvd' or 'cvelist', got {source!r}")
+        if source == "cvelist" and (
+            years is not None
+            or exclude_years is not None
+            or include_modified
+            or modified_only
+            or recent_only
+        ):
+            raise ValueError("source='cvelist' takes no NVD feed options")
         self._validate_params(
             years, exclude_years, include_modified, modified_only, recent_only
         )
-        self._urls = self._resolve_urls(
-            years, exclude_years, include_modified, modified_only, recent_only
+        self._source = source
+        # cvelist: resolved from the GitHub releases at build() time
+        self._urls = (
+            []
+            if source == "cvelist"
+            else self._resolve_urls(
+                years, exclude_years, include_modified, modified_only, recent_only
+            )
         )
         self._quiet = quiet
 
@@ -377,14 +401,8 @@ class CacheBuilder:
         Returns:
             Merged VulnDataset with all extracted records.
         """
-        from vulnflow.extractors.nvd import NVDExtractor
         from vulnflow.pipeline import VulnPipeline
         from vulnflow.utils.progress import _suppress_progress
-
-        logger.info(
-            "Building library from %d feeds",
-            len(self._urls),
-        )
 
         old_tqdm_disable = os.environ.get("TQDM_DISABLE")
         suppress_token = None
@@ -393,9 +411,8 @@ class CacheBuilder:
             suppress_token = _suppress_progress.set(True)
 
         try:
-            extractors: list[BaseExtractor] = [
-                NVDExtractor(url, timeout=timeout) for url in self._urls
-            ]
+            extractors = self._extractors(timeout)
+            logger.info("Building library from %d feeds", len(extractors))
             transformers = self._build_transforms(
                 cvss=cvss,
                 epss=epss,
@@ -417,7 +434,11 @@ class CacheBuilder:
 
             result = pipeline.run(
                 quiet=self._quiet,
-                extract_desc="Processing NVD feeds",
+                extract_desc=(
+                    "Processing cvelistV5"
+                    if self._source == "cvelist"
+                    else "Processing NVD feeds"
+                ),
                 transform_desc="Enriching & transforming",
             )
             dataset = result.dataset
@@ -426,17 +447,19 @@ class CacheBuilder:
                 from vulnflow.exceptions import PipelineError
 
                 raise PipelineError(
-                    f"All {len(self._urls)} feeds failed; no data extracted"
+                    f"All {len(extractors)} feeds failed; no data extracted"
                 ) from (result.errors[0] if result.errors else None)
 
             extract_failed = [
-                s for s in result.failed_stages if s.startswith("NVDExtractor")
+                s
+                for s in result.failed_stages
+                if s.startswith(("NVDExtractor", "CVEListExtractor"))
             ]
             if extract_failed:
                 logger.warning(
                     "%d of %d feeds failed and are missing from the library: %s",
                     len(extract_failed),
-                    len(self._urls),
+                    len(extractors),
                     "; ".join(str(e) for e in result.errors[: len(extract_failed)]),
                 )
 
@@ -451,6 +474,52 @@ class CacheBuilder:
                     os.environ.pop("TQDM_DISABLE", None)
                 else:
                     os.environ["TQDM_DISABLE"] = old_tqdm_disable
+
+    def _extractors(self, timeout: float) -> list[BaseExtractor]:
+        """One extractor per feed URL; cvelist resolves the newest midnight zip."""
+        if self._source == "cvelist":
+            from vulnflow.extractors.cvelist import CVEListExtractor
+            from vulnflow.utils import cvelist
+
+            urls = self._urls or [
+                cvelist.latest_full_url(cvelist.fetch_releases(timeout=timeout))
+            ]
+            return [CVEListExtractor(url, timeout=timeout) for url in urls]
+
+        from vulnflow.extractors.nvd import NVDExtractor
+
+        return [NVDExtractor(url, timeout=timeout) for url in self._urls]
+
+    def _delta_builder(
+        self, path: Path, prov: dict[str, Any] | None, timeout: float
+    ) -> CacheBuilder | None:
+        """Builder for the delta to merge into the cache, or None to rebuild.
+
+        NVD: the Modified feed, while it still covers the cache (7.5 days).
+        cvelist: today's latest hourly delta, cumulative since midnight UTC, if
+        the cache holds a release from today. A cache from an earlier day is
+        rebuilt: each day's last delta (23:00Z) misses that day's final hour.
+        """
+        if self._source == "nvd":
+            if not _within_modified_window(path):
+                return None
+            return CacheBuilder(modified_only=True, quiet=self._quiet)
+
+        from datetime import UTC
+
+        from vulnflow.utils import cvelist
+
+        today = datetime.now(UTC).date()
+        days = [cvelist.snapshot_date(e) for e in (prov or {}).get("extractors", [])]
+        if today not in days:
+            return None
+        # shortcut: before today's first delta (~00:30Z) this rebuilds; correct, just slower
+        url = cvelist.latest_delta_url(cvelist.fetch_releases(timeout=timeout), today)
+        if url is None:
+            return None
+        builder = CacheBuilder(source="cvelist", quiet=self._quiet)
+        builder._urls = [url]
+        return builder
 
     @classmethod
     def query(
@@ -560,6 +629,8 @@ class CacheBuilder:
             recent: If True, merge the Modified feed into the cache (newest record
                 per CVE wins) and refresh EPSS/KEV on every row. Falls back to a
                 full rebuild when the cache is older than the feed window (7.5 days).
+                With source="cvelist", merges today's latest hourly delta instead,
+                and rebuilds when the cache holds no release from today (UTC).
             timeout: HTTP timeout per feed.
             **build_kwargs: Passed to build() (cvss, epss, kev, etc.)
         """
@@ -612,10 +683,14 @@ class CacheBuilder:
             logger.info("Cache fresh, loading: %s", path)
             return VulnDataset.from_parquet(str(path))
 
-        # 5. Recent delta merge, if the Modified feed still covers the cache
-        if recent and not needs_rebuild and _within_modified_window(path):
+        # 5. Recent delta merge, if the delta still covers the cache
+        delta_builder = (
+            self._delta_builder(path, prov, timeout)
+            if recent and not needs_rebuild
+            else None
+        )
+        if delta_builder is not None:
             logger.info("Applying recent delta to cache: %s", path)
-            delta_builder = CacheBuilder(modified_only=True, quiet=self._quiet)
             delta = delta_builder.build(timeout=timeout, **build_kwargs)
             delta_path = path.parent / f".{path.stem}_delta.parquet"
             try:
@@ -628,9 +703,7 @@ class CacheBuilder:
             _write_atomic(ds, path)
             return ds
         if recent and not needs_rebuild:
-            logger.info(
-                "Cache older than the Modified feed window, rebuilding: %s", path
-            )
+            logger.info("Cache older than the delta window, rebuilding: %s", path)
 
         # 6. Full rebuild
         logger.info("Rebuilding cache: %s", path)
