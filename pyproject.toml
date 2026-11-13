@@ -1,6 +1,6 @@
 [project]
 name = "vulnflow"
-version = "0.1.0"
+version = "0.2.0"
 description = "ETL pipeline for public vulnerability data: NVD, KEV, EPSS, CWE, CAPEC and MSRC into pandas, polars and Parquet"
 readme = "README.md"
 requires-python = ">=3.11"
