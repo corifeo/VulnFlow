@@ -802,3 +802,108 @@ class TestEnsureRecent:
         # Verify delta file was cleaned up
         delta_path = path.parent / f".{path.stem}_delta.parquet"
         assert not delta_path.exists()
+
+
+class TestEnsureRecentOffline:
+    """ensure(recent=True) with build() stubbed: no network."""
+
+    @staticmethod
+    def _cache(path: Path, nvd_sample_path: Path, modified_days_ago: float) -> None:
+        import numpy as np
+
+        ds = NVDExtractor(str(nvd_sample_path)).extract()
+        stamp = np.datetime64(datetime.now() - timedelta(days=modified_days_ago), "us")
+        ds.set_column("nvd_modified_at", np.full(len(ds), stamp))
+        ds.to_parquet(path)
+
+    @staticmethod
+    def _stub_build(
+        monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path
+    ) -> list[list[str]]:
+        """Record each build()'s URLs; the Modified feed returns one fixture CVE."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        calls: list[list[str]] = []
+
+        def fake_build(self: CacheBuilder, **kwargs: object) -> object:
+            calls.append(list(self._urls))
+            ds = NVDExtractor(str(nvd_sample_path)).extract()
+            return (
+                ds.filter(ds.get_column("cve_id") == ds.get_column("cve_id")[0])
+                if (self._urls == [CacheBuilder.feed_url("modified")])
+                else ds
+            )
+
+        monkeypatch.setattr(CacheBuilder, "build", fake_build)
+        monkeypatch.setattr(
+            CacheBuilder, "_build_transforms", classmethod(lambda cls, **kw: [])
+        )
+        return calls
+
+    def test_recent_on_cache_older_than_modified_window_rebuilds(
+        self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
+    ) -> None:
+        """The Modified feed covers 8 days; an older cache gets a full build, not a delta."""
+        from vulnflow.helpers.builder import CacheBuilder
+
+        path = tmp_path / "cache.parquet"
+        self._cache(path, nvd_sample_path, modified_days_ago=10)
+        calls = self._stub_build(monkeypatch, nvd_sample_path)
+
+        CacheBuilder(years=[2024]).ensure(path, recent=True)
+
+        assert calls == [[CacheBuilder.feed_url(2024)]]
+
+    def test_recent_on_fresh_cache_applies_delta_without_duplicates(
+        self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
+    ) -> None:
+        from vulnflow.helpers.builder import CacheBuilder
+
+        path = tmp_path / "cache.parquet"
+        self._cache(path, nvd_sample_path, modified_days_ago=1)
+        calls = self._stub_build(monkeypatch, nvd_sample_path)
+
+        ds = CacheBuilder(years=[2024]).ensure(path, recent=True)
+
+        assert calls == [[CacheBuilder.feed_url("modified")]]
+        ids = list(ds.get_column("cve_id"))
+        assert len(ids) == len(set(ids)) == 5
+
+    def test_recent_refreshes_epss_on_every_row(
+        self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
+    ) -> None:
+        """EPSS rescores all CVEs daily, so a delta update re-enriches the whole cache."""
+        from vulnflow.helpers.builder import CacheBuilder
+        from vulnflow.transforms.enrichers import epss as epss_mod
+
+        from vulnflow.dataset import VulnDataset
+        from vulnflow.transforms.enrichers.epss import EPSSEnricher
+        from vulnflow.transforms.flatten import EPSSFlattenTransform
+
+        path = tmp_path / "cache.parquet"
+        self._cache(path, nvd_sample_path, modified_days_ago=1)
+        cached = VulnDataset.from_parquet(path)  # cache already scored on 2024-01-15
+        cached.transform(
+            [EPSSEnricher(Path("tests/fixtures/epss_sample.csv")), EPSSFlattenTransform()],
+            quiet=True,
+        )
+        cached.to_parquet(path)
+        self._stub_build(monkeypatch, nvd_sample_path)
+        newer = tmp_path / "epss_new.csv"
+        newer.write_text(
+            Path("tests/fixtures/epss_sample.csv")
+            .read_text()
+            .replace("2024-01-15", "2024-02-20")
+        )
+        monkeypatch.setattr(
+            epss_mod, "DEFAULT_EPSS_URL", newer
+        )  # a Path: a str default is fetched as a URL
+
+        ds = CacheBuilder(years=[2024]).ensure(path, recent=True, kev=False)
+
+        dates = {
+            str(d)[:10]
+            for d in ds.get_column("epss_date")
+            if d is not None and str(d) != "NaT"
+        }
+        assert dates == {"2024-02-20"}

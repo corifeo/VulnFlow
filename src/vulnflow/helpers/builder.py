@@ -67,6 +67,62 @@ def _read_parquet_provenance(path: Path) -> dict[str, Any] | None:
     return vjson.loads(prov_bytes)  # type: ignore[no-any-return]
 
 
+# NVD's Modified feed holds the last 8 days of changes (regenerated every ~2 h); keep a margin.
+MODIFIED_FEED_WINDOW = timedelta(days=7, hours=12)
+
+
+def _within_modified_window(path: Path) -> bool:
+    """True if the cache's newest nvd_modified_at is recent enough for a Modified-feed delta."""
+    from datetime import UTC
+
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    if "nvd_modified_at" not in pq.read_schema(path).names:
+        return False
+    newest = pc.max(pq.read_table(path, columns=["nvd_modified_at"]).column(0)).as_py()
+    if not isinstance(newest, datetime):
+        return False
+    if newest.tzinfo is None:
+        newest = newest.replace(tzinfo=UTC)
+    return datetime.now(UTC) - newest < MODIFIED_FEED_WINDOW
+
+
+def _score_refresh_transforms(
+    *,
+    epss: bool = True,
+    kev: bool = True,
+    events: bool = False,
+    cvd_state: bool = False,
+    **_: Any,
+) -> list[object]:
+    """EPSS and KEV transforms to re-run over a whole cache after a delta merge."""
+    transforms: list[object] = []
+    if epss:
+        from vulnflow.transforms.enrichers.epss import EPSSEnricher
+        from vulnflow.transforms.flatten import EPSSFlattenTransform
+
+        transforms += [EPSSEnricher(), EPSSFlattenTransform()]
+    if kev or events or cvd_state:  # build() auto-enables kev for events and cvd_state
+        from vulnflow.transforms.enrichers.kev import KEVEnricher
+        from vulnflow.transforms.flatten import KEVFlattenTransform
+
+        transforms += [KEVEnricher(), KEVFlattenTransform()]
+    return transforms
+
+
+def _write_atomic(dataset: VulnDataset, path: Path) -> None:
+    """Write to a temp file, then replace, so a failed write never truncates the cache."""
+    from vulnflow.loaders.files import ParquetLoader
+
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        ParquetLoader(tmp).load(dataset)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 class CacheBuilder:
     """Build NVD vulnerability libraries with parallel extraction.
 
@@ -501,7 +557,9 @@ class CacheBuilder:
             max_age: Maximum cache age ('7d', '24h', or timedelta).
                 Rebuilds if exceeded.
             through: ISO date string. Rebuilds if date_max < through.
-            recent: If True, apply modified feed delta on top of cache.
+            recent: If True, merge the Modified feed into the cache (newest record
+                per CVE wins) and refresh EPSS/KEV on every row. Falls back to a
+                full rebuild when the cache is older than the feed window (7.5 days).
             timeout: HTTP timeout per feed.
             **build_kwargs: Passed to build() (cvss, epss, kev, etc.)
         """
@@ -554,8 +612,8 @@ class CacheBuilder:
             logger.info("Cache fresh, loading: %s", path)
             return VulnDataset.from_parquet(str(path))
 
-        # 5. Recent delta merge (cache exists but needs update)
-        if recent and not needs_rebuild:
+        # 5. Recent delta merge, if the Modified feed still covers the cache
+        if recent and not needs_rebuild and _within_modified_window(path):
             logger.info("Applying recent delta to cache: %s", path)
             delta_builder = CacheBuilder(modified_only=True, quiet=self._quiet)
             delta = delta_builder.build(timeout=timeout, **build_kwargs)
@@ -565,13 +623,19 @@ class CacheBuilder:
                 ds = VulnDataset.from_parquet([str(path), str(delta_path)])
             finally:
                 delta_path.unlink(missing_ok=True)
-            ParquetLoader(path).load(ds)
+            # EPSS rescores every CVE daily and KEV can list old CVEs: refresh all rows
+            ds.transform(_score_refresh_transforms(**build_kwargs), quiet=self._quiet)
+            _write_atomic(ds, path)
             return ds
+        if recent and not needs_rebuild:
+            logger.info(
+                "Cache older than the Modified feed window, rebuilding: %s", path
+            )
 
         # 6. Full rebuild
         logger.info("Rebuilding cache: %s", path)
         ds = self.build(timeout=timeout, **build_kwargs)
-        ParquetLoader(path).load(ds)
+        _write_atomic(ds, path)
         return ds
 
     @classmethod
