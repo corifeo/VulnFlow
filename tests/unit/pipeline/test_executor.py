@@ -717,6 +717,15 @@ def test_run_extractors_lenient_collects_failures():
             ds._data = {"cve_id": np.array(["CVE-2024-0001"])}
             return ds
 
+    class OtherGoodExtractor(BaseExtractor):
+        format = "good"
+        name = "good2"
+
+        def extract(self) -> VulnDataset:
+            ds = VulnDataset()
+            ds._data = {"cve_id": np.array(["CVE-2024-0002"])}
+            return ds
+
     class FailingExtractor(BaseExtractor):
         format = "fail"
         name = "bad"
@@ -724,8 +733,9 @@ def test_run_extractors_lenient_collects_failures():
         def extract(self) -> VulnDataset:
             raise RuntimeError("feed dropped")
 
+    # distinct CVEs: merged results keep one row per cve_id
     dataset, successful, failed, errors = PipelineExecutor.run_extractors(
-        [GoodExtractor(), FailingExtractor(), GoodExtractor()], strict=False
+        [GoodExtractor(), FailingExtractor(), OtherGoodExtractor()], strict=False
     )
 
     assert len(dataset) == 2

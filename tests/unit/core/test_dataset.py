@@ -230,6 +230,63 @@ def test_merge_repeated_is_stable():
     assert result1.columns == ["a", "b", "c", "d"]
 
 
+def test_merge_duplicate_cve_keeps_newest_modified():
+    """VulnDataset.merge() keeps one row per cve_id: the newest nvd_modified_at wins."""
+    cache = VulnDataset()
+    cache.set_column("cve_id", np.array(["CVE-1", "CVE-2"], dtype=object))
+    cache.set_column(
+        "nvd_modified_at",
+        np.array(["2026-11-01", "2026-11-01"], dtype="datetime64[us]"),
+    )
+    cache.set_column("score", np.array([5.0, 6.0]))
+
+    delta = VulnDataset()
+    delta.set_column("cve_id", np.array(["CVE-2", "CVE-3"], dtype=object))
+    delta.set_column(
+        "nvd_modified_at",
+        np.array(["2026-11-09", "2026-11-09"], dtype="datetime64[us]"),
+    )
+    delta.set_column("score", np.array([9.0, 7.0]))
+
+    for datasets in ([cache, delta], [delta, cache]):  # order must not matter
+        result = VulnDataset.merge(datasets)
+        scores = dict(
+            zip(result.get_column("cve_id"), result.get_column("score"), strict=True)
+        )
+        assert len(result) == 3
+        assert scores == {"CVE-1": 5.0, "CVE-2": 9.0, "CVE-3": 7.0}
+
+
+def test_merge_duplicate_cve_without_dates_later_wins():
+    """VulnDataset.merge() without nvd_modified_at keeps the later dataset's row."""
+    ds1 = VulnDataset()
+    ds1.set_column("cve_id", np.array(["CVE-1"], dtype=object))
+    ds1.set_column("title", np.array(["old"], dtype=object))
+    ds2 = VulnDataset()
+    ds2.set_column("cve_id", np.array(["CVE-1"], dtype=object))
+    ds2.set_column("title", np.array(["new"], dtype=object))
+
+    result = VulnDataset.merge([ds1, ds2])
+
+    assert result.get_column("title").tolist() == ["new"]
+
+
+def test_insert_columns_after_replaces_existing_column():
+    """Re-running a flatten transform must overwrite its earlier output, keeping position."""
+    ds = VulnDataset()
+    ds.set_column("cve_id", np.array(["CVE-1"], dtype=object))
+    ds.set_column("epss_scores", np.array(["[]"], dtype=object))
+    ds.set_column("epss_date", np.array(["2026-11-06"], dtype=object))
+    ds.set_column("cwes", np.array(["[]"], dtype=object))
+
+    ds.insert_columns_after(
+        "epss_scores", {"epss_date": np.array(["2026-11-13"], dtype=object)}
+    )
+
+    assert ds.get_column("epss_date").tolist() == ["2026-11-13"]
+    assert ds.columns == ["cve_id", "epss_scores", "epss_date", "cwes"]
+
+
 class TestProvenance:
     """Tests for VulnDataset provenance tracking."""
 

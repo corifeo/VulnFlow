@@ -79,6 +79,19 @@ def test_parquet_loader_handles_string_datetime_column(tmp_path):
     assert result["record_count"] == 5
 
 
+def test_parquet_roundtrip_keeps_utc_timestamps(tmp_path):
+    """Reading and re-writing a Parquet file keeps timestamp columns as UTC."""
+    import pyarrow.parquet as pq
+
+    first, second = tmp_path / "first.parquet", tmp_path / "second.parquet"
+    VulnDataset.from_nvd("tests/fixtures/nvd_sample.json").to_parquet(first)
+    VulnDataset.from_parquet(first).to_parquet(second)
+
+    for path in (first, second):
+        field = pq.ParquetFile(path).schema_arrow.field("nvd_modified_at")
+        assert str(field.type) == "timestamp[us, tz=UTC]", path.name
+
+
 def test_parquet_loader_in_pipeline(tmp_path):
     """Pipeline with ParquetLoader writes file."""
     from vulnflow.extractors.nvd import NVDExtractor

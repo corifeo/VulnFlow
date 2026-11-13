@@ -24,6 +24,8 @@ from vulnflow.loaders.base import BaseLoader
 from vulnflow.registry import Registry
 
 if TYPE_CHECKING:
+    import pyarrow as pa
+
     from vulnflow.dataset import VulnDataset
 
 
@@ -101,6 +103,21 @@ def _normalize_for_arrow(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     return result
 
 
+def _utc_timestamps(table: pa.Table) -> pa.Table:
+    """Label naive timestamp columns as UTC.
+
+    numpy datetime64 has no timezone, so columns read back from Parquet are
+    naive. VulnFlow stores every timestamp in UTC, so the values don't change.
+    """
+    import pyarrow as pa
+
+    for i, field in enumerate(table.schema):
+        if pa.types.is_timestamp(field.type) and field.type.tz is None:
+            utc = pa.timestamp(field.type.unit, tz="UTC")
+            table = table.set_column(i, field.with_type(utc), table.column(i).cast(utc))
+    return table
+
+
 @Registry.register_loader("parquet")
 class ParquetLoader(BaseLoader):
     """Load dataset to Parquet file (lossless, no filtering)."""
@@ -142,7 +159,7 @@ class ParquetLoader(BaseLoader):
         normalized = _normalize_for_arrow(dataset._data)
 
         # Convert to PyArrow table
-        table = pa.table(normalized)
+        table = _utc_timestamps(pa.table(normalized))
 
         # Write provenance to Parquet schema metadata
         provenance_bytes = vjson.dumps(dataset.provenance).encode("utf-8")

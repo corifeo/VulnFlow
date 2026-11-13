@@ -21,6 +21,7 @@ import numpy as np
 
 from vulnflow.extractors.base import BaseExtractor
 from vulnflow.registry import Registry
+from vulnflow.utils.merge import dedupe_columns
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -38,7 +39,7 @@ class ParquetExtractor(BaseExtractor):
 
     Features:
     - Single file: Fast direct load
-    - Multiple files: Automatic upsert merge (later files win on cve_id conflicts)
+    - Multiple files: Automatic upsert merge (newest nvd_modified_at wins on cve_id conflicts, then the later file)
     - Schema union: Missing columns filled with None
 
     Use cases:
@@ -48,7 +49,7 @@ class ParquetExtractor(BaseExtractor):
     Upsert semantics for multi-file:
     1. Load files in order
     2. Concatenate all records
-    3. Deduplicate by cve_id, keeping last occurrence
+    3. Deduplicate by cve_id, keeping the newest nvd_modified_at (ties: later file)
     4. Result: Latest version of each CVE
 
     Example:
@@ -76,7 +77,7 @@ class ParquetExtractor(BaseExtractor):
 
         Supports:
         - Single file: Direct load
-        - Multiple files: Load all, merge with upsert (later files win)
+        - Multiple files: Load all, merge with upsert (newest modified, then later file, wins)
 
         Returns:
             VulnDataset with columnar data from Parquet file(s)
@@ -158,12 +159,13 @@ class ParquetExtractor(BaseExtractor):
         return dataset
 
     def _merge_upsert(self, datasets: list[VulnDataset]) -> VulnDataset:
-        """Merge multiple datasets with upsert semantics (later wins).
+        """Merge multiple datasets with upsert semantics (newest wins).
 
         Algorithm:
         1. Concatenate all columns from all datasets
         2. Find duplicates by cve_id
-        3. Keep last occurrence (later datasets override earlier)
+        3. Keep the row with the newest nvd_modified_at; ties and rows
+           without dates go to the later dataset
 
         Args:
             datasets: List of datasets to merge
@@ -207,23 +209,9 @@ class ParquetExtractor(BaseExtractor):
 
             merged_data[col] = np.concatenate(arrays)
 
-        # Find unique CVE IDs, keeping last occurrence
-        cve_ids = merged_data["cve_id"]
-
-        # Use dict to track last index for each CVE ID
-        last_indices = {}
-        for idx, cve_id in enumerate(cve_ids):
-            last_indices[cve_id] = idx
-
-        # Get unique indices (numpy fancy indexing handles unsorted)
-        unique_indices = np.fromiter(
-            last_indices.values(), dtype=np.intp, count=len(last_indices)
-        )
-
-        # Filter all columns to unique indices
+        # One row per CVE ID: newest nvd_modified_at wins, ties go to the later file
         result = VulnDataset()
-        for col, array in merged_data.items():
-            result._data[col] = array[unique_indices]
+        result._data = dedupe_columns(merged_data)
 
         # Merge provenance from all input datasets
 

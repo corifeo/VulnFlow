@@ -40,6 +40,9 @@ notebook = [
     "nbconvert>=7.0.0",
     "ipykernel>=6.0.0",
 ]
+cvelist = [
+    "cve-validation-library[fast]",
+]
 
 [project.urls]
 Homepage = "https://github.com/corifeo/vulnflow"
@@ -81,7 +84,7 @@ warn_unused_configs = true
 exclude = ["tests/"]
 
 [[tool.mypy.overrides]]
-module = ["polars.*", "pyarrow.*", "IPython.*"]
+module = ["polars.*", "pyarrow.*", "IPython.*", "cve_validation_library", "cve_validation_library.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -96,6 +99,9 @@ markers = [
 [tool.black]
 line-length = 88
 target-version = ["py311"]
+
+[tool.uv.sources]
+cve-validation-library = { git = "https://github.com/corifeo/cve-validation-library-py" }
 
 [dependency-groups]
 dev = [

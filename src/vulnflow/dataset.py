@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from vulnflow.utils.merge import dedupe_columns
 from vulnflow.utils.progress import ProgressReporter
 
 if TYPE_CHECKING:
@@ -198,6 +199,8 @@ class VulnDataset:
         # Rebuild dict with columns inserted after specified column
         new_data: dict[str, np.ndarray] = {}
         for key, value in self._data.items():
+            if key in columns:
+                continue  # replaced by the new value (e.g. a re-run flatten transform)
             new_data[key] = value
             if key == after:
                 # Insert new columns here
@@ -303,14 +306,17 @@ class VulnDataset:
         """Merge multiple datasets into one.
 
         Concatenates columnar data from multiple datasets. Handles missing
-        columns by filling with None.
+        columns by filling with None. Keeps one row per ``cve_id``: the row
+        with the newest ``nvd_modified_at`` wins, and ties or missing dates
+        go to the later dataset. Datasets without ``cve_id`` are only
+        concatenated.
 
         Args:
             datasets: List of VulnDataset instances to merge
 
         Returns:
-            Merged VulnDataset with concatenated columns. Returns empty dataset
-            if input list is empty, or first dataset unchanged if only one input.
+            Merged VulnDataset. Returns empty dataset if input list is empty,
+            or first dataset unchanged if only one input.
         """
         if not datasets:
             return cls()
@@ -326,6 +332,7 @@ class VulnDataset:
 
         # Concatenate arrays
         merged = cls()
+        concatenated: dict[str, np.ndarray] = {}
 
         for col in all_columns.keys():
             arrays: list[np.ndarray] = []
@@ -338,7 +345,10 @@ class VulnDataset:
                     # Fill with None for missing column
                     arrays.append(np.full(len(ds), None, dtype=object))
 
-            merged.set_column(col, np.concatenate(arrays))
+            concatenated[col] = np.concatenate(arrays)
+
+        for col, values in dedupe_columns(concatenated).items():
+            merged.set_column(col, values)
 
         # Merge provenance from all input datasets
         all_extractors: list[str] = []

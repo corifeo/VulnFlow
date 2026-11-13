@@ -5,6 +5,8 @@ Tests: Multi-file loading, upsert semantics, edge cases
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import numpy as np
 import pytest
 
@@ -123,6 +125,40 @@ def test_parquet_multi_file_upsert_delta_wins(tmp_path):
 
     # CVE-2024-0003 should exist (delta only)
     assert "CVE-2024-0003" in cve_ids
+
+
+def test_parquet_multi_file_older_delta_does_not_overwrite_newer_row(tmp_path):
+    """Upsert keeps the newest nvd_modified_at, even when it comes from the earlier file."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    newer = tmp_path / "newer.parquet"
+    older = tmp_path / "older.parquet"
+    stamp = pa.timestamp("us", tz="UTC")
+    pq.write_table(
+        pa.table(
+            {
+                "cve_id": ["CVE-2024-0001"],
+                "title": ["v2"],
+                "nvd_modified_at": pa.array([datetime(2026, 11, 9, tzinfo=UTC)], stamp),
+            }
+        ),
+        newer,
+    )
+    pq.write_table(
+        pa.table(
+            {
+                "cve_id": ["CVE-2024-0001"],
+                "title": ["v1"],
+                "nvd_modified_at": pa.array([datetime(2026, 11, 1, tzinfo=UTC)], stamp),
+            }
+        ),
+        older,
+    )
+
+    loaded = ParquetExtractor([str(newer), str(older)]).extract()
+
+    assert loaded.get_column("title").tolist() == ["v2"]
 
 
 def test_parquet_multi_file_missing_file_raises(tmp_path):
