@@ -873,10 +873,9 @@ class TestEnsureRecentOffline:
         self, monkeypatch: pytest.MonkeyPatch, nvd_sample_path: Path, tmp_path: Path
     ) -> None:
         """EPSS rescores all CVEs daily, so a delta update re-enriches the whole cache."""
+        from vulnflow.dataset import VulnDataset
         from vulnflow.helpers.builder import CacheBuilder
         from vulnflow.transforms.enrichers import epss as epss_mod
-
-        from vulnflow.dataset import VulnDataset
         from vulnflow.transforms.enrichers.epss import EPSSEnricher
         from vulnflow.transforms.flatten import EPSSFlattenTransform
 
@@ -884,7 +883,10 @@ class TestEnsureRecentOffline:
         self._cache(path, nvd_sample_path, modified_days_ago=1)
         cached = VulnDataset.from_parquet(path)  # cache already scored on 2024-01-15
         cached.transform(
-            [EPSSEnricher(Path("tests/fixtures/epss_sample.csv")), EPSSFlattenTransform()],
+            [
+                EPSSEnricher(Path("tests/fixtures/epss_sample.csv")),
+                EPSSFlattenTransform(),
+            ],
             quiet=True,
         )
         cached.to_parquet(path)
