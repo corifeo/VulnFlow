@@ -271,6 +271,22 @@ def test_merge_duplicate_cve_without_dates_later_wins():
     assert result.get_column("title").tolist() == ["new"]
 
 
+def test_insert_columns_after_replaces_existing_column():
+    """Re-running a flatten transform must overwrite its earlier output, keeping position."""
+    ds = VulnDataset()
+    ds.set_column("cve_id", np.array(["CVE-1"], dtype=object))
+    ds.set_column("epss_scores", np.array(["[]"], dtype=object))
+    ds.set_column("epss_date", np.array(["2026-11-06"], dtype=object))
+    ds.set_column("cwes", np.array(["[]"], dtype=object))
+
+    ds.insert_columns_after(
+        "epss_scores", {"epss_date": np.array(["2026-11-13"], dtype=object)}
+    )
+
+    assert ds.get_column("epss_date").tolist() == ["2026-11-13"]
+    assert ds.columns == ["cve_id", "epss_scores", "epss_date", "cwes"]
+
+
 class TestProvenance:
     """Tests for VulnDataset provenance tracking."""
 

@@ -199,6 +199,8 @@ class VulnDataset:
         # Rebuild dict with columns inserted after specified column
         new_data: dict[str, np.ndarray] = {}
         for key, value in self._data.items():
+            if key in columns:
+                continue  # replaced by the new value (e.g. a re-run flatten transform)
             new_data[key] = value
             if key == after:
                 # Insert new columns here
